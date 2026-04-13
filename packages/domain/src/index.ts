@@ -11,6 +11,7 @@ export type {
   CharacterRigBinding,
   CharacterRigConfig,
   CharacterRigSliceDepth,
+  CharacterRigSliceEmbeddedImage,
   CharacterRigSpriteSlice,
   EditorMeta,
   EditorProject,
@@ -59,3 +60,4 @@ export {
   type RuntimeSkinnedMesh,
 } from "./editor/runtimeExport.js";
 export { createDefaultEditorProject } from "./editor/projectFactory.js";
+export { normalizeEditorProjectInPlace } from "./editor/migrate.js";

@@ -63,7 +63,18 @@ export type EditorReferenceImage = {
   dataBase64: string;
 };
 
-/** One rectangular region cut from a sprite sheet (pixel coords, top-left origin, y down). */
+/** Per-slice image data when no global sprite sheet is used. */
+export type CharacterRigSliceEmbeddedImage = {
+  mimeType: string;
+  dataBase64: string;
+  pixelWidth: number;
+  pixelHeight: number;
+};
+
+/**
+ * One sprite part: either a rect from `spriteSheet` (`embedded` unset) or a full embedded image (`embedded` set).
+ * `worldCx` / `worldCy`: slice center in editor/bind space (viewport).
+ */
 export type CharacterRigSpriteSlice = {
   id: string;
   name: string;
@@ -71,6 +82,9 @@ export type CharacterRigSpriteSlice = {
   y: number;
   width: number;
   height: number;
+  worldCx: number;
+  worldCy: number;
+  embedded?: CharacterRigSliceEmbeddedImage;
 };
 
 /** Maps a slice to a bone (Smack-style bind step). */

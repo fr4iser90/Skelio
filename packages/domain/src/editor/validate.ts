@@ -108,8 +108,12 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
   const rig = project.characterRig;
   if (rig) {
     const sheet = rig.spriteSheet;
-    if (rig.slices.length > 0 && sheet === null) {
-      issues.push({ path: "characterRig", message: "sprite sheet must be loaded before slices exist" });
+    const needsGlobalSheet = rig.slices.some((s) => !s.embedded);
+    if (rig.slices.length > 0 && needsGlobalSheet && sheet === null) {
+      issues.push({
+        path: "characterRig",
+        message: "sprite sheet required for sheet-based slices; import embedded sprites or load a sheet",
+      });
     }
     if (sheet !== null) {
       if (typeof sheet.fileName !== "string" || sheet.fileName.length === 0) {
@@ -137,7 +141,33 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
       if (!(s.width > 0) || !(s.height > 0)) {
         issues.push({ path: `characterRig.slices.${s.id}`, message: "slice width/height must be positive" });
       }
+      if (!Number.isFinite(s.worldCx) || !Number.isFinite(s.worldCy)) {
+        issues.push({ path: `characterRig.slices.${s.id}`, message: "slice world position must be finite" });
+      }
+      if (s.embedded) {
+        const em = s.embedded;
+        const norm = normalizeReferenceImageMime(em.mimeType);
+        if (!norm) {
+          issues.push({
+            path: `characterRig.slices.${s.id}.embedded`,
+            message: "unsupported embedded image type (use PNG, JPEG, or WebP)",
+          });
+        }
+        if (typeof em.dataBase64 !== "string" || em.dataBase64.length === 0) {
+          issues.push({ path: `characterRig.slices.${s.id}.embedded`, message: "embedded image payload is empty" });
+        }
+        if (!(em.pixelWidth > 0) || !(em.pixelHeight > 0)) {
+          issues.push({ path: `characterRig.slices.${s.id}.embedded`, message: "embedded dimensions invalid" });
+        }
+        if (em.pixelWidth !== s.width || em.pixelHeight !== s.height) {
+          issues.push({
+            path: `characterRig.slices.${s.id}`,
+            message: "slice size must match embedded image dimensions",
+          });
+        }
+      }
       if (
+        !s.embedded &&
         sheet &&
         typeof sheet.pixelWidth === "number" &&
         typeof sheet.pixelHeight === "number" &&

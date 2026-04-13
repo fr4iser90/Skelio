@@ -37,6 +37,23 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
+  it("adds imported character rig sprite (embedded) and validates", () => {
+    const tinyPng =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    let p = createDefaultEditorProject();
+    p = applyCommand(p, {
+      type: "addCharacterRigImportedSprite",
+      name: "hand",
+      mimeType: "image/png",
+      dataBase64: tinyPng,
+      pixelWidth: 1,
+      pixelHeight: 1,
+    });
+    expect(p.characterRig?.slices).toHaveLength(1);
+    expect(p.characterRig?.slices?.[0]?.embedded?.pixelWidth).toBe(1);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
   it("sets character rig sheet and slice, validates", () => {
     let p = createDefaultEditorProject();
     p = applyCommand(p, {

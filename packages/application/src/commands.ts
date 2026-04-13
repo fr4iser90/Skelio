@@ -43,7 +43,27 @@ export type Command =
     }
   | { type: "clearCharacterRigSpriteSheet" }
   | { type: "clearCharacterRig" }
-  | { type: "addCharacterRigSlice"; name: string; x: number; y: number; width: number; height: number }
+  | {
+      type: "addCharacterRigSlice";
+      name: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      worldCx?: number;
+      worldCy?: number;
+    }
+  | {
+      type: "addCharacterRigImportedSprite";
+      name: string;
+      mimeType: string;
+      dataBase64: string;
+      pixelWidth: number;
+      pixelHeight: number;
+      worldCx?: number;
+      worldCy?: number;
+    }
+  | { type: "setCharacterRigSliceWorldPosition"; sliceId: string; worldCx: number; worldCy: number }
   | { type: "renameCharacterRigSlice"; sliceId: string; name: string }
   | { type: "removeCharacterRigSlice"; sliceId: string }
   | { type: "setCharacterRigBinding"; sliceId: string; boneId: string }
@@ -59,6 +79,8 @@ export type Command =
 function ensureCharacterRig(p: EditorProject): CharacterRigConfig {
   if (!p.characterRig) {
     p.characterRig = { spriteSheet: null, slices: [], bindings: [], sliceDepths: [] };
+  } else if (!p.characterRig.sliceDepths) {
+    p.characterRig.sliceDepths = [];
   }
   return p.characterRig;
 }
@@ -239,6 +261,9 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     if (!(cmd.width > 0) || !(cmd.height > 0)) return project;
     const name = cmd.name.trim() || `Part ${rig.slices.length + 1}`;
     const id = createId("slice");
+    const n = rig.slices.length;
+    const worldCx = typeof cmd.worldCx === "number" && Number.isFinite(cmd.worldCx) ? cmd.worldCx : n * 14;
+    const worldCy = typeof cmd.worldCy === "number" && Number.isFinite(cmd.worldCy) ? cmd.worldCy : n * 14;
     rig.slices.push({
       id,
       name,
@@ -246,7 +271,48 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       y: cmd.y,
       width: cmd.width,
       height: cmd.height,
+      worldCx,
+      worldCy,
     });
+    return p;
+  }
+
+  if (cmd.type === "addCharacterRigImportedSprite") {
+    const mime = normalizeReferenceImageMime(cmd.mimeType);
+    if (!mime || !cmd.dataBase64) return project;
+    if (!(cmd.pixelWidth > 0) || !(cmd.pixelHeight > 0)) return project;
+    const rig = ensureCharacterRig(p);
+    const n = rig.slices.length;
+    const worldCx = typeof cmd.worldCx === "number" && Number.isFinite(cmd.worldCx) ? cmd.worldCx : n * 14;
+    const worldCy = typeof cmd.worldCy === "number" && Number.isFinite(cmd.worldCy) ? cmd.worldCy : n * 14;
+    const name = cmd.name.trim() || `Part ${n + 1}`;
+    rig.slices.push({
+      id: createId("slice"),
+      name,
+      x: 0,
+      y: 0,
+      width: cmd.pixelWidth,
+      height: cmd.pixelHeight,
+      worldCx,
+      worldCy,
+      embedded: {
+        mimeType: mime,
+        dataBase64: cmd.dataBase64,
+        pixelWidth: cmd.pixelWidth,
+        pixelHeight: cmd.pixelHeight,
+      },
+    });
+    return p;
+  }
+
+  if (cmd.type === "setCharacterRigSliceWorldPosition") {
+    const rig = p.characterRig;
+    if (!rig) return project;
+    const s = rig.slices.find((x) => x.id === cmd.sliceId);
+    if (!s) return project;
+    if (!Number.isFinite(cmd.worldCx) || !Number.isFinite(cmd.worldCy)) return project;
+    s.worldCx = cmd.worldCx;
+    s.worldCy = cmd.worldCy;
     return p;
   }
 

@@ -4,6 +4,7 @@ import {
   dehydrateEditorProjectForFolder,
   editorProjectToRuntime,
   hydrateEditorProjectFromFolder,
+  normalizeEditorProjectInPlace,
   stripMeshAssetPaths,
   validateEditorProject,
   type EditorProject,
@@ -41,10 +42,11 @@ export const useEditorStore = defineStore("editor", () => {
   const weightBrushStrength = ref(0.06);
   const weightBrushSubtract = ref(false);
 
-  /** Smack-style Character Rig wizard (sprite sheet → bones → bind → depth → preview). */
+  /** Character Rig: Viewport + Schritte + Sprite-Import. */
   const characterRigModalOpen = ref(false);
-  /** Eigenes Fenster: Sheet laden & Rechtecke (nicht im Character-Rig-Dialog). */
-  const spriteSheetSliceModalOpen = ref(false);
+
+  /** Viewport: ausgewählter Character-Rig-Slice (pixelgenau verschieben). */
+  const selectedCharacterRigSliceId = ref<string | null>(null);
 
   const selectedBone = computed(() =>
     project.value.bones.find((b) => b.id === selectedBoneId.value) ?? null,
@@ -135,11 +137,13 @@ export const useEditorStore = defineStore("editor", () => {
     selectedBoneId.value = project.value.bones[0]!.id;
     selectedMeshId.value = null;
     selectedVertexIndex.value = null;
+    selectedCharacterRigSliceId.value = null;
     weightBrushEnabled.value = false;
     projectRootPath.value = null;
   }
 
   function loadProjectData(data: EditorProject, folderRoot: string | null) {
+    normalizeEditorProjectInPlace(data);
     const issues = validateEditorProject(data);
     if (issues.length) throw new Error(issues.map((i) => i.message).join("; "));
     past.value = [];
@@ -228,12 +232,8 @@ export const useEditorStore = defineStore("editor", () => {
     characterRigModalOpen.value = false;
   }
 
-  function openSpriteSheetSliceModal() {
-    spriteSheetSliceModalOpen.value = true;
-  }
-
-  function closeSpriteSheetSliceModal() {
-    spriteSheetSliceModalOpen.value = false;
+  function selectCharacterRigSlice(id: string | null) {
+    selectedCharacterRigSliceId.value = id;
   }
 
   return {
@@ -268,9 +268,8 @@ export const useEditorStore = defineStore("editor", () => {
     characterRigModalOpen,
     openCharacterRigModal,
     closeCharacterRigModal,
-    spriteSheetSliceModalOpen,
-    openSpriteSheetSliceModal,
-    closeSpriteSheetSliceModal,
+    selectedCharacterRigSliceId,
+    selectCharacterRigSlice,
     ensureSelection,
     /** Manifest-Dateiname (für UI). */
     projectManifestFileName: PROJECT_MANIFEST_FILE,

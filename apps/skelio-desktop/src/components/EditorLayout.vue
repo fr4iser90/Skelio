@@ -7,12 +7,11 @@ import HierarchyPanel from "./HierarchyPanel.vue";
 import InspectorPanel from "./InspectorPanel.vue";
 import TimelinePanel from "./TimelinePanel.vue";
 import CharacterRigModal from "./CharacterRigModal.vue";
-import SpriteSheetSliceModal from "./SpriteSheetSliceModal.vue";
 import ToolbarPanel from "./ToolbarPanel.vue";
 import ViewportPanel from "./ViewportPanel.vue";
 
 const store = useEditorStore();
-const { project, currentTime, playing } = storeToRefs(store);
+const { project, currentTime, playing, characterRigModalOpen } = storeToRefs(store);
 
 const playMax = computed(() => {
   const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
@@ -60,14 +59,15 @@ function onKey(e: KeyboardEvent) {
       <aside class="side">
         <HierarchyPanel />
       </aside>
-      <ViewportPanel />
+      <div class="viewport-slot">
+        <ViewportPanel v-if="!characterRigModalOpen" />
+      </div>
       <aside class="side right">
         <InspectorPanel />
       </aside>
     </div>
     <TimelinePanel @set-playing="setPlaying" />
     <CharacterRigModal />
-    <SpriteSheetSliceModal />
   </div>
 </template>
 
@@ -83,6 +83,10 @@ function onKey(e: KeyboardEvent) {
 .workspace {
   display: grid;
   grid-template-columns: 220px 1fr 260px;
+  min-height: 0;
+}
+.viewport-slot {
+  min-width: 0;
   min-height: 0;
 }
 .side {

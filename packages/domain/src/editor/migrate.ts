@@ -1,8 +1,36 @@
 import { createId } from "./ids.js";
 import type { EditorProject } from "./types.js";
 
+function ensureBoneLengths(project: EditorProject): void {
+  const childrenOf = (id: string) => project.bones.filter((c) => c.parentId === id);
+  for (const b of project.bones) {
+    if (typeof b.length === "number" && Number.isFinite(b.length) && b.length >= 0) {
+      continue;
+    }
+    const kids = childrenOf(b.id);
+    if (kids.length === 0) {
+      b.length = b.parentId === null ? 0 : 40;
+    } else {
+      let m = 0;
+      for (const c of kids) {
+        m = Math.max(m, Math.hypot(c.bindPose.x, c.bindPose.y));
+      }
+      b.length = Math.max(1e-6, m);
+    }
+  }
+}
+
 /** In-place fixups for older saved JSON (positions, legacy single sheet → spriteSheets). */
 export function normalizeEditorProjectInPlace(project: EditorProject): void {
+  ensureBoneLengths(project);
+  for (const b of project.bones) {
+    if (b.followParentTip != null && typeof b.followParentTip !== "boolean") {
+      delete b.followParentTip;
+    }
+    if (b.followParentTip && b.parentId === null) {
+      delete b.followParentTip;
+    }
+  }
   const rig = project.characterRig;
   if (!rig) return;
 

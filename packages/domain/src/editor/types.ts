@@ -13,6 +13,10 @@ export type Bone = {
   parentId: string | null;
   name: string;
   bindPose: Transform2D;
+  /** Rest length along local +X (after bindPose translation), world tip = matrix · (length, 0). */
+  length: number;
+  /** Editor-only: keep bind X/Y at parent tip when parent bind/length changes. */
+  followParentTip?: boolean;
 };
 
 export type Keyframe = { t: number; v: number };

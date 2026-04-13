@@ -4,7 +4,7 @@ import { computed } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 
 const store = useEditorStore();
-const { project, selectedBoneId, selectedMeshId } = storeToRefs(store);
+const { project, selectedBoneId, selectedMeshId, placeNewBonesAtParentTip } = storeToRefs(store);
 
 const rows = computed(() => {
   const out: { id: string; name: string; depth: number }[] = [];
@@ -24,7 +24,12 @@ function select(id: string) {
 
 function addChild(parentId: string) {
   const n = project.value.bones.filter((x) => x.parentId === parentId).length + 1;
-  store.dispatch({ type: "addBone", parentId, name: `bone_${n}` });
+  store.dispatch({
+    type: "addBone",
+    parentId,
+    name: `bone_${n}`,
+    placeAtParentTip: placeNewBonesAtParentTip.value,
+  });
 }
 
 function remove(id: string) {
@@ -39,6 +44,10 @@ function selectMesh(id: string) {
 <template>
   <div class="panel">
     <h3>Hierarchy</h3>
+    <label class="pref">
+      <input type="checkbox" :checked="placeNewBonesAtParentTip" @change="store.setPlaceNewBonesAtParentTip(($event.target as HTMLInputElement).checked)" />
+      Neu an Parent-Spitze
+    </label>
     <ul class="tree">
       <li v-for="row in rows" :key="row.id">
         <div class="row" :class="{ sel: row.id === selectedBoneId }" :style="{ paddingLeft: `${0.4 + row.depth * 0.65}rem` }">
@@ -82,6 +91,15 @@ ul {
   align-items: center;
   gap: 0.25rem;
   margin-bottom: 0.2rem;
+}
+.pref {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: #999;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
 }
 .row.sel {
   outline: 1px solid #6366f1;

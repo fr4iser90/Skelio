@@ -46,12 +46,22 @@ export type { Mat2D } from "./editor/mat2d.js";
 export {
   worldBindBoneMatrices,
   worldBindOrigins,
+  worldBindBoneTips,
+  worldBindBoneTipForLengthHit,
+  BONE_LENGTH_HIT_MIN_LOCAL,
   worldPoseBoneMatrices,
   worldPoseOrigins,
+  worldPoseBoneTips,
   clipDurationSeconds,
   localBindTranslationForWorldOrigin,
+  boneLengthFromWorldPointer,
+  childBindTranslationAtParentTip,
 } from "./editor/pose.js";
-export { fabrik2dThreeJoints, segmentLengthsFromBindOrigins } from "./editor/ik2d.js";
+export {
+  fabrik2dThreeJoints,
+  segmentLengthsFromBindOrigins,
+  segmentLengthsFromBoneFields,
+} from "./editor/ik2d.js";
 export { worldPoseOriginsWithIk } from "./editor/ikPose.js";
 export { deformSkinnedMesh, validateSkinnedMesh } from "./editor/skinning.js";
 export { createDemoSkinnedMesh } from "./editor/demoMesh.js";

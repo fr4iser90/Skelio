@@ -84,3 +84,8 @@ export function segmentLengthsFromBindOrigins(
 ): [number, number] {
   return [dist(oRoot, oMid), dist(oMid, oTip)];
 }
+
+/** IK link lengths from explicit bone `length` on root and mid bones. */
+export function segmentLengthsFromBoneFields(lengthRoot: number, lengthMid: number): [number, number] {
+  return [Math.max(lengthRoot, 1e-6), Math.max(lengthMid, 1e-6)];
+}

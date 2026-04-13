@@ -75,10 +75,75 @@ export function worldBindOrigins(project: EditorProject): Map<string, { x: numbe
   return origins;
 }
 
+/** World position of bone tip in bind pose: joint matrix · (length, 0). */
+export function worldBindBoneTips(project: EditorProject): Map<string, { x: number; y: number }> {
+  const mats = worldBindBoneMatrices(project);
+  const tips = new Map<string, { x: number; y: number }>();
+  for (const b of project.bones) {
+    const m = mats.get(b.id);
+    if (!m) continue;
+    tips.set(b.id, apply(m, b.length, 0));
+  }
+  return tips;
+}
+
+/** Local +X distance used for tip hit-testing when `length` is tiny (so roots / zero bones stay grabbable). */
+export const BONE_LENGTH_HIT_MIN_LOCAL = 24;
+
+/** World point for picking the length handle: tip at max(length, {@link BONE_LENGTH_HIT_MIN_LOCAL}). */
+export function worldBindBoneTipForLengthHit(project: EditorProject, boneId: string): { x: number; y: number } | null {
+  const b = project.bones.find((x) => x.id === boneId);
+  const m = worldBindBoneMatrices(project).get(boneId);
+  if (!b || !m) return null;
+  const L = Math.max(b.length, BONE_LENGTH_HIT_MIN_LOCAL);
+  return apply(m, L, 0);
+}
+
+/** World tip at animation time (FK matrices; same basis as `worldPoseBoneMatrices`). */
+export function worldPoseBoneTips(project: EditorProject, time: number): Map<string, { x: number; y: number }> {
+  const mats = worldPoseBoneMatrices(project, time);
+  const tips = new Map<string, { x: number; y: number }>();
+  for (const b of project.bones) {
+    const m = mats.get(b.id);
+    if (!m) continue;
+    tips.set(b.id, apply(m, b.length, 0));
+  }
+  return tips;
+}
+
+/**
+ * Scalar length so that `apply(W, length, 0)` is closest to `(worldX, worldY)` along local +X
+ * (first column of W); clamped to >= 0.
+ */
+export function boneLengthFromWorldPointer(W: Mat2D, worldX: number, worldY: number): number {
+  const ox = W.e;
+  const oy = W.f;
+  const dx = W.a;
+  const dy = W.b;
+  const px = worldX - ox;
+  const py = worldY - oy;
+  const dd = dx * dx + dy * dy;
+  if (dd < 1e-20) return 0;
+  return Math.max(0, (px * dx + py * dy) / dd);
+}
+
 /**
  * BindPose.x/y so setzen, dass der Knochen-Ursprung (lokales 0,0) an der Weltposition landet.
  * Rotation/Sx/Sy des Knochens bleiben unverändert (nur Translation).
  */
+/**
+ * Bind translation for a child so its joint sits at the parent's tip, in the same
+ * **parent bone-local** space as `child.bindPose.x/y` (joint at 0,0; rest +X; tip at length,0).
+ */
+export function childBindTranslationAtParentTip(
+  project: EditorProject,
+  parentId: string,
+): { x: number; y: number } | null {
+  const parent = project.bones.find((b) => b.id === parentId);
+  if (!parent) return null;
+  return { x: parent.length, y: 0 };
+}
+
 export function localBindTranslationForWorldOrigin(
   project: EditorProject,
   boneId: string,

@@ -18,6 +18,7 @@ export type RuntimeExport = {
       parentId: string | null;
       name: string;
       bindPose: { x: number; y: number; rotation: number; sx: number; sy: number };
+      length: number;
     }[];
     attachments: {
       id: string;
@@ -98,6 +99,7 @@ export function editorProjectToRuntime(project: EditorProject): RuntimeExport {
         parentId: b.parentId,
         name: b.name,
         bindPose: { ...b.bindPose },
+        length: b.length,
       })),
       attachments: [],
     },

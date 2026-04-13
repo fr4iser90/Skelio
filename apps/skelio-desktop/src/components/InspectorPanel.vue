@@ -15,6 +15,7 @@ const {
   weightBrushRadius,
   weightBrushStrength,
   weightBrushSubtract,
+  placeNewBonesAtParentTip,
 } = storeToRefs(store);
 
 const weightContext = computed(() => {
@@ -45,6 +46,27 @@ function patchBind(field: "x" | "y" | "rotation" | "sx" | "sy", ev: Event) {
   const n = Number((ev.target as HTMLInputElement).value);
   if (Number.isNaN(n)) return;
   store.dispatch({ type: "setBindPose", boneId: id, partial: { [field]: n } });
+}
+
+function patchBoneLength(ev: Event) {
+  const id = selectedBone.value?.id;
+  if (!id) return;
+  const n = Number((ev.target as HTMLInputElement).value);
+  if (Number.isNaN(n) || n < 0) return;
+  store.dispatch({ type: "setBoneLength", boneId: id, length: n });
+}
+
+function snapToParentTip() {
+  const id = selectedBone.value?.id;
+  if (!id) return;
+  store.dispatch({ type: "snapBoneToParentTip", boneId: id });
+}
+
+function setFollowParentTip(ev: Event) {
+  const id = selectedBone.value?.id;
+  if (!id) return;
+  const on = (ev.target as HTMLInputElement).checked;
+  store.dispatch({ type: "setBoneFollowParentTip", boneId: id, follow: on });
 }
 
 function patchMeta(ev: Event) {
@@ -145,8 +167,26 @@ function removeIkChain(chainId: string) {
       <label class="lbl">Bind X <input class="inp sm" type="number" step="0.1" :value="selectedBone.bindPose.x" @change="patchBind('x', $event)" /></label>
       <label class="lbl">Bind Y <input class="inp sm" type="number" step="0.1" :value="selectedBone.bindPose.y" @change="patchBind('y', $event)" /></label>
       <label class="lbl">Rotation (rad) <input class="inp sm" type="number" step="0.01" :value="selectedBone.bindPose.rotation" @change="patchBind('rotation', $event)" /></label>
+      <label class="lbl">Length <input class="inp sm" type="number" step="0.5" min="0" :value="selectedBone.length" @change="patchBoneLength($event)" /></label>
       <label class="lbl">Scale X <input class="inp sm" type="number" step="0.05" :value="selectedBone.bindPose.sx" @change="patchBind('sx', $event)" /></label>
       <label class="lbl">Scale Y <input class="inp sm" type="number" step="0.05" :value="selectedBone.bindPose.sy" @change="patchBind('sy', $event)" /></label>
+      <label class="rowchk">
+        <input
+          type="checkbox"
+          :checked="placeNewBonesAtParentTip"
+          @change="store.setPlaceNewBonesAtParentTip(($event.target as HTMLInputElement).checked)"
+        />
+        Neue Kinder an Parent-Spitze
+      </label>
+      <template v-if="selectedBone.parentId">
+        <div class="btnrow">
+          <button type="button" class="mini" @click="snapToParentTip">An Spitze schnappen</button>
+        </div>
+        <label class="rowchk">
+          <input type="checkbox" :checked="!!selectedBone.followParentTip" @change="setFollowParentTip($event)" />
+          Parent-Spitze folgen
+        </label>
+      </template>
     </template>
     <p v-else class="muted">Kein Knochen gewählt</p>
 

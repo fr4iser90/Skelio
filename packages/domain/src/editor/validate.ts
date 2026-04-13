@@ -21,6 +21,18 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
     if (b.parentId !== null && !ids.has(b.parentId)) {
       issues.push({ path: `bones.${b.id}.parentId`, message: `unknown parent: ${b.parentId}` });
     }
+    if (typeof b.length !== "number" || !Number.isFinite(b.length) || b.length < 0) {
+      issues.push({ path: `bones.${b.id}.length`, message: "length must be finite and >= 0" });
+    }
+    if (b.followParentTip != null && typeof b.followParentTip !== "boolean") {
+      issues.push({ path: `bones.${b.id}.followParentTip`, message: "followParentTip must be a boolean when set" });
+    }
+    if (b.followParentTip && b.parentId === null) {
+      issues.push({
+        path: `bones.${b.id}.followParentTip`,
+        message: "followParentTip requires a parent bone",
+      });
+    }
   }
 
   // Cycle detection: walk ancestors from each bone

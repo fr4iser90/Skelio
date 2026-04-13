@@ -8,6 +8,7 @@ function rootBone(): Bone {
     parentId: null,
     name: "root",
     bindPose: { x: 0, y: 0, rotation: 0, sx: 1, sy: 1 },
+    length: 0,
   };
 }
 

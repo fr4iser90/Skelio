@@ -130,7 +130,64 @@ describe("applyCommand", () => {
     const root = p.bones[0]!.id;
     p = applyCommand(p, { type: "addBone", parentId: root, name: "child" });
     expect(p.bones.length).toBe(2);
+    expect(p.bones.find((b) => b.name === "child")?.length).toBe(40);
     expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("sets bone length and rejects invalid values", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, { type: "addBone", parentId: root, name: "arm" });
+    const bid = p.bones.find((b) => b.name === "arm")!.id;
+    p = applyCommand(p, { type: "setBoneLength", boneId: bid, length: 88 });
+    expect(p.bones.find((b) => b.id === bid)!.length).toBe(88);
+    expect(validateEditorProject(p)).toHaveLength(0);
+    const before = structuredClone(p);
+    expect(applyCommand(p, { type: "setBoneLength", boneId: bid, length: -2 })).toEqual(before);
+  });
+
+  it("places new child at parent tip when parent has length", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!;
+    p = applyCommand(p, { type: "setBoneLength", boneId: root.id, length: 100 });
+    p = applyCommand(p, { type: "addBone", parentId: root.id, name: "tip", placeAtParentTip: true });
+    expect(p.bones.find((b) => b.name === "tip")!.bindPose.x).toBeCloseTo(100, 5);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("addBone with placeAtParentTip false keeps classic offset", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, { type: "setBoneLength", boneId: root, length: 200 });
+    p = applyCommand(p, { type: "addBone", parentId: root, name: "c", placeAtParentTip: false });
+    expect(p.bones.find((b) => b.name === "c")!.bindPose.x).toBe(40);
+  });
+
+  it("snapBoneToParentTip and followParentTip sync on parent length", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!;
+    p = applyCommand(p, { type: "setBoneLength", boneId: root.id, length: 80 });
+    p = applyCommand(p, { type: "addBone", parentId: root.id, name: "arm", placeAtParentTip: true });
+    const armId = p.bones.find((b) => b.name === "arm")!.id;
+    p = applyCommand(p, { type: "setBoneLength", boneId: armId, length: 60 });
+    p = applyCommand(p, { type: "addBone", parentId: armId, name: "hand" });
+    const handId = p.bones.find((b) => b.name === "hand")!.id;
+    p = applyCommand(p, { type: "snapBoneToParentTip", boneId: handId });
+    expect(p.bones.find((b) => b.id === handId)!.bindPose.x).toBeCloseTo(60, 5);
+    p = applyCommand(p, { type: "setBoneFollowParentTip", boneId: handId, follow: true });
+    p = applyCommand(p, { type: "setBoneLength", boneId: armId, length: 30 });
+    expect(p.bones.find((b) => b.id === handId)!.bindPose.x).toBeCloseTo(30, 5);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("manual bind X clears followParentTip", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, { type: "addBone", parentId: root, name: "c" });
+    const childId = p.bones.find((b) => b.name === "c")!.id;
+    p = applyCommand(p, { type: "setBoneFollowParentTip", boneId: childId, follow: true });
+    p = applyCommand(p, { type: "setBindPose", boneId: childId, partial: { x: 5 } });
+    expect(p.bones.find((b) => b.id === childId)!.followParentTip).toBe(false);
   });
 
   it("adds keyframe", () => {

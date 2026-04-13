@@ -57,6 +57,9 @@ export const useEditorStore = defineStore("editor", () => {
   /** Nächster Klick im Viewport setzt die Position dieses Knochens (BindPose). */
   const pendingBonePlacementId = ref<string | null>(null);
 
+  /** Neu angelegte Kind-Knochen: Bind X/Y an Parent-Spitze (wenn Parent `length` > 0), sonst klassisch (40,0). */
+  const placeNewBonesAtParentTip = ref(true);
+
   /** Nur im Character-Rig-Modal: leichte Y-Stauchung der Welt (Pseudo-Tiefe). Beim Schließen → 2D. */
   const rigCameraViewKind = ref<RigCameraViewKind>("2d");
 
@@ -166,6 +169,7 @@ export const useEditorStore = defineStore("editor", () => {
     selectedVertexIndex.value = null;
     selectedCharacterRigSliceId.value = null;
     weightBrushEnabled.value = false;
+    placeNewBonesAtParentTip.value = true;
     projectRootPath.value = null;
   }
 
@@ -295,6 +299,10 @@ export const useEditorStore = defineStore("editor", () => {
     pendingBonePlacementId.value = boneId;
   }
 
+  function setPlaceNewBonesAtParentTip(v: boolean) {
+    placeNewBonesAtParentTip.value = v;
+  }
+
   return {
     project,
     projectRootPath,
@@ -338,6 +346,8 @@ export const useEditorStore = defineStore("editor", () => {
     setCharacterRigModalStep,
     pendingBonePlacementId,
     setPendingBonePlacement,
+    placeNewBonesAtParentTip,
+    setPlaceNewBonesAtParentTip,
     rigCameraViewKind,
     rigCameraWorldYScale,
     setRigCameraViewKind,

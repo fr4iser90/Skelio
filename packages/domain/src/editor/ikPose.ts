@@ -1,6 +1,6 @@
-import { fabrik2dThreeJoints, segmentLengthsFromBindOrigins, type Vec2 } from "./ik2d.js";
+import { fabrik2dThreeJoints, segmentLengthsFromBoneFields, type Vec2 } from "./ik2d.js";
 import type { EditorProject, IkTwoBoneChain } from "./types.js";
-import { worldBindOrigins, worldPoseOrigins } from "./pose.js";
+import { worldPoseOrigins } from "./pose.js";
 
 /**
  * FK origins, then optional IK chains override joint positions for visualization (FABRIK).
@@ -12,11 +12,9 @@ export function worldPoseOriginsWithIk(project: EditorProject, time: number): Ma
     origins.set(id, { ...p });
   }
 
-  const bindO = worldBindOrigins(project);
-
   for (const chain of project.ikTwoBoneChains ?? []) {
     if (!chain.enabled) continue;
-    applyIkChain(origins, bindO, chain);
+    applyIkChain(origins, project, chain);
   }
 
   return origins;
@@ -24,7 +22,7 @@ export function worldPoseOriginsWithIk(project: EditorProject, time: number): Ma
 
 function applyIkChain(
   origins: Map<string, Vec2>,
-  bindO: Map<string, { x: number; y: number }>,
+  project: EditorProject,
   chain: IkTwoBoneChain,
 ): void {
   const r = chain.rootBoneId;
@@ -33,12 +31,11 @@ function applyIkChain(
   const p0fk = origins.get(r);
   const p1fk = origins.get(m);
   const p2fk = origins.get(t);
-  const b0 = bindO.get(r);
-  const b1 = bindO.get(m);
-  const b2 = bindO.get(t);
-  if (!p0fk || !p1fk || !p2fk || !b0 || !b1 || !b2) return;
+  const boneRoot = project.bones.find((b) => b.id === r);
+  const boneMid = project.bones.find((b) => b.id === m);
+  if (!p0fk || !p1fk || !p2fk || !boneRoot || !boneMid) return;
 
-  const lengths = segmentLengthsFromBindOrigins(b0, b1, b2);
+  const lengths = segmentLengthsFromBoneFields(boneRoot.length, boneMid.length);
   const target: Vec2 = { x: chain.targetX, y: chain.targetY };
   const { p0, p1, p2 } = fabrik2dThreeJoints(p0fk, p1fk, p2fk, lengths, target, 24);
   origins.set(r, p0);

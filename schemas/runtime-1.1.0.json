@@ -126,7 +126,8 @@
           "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
         },
         "name": { "type": "string", "minLength": 1 },
-        "bindPose": { "$ref": "#/$defs/transform2d" }
+        "bindPose": { "$ref": "#/$defs/transform2d" },
+        "length": { "type": "number", "minimum": 0, "description": "Rest length along bone local +X (optional in legacy files; exporter always sets it)" }
       }
     },
     "attachment": {

@@ -21,6 +21,7 @@ const {
   selectedBone,
   sheetSliceModalOpen,
   rigCameraViewKind,
+  placeNewBonesAtParentTip,
 } = storeToRefs(store);
 
 const step = ref(0);
@@ -288,7 +289,15 @@ function addChildBone() {
   if (parentId === null) return;
   const name = `Knochen ${bones.length + 1}`;
   const nBefore = bones.length;
-  if (!store.dispatch({ type: "addBone", parentId, name })) return;
+  if (
+    !store.dispatch({
+      type: "addBone",
+      parentId,
+      name,
+      placeAtParentTip: placeNewBonesAtParentTip.value,
+    })
+  )
+    return;
   const nb = project.value.bones;
   if (nb.length > nBefore) {
     const newId = nb[nb.length - 1]!.id;
@@ -303,6 +312,27 @@ function patchSelectedBoneBind(field: "x" | "y" | "rotation" | "sx" | "sy", e: E
   const n = Number((e.target as HTMLInputElement).value);
   if (Number.isNaN(n)) return;
   store.dispatch({ type: "setBindPose", boneId: id, partial: { [field]: n } });
+}
+
+function patchSelectedBoneLength(e: Event) {
+  const id = selectedBoneId.value;
+  if (!id) return;
+  const n = Number((e.target as HTMLInputElement).value);
+  if (Number.isNaN(n) || n < 0) return;
+  store.dispatch({ type: "setBoneLength", boneId: id, length: n });
+}
+
+function snapSelectedToParentTip() {
+  const id = selectedBoneId.value;
+  if (!id) return;
+  store.dispatch({ type: "snapBoneToParentTip", boneId: id });
+}
+
+function setSelectedFollowParentTip(e: Event) {
+  const id = selectedBoneId.value;
+  if (!id) return;
+  const on = (e.target as HTMLInputElement).checked;
+  store.dispatch({ type: "setBoneFollowParentTip", boneId: id, follow: on });
 }
 
 function renameSelectedBoneFromInspector(e: Event) {
@@ -564,11 +594,9 @@ async function onSheetFiles(e: Event) {
                   platzieren, danach am Punkt ziehen. Rechts: Bind-Werte wie im Inspector.
                 </p>
                 <p class="muted roadmap-hint">
-                  <strong>Length-Feld (wie Smack):</strong> Vorteil: intuitives Strecken am Bone-Ende, ggf. eigene
-                  Kurven. Nachteil: neues Datenfeld, Migration, Pose/Export/Hit-Tests — doppelte Freiheit zu
-                  X/Y/Scale. Aktuell reicht Kette + Scale; <strong>optional später</strong> ergänzbar.
-                  <strong>Kamera</strong> oben: 2D / 2.5D / 3D = <strong>Y-Stauchung</strong> (Pseudo-Tiefe), kein
-                  echtes 3D-Orbit. Schließen = wieder 2D.
+                  <strong>Length:</strong> lokal +X, gelbes Ende im Viewport zum Ziehen.
+                  <strong>Kette:</strong> optional „an Spitze“, Schnappen, „Parent-Spitze folgen“ (rechts unter Bind).
+                  <strong>Kamera</strong> oben: 2D / 2.5D / 3D (Y-Stauchung). Schließen = wieder 2D.
                 </p>
               </div>
 
@@ -706,8 +734,8 @@ async function onSheetFiles(e: Event) {
               </h3>
               <p v-if="!selectedBone" class="muted bone-settings-sub">Kein Knochen gewählt</p>
               <p class="muted bone-settings-note">
-                Skelio: <strong>2D-Bindpose</strong> (gleiche Felder wie der Inspector rechts im Hauptfenster). Kein
-                Smack-Z/Tilt/Spin/Länge — dafür bräuchte es ein erweitertes Bone-Modell.
+                Skelio: <strong>2D-Bindpose</strong> plus <strong>Length</strong> (lokales +X). Gleiche Kernfelder wie
+                im Inspector.
               </p>
               <template v-if="selectedBone">
                 <label class="bs-lbl"
@@ -750,6 +778,21 @@ async function onSheetFiles(e: Event) {
                   />
                 </label>
                 <label class="bs-lbl"
+                  >Length (px)
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    :value="selectedBone.length"
+                    @change="patchSelectedBoneLength($event)"
+                  />
+                </label>
+                <p v-if="!selectedBone.parentId" class="muted bs-root-length-hint">
+                  Wurzel: oft <strong>Length 0</strong> (nur Gelenk). Im Viewport trotzdem Griff zum Aufziehen; Zug
+                  folgt der Knochenachse (auch bei 2.5D-Kamera), nicht nur waagerecht.
+                </p>
+                <label class="bs-lbl"
                   >Scale X
                   <input
                     class="bs-inp bs-num"
@@ -769,9 +812,29 @@ async function onSheetFiles(e: Event) {
                     @change="patchSelectedBoneBind('sy', $event)"
                   />
                 </label>
+                <div v-if="selectedBone.parentId" class="bs-hybrid">
+                  <p class="muted bs-hybrid-title">Kette / Spitze</p>
+                  <label class="bs-rowchk">
+                    <input
+                      type="checkbox"
+                      :checked="placeNewBonesAtParentTip"
+                      @change="store.setPlaceNewBonesAtParentTip(($event.target as HTMLInputElement).checked)"
+                    />
+                    + Neu an Parent-Spitze (wenn Length größer 0)
+                  </label>
+                  <button type="button" class="bs-mini" @click="snapSelectedToParentTip">An Spitze schnappen</button>
+                  <label class="bs-rowchk">
+                    <input
+                      type="checkbox"
+                      :checked="!!selectedBone.followParentTip"
+                      @change="setSelectedFollowParentTip($event)"
+                    />
+                    Parent-Spitze folgen
+                  </label>
+                </div>
                 <p v-if="selectedBone.parentId && selectedBoneParentSpan !== null" class="muted bs-chain">
-                  Abstand zum Parent: <strong>{{ selectedBoneParentSpan.toFixed(1) }}</strong>
-                  <span class="dim"> (Orientierung, kein Smack-Length-Feld)</span>
+                  Abstand Parent-Gelenk → dieses Gelenk: <strong>{{ selectedBoneParentSpan.toFixed(1) }}</strong>
+                  <span class="dim"> (von Bind X/Y; unabhängig von Length)</span>
                 </p>
                 <p v-else-if="selectedBone" class="muted bs-chain">
                   <span class="dim">Wurzel — kein Parent-Abstand.</span>
@@ -1111,6 +1174,44 @@ async function onSheetFiles(e: Event) {
 }
 .bs-chain {
   margin: 0.35rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+.bs-hybrid {
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.bs-hybrid-title {
+  margin: 0;
+  font-size: 0.68rem;
+}
+.bs-rowchk {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: #9ca3af;
+  cursor: pointer;
+}
+.bs-mini {
+  align-self: flex-start;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  border: 1px solid #555;
+  background: #25262b;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+.bs-mini:hover {
+  border-color: #6366f1;
+}
+.bs-root-length-hint {
+  margin: 0.2rem 0 0.35rem;
   font-size: 0.68rem;
   line-height: 1.35;
 }

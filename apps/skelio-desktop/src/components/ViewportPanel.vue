@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import {
   addBoneWeightDelta,
+  boneLengthFromWorldPointer,
   deformSkinnedMesh,
   localBindTranslationForWorldOrigin,
   worldBindBoneMatrices,
+  BONE_LENGTH_HIT_MIN_LOCAL,
+  worldBindBoneTipForLengthHit,
   worldBindOrigins,
   worldPoseBoneMatrices,
   worldPoseOriginsWithIk,
@@ -57,6 +60,11 @@ const rigSliceDrag = ref<{ sliceId: string; grabDx: number; grabDy: number } | n
 const rigSlicePreview = ref<{ id: string; cx: number; cy: number } | null>(null);
 /** Schritt „Knochen“ im Character-Rig-Modal: Knochen in der Welt ziehen. */
 const boneDrag = ref<{ boneId: string } | null>(null);
+/**
+ * Länge ziehen: nur Vorschau bis loslassen (ein Dispatch / ein Undo), Smack-ähnlich.
+ * `previewLength` folgt der Maus entlang der Knochenachse in Welt (nicht Bildschirm horizontal).
+ */
+const boneLengthDrag = ref<{ boneId: string; startLength: number; previewLength: number } | null>(null);
 
 const rigModalBoneStep = computed(
   () => characterRigModalOpen.value && characterRigModalStep.value === 1,
@@ -73,13 +81,49 @@ const viewportHintText = computed(() => {
     if (pendingBonePlacementId.value) {
       return "Klick in die Fläche = neuen Knochen platzieren (orange Kreis) · Rad = Zoom";
     }
-    return "Knochen: Punkt anklicken & ziehen · Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
+    return "Knochen: Länge am Griff ziehen, loslassen = übernehmen (ein Undo) · Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
   }
   if ((project.value.characterRig?.slices?.length ?? 0) > 0) {
     return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Slices mit Links ziehen";
   }
   return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Y unten · Vertex für Gewichte";
 });
+
+function hitTestBoneTip(wx: number, wy: number, radiusWorld: number): string | null {
+  const r2 = radiusWorld * radiusWorld;
+  let best: string | null = null;
+  let bestD = r2;
+  for (const b of project.value.bones) {
+    const t = worldBindBoneTipForLengthHit(project.value, b.id);
+    if (!t) continue;
+    const d = (t.x - wx) ** 2 + (t.y - wy) ** 2;
+    if (d <= r2 && d < bestD) {
+      bestD = d;
+      best = b.id;
+    }
+  }
+  return best;
+}
+
+/** Effektive Länge zum Zeichnen / Griff (Vorschau beim Ziehen). */
+function lengthForBoneDraw(b: { id: string; length: number }): number {
+  const d = boneLengthDrag.value;
+  if (d && d.boneId === b.id) return d.previewLength;
+  return b.length;
+}
+
+/** Sichtbare Stablänge im Rig-Schritt: Mini-Stab wenn gewählt und Länge ~0 (z. B. Wurzel). */
+function lengthForBoneVisual(
+  b: { id: string; length: number },
+  selectedId: string | null,
+  rigBoneStep: boolean,
+): number {
+  const L = lengthForBoneDraw(b);
+  if (rigBoneStep && b.id === selectedId && L < 1e-6) {
+    return BONE_LENGTH_HIT_MIN_LOCAL;
+  }
+  return L;
+}
 
 function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null {
   const origins = worldBindOrigins(project.value);
@@ -412,28 +456,70 @@ function draw() {
     }
   }
 
-  const origins = worldPoseOriginsWithIk(project.value, currentTime.value);
+  const boneM = rigModalBoneStep.value ? bindM : poseM;
+  const boneO = rigModalBoneStep.value
+    ? worldBindOrigins(project.value)
+    : worldPoseOriginsWithIk(project.value, currentTime.value);
   const bones = project.value.bones;
   ctx.strokeStyle = "#6b7280";
   ctx.lineWidth = 2;
+  const tipHandles: { x: number; y: number }[] = [];
+  const selBid = selectedBoneId.value;
+  const rigStep = rigModalBoneStep.value;
   for (const b of bones) {
-    if (b.parentId === null) continue;
-    const p0 = origins.get(b.parentId);
-    const p1 = origins.get(b.id);
-    if (!p0 || !p1) continue;
+    ctx.strokeStyle = "#6b7280";
+    ctx.lineWidth = 2;
+    const Lvis = lengthForBoneVisual(b, selBid, rigStep);
+    if (Lvis <= 1e-9) continue;
+    const M = boneM.get(b.id);
+    const joint = boneO.get(b.id);
+    if (!M || !joint) continue;
+    const dx = M.a;
+    const dy = M.b;
+    const dd = dx * dx + dy * dy;
+    let ux = 1;
+    let uy = 0;
+    if (dd > 1e-20) {
+      const inv = 1 / Math.sqrt(dd);
+      ux = dx * inv;
+      uy = dy * inv;
+    }
+    const tipX = joint.x + ux * Lvis;
+    const tipY = joint.y + uy * Lvis;
+    const ghost = rigStep && b.id === selBid && lengthForBoneDraw(b) < 1e-6;
+    if (ghost) {
+      ctx.strokeStyle = "rgba(107, 114, 128, 0.45)";
+      ctx.setLineDash([4, 4]);
+    }
     ctx.beginPath();
-    ctx.moveTo(p0.x, p0.y);
-    ctx.lineTo(p1.x, p1.y);
+    ctx.moveTo(joint.x, joint.y);
+    ctx.lineTo(tipX, tipY);
     ctx.stroke();
+    if (ghost) {
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "#6b7280";
+    }
+    if (b.id === selBid && rigStep) {
+      tipHandles.push({ x: tipX, y: tipY });
+    }
   }
   for (const b of bones) {
-    const o = origins.get(b.id);
+    const o = boneO.get(b.id);
     if (!o) continue;
     const sel = b.id === selectedBoneId.value;
     ctx.fillStyle = sel ? "#a5b4fc" : "#22c55e";
     ctx.beginPath();
     ctx.arc(o.x, o.y, sel ? 7 : 5, 0, Math.PI * 2);
     ctx.fill();
+  }
+  if (tipHandles.length) {
+    ctx.strokeStyle = "rgba(251, 191, 36, 0.9)";
+    ctx.lineWidth = 2 / viewZoom.value;
+    for (const t of tipHandles) {
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 8 / viewZoom.value, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   const pendId = pendingBonePlacementId.value;
@@ -589,6 +675,23 @@ function onCanvasPointerDown(e: PointerEvent) {
       draw();
       return;
     }
+    const hitTip = hitTestBoneTip(wx, wy, 16);
+    if (hitTip) {
+      e.preventDefault();
+      store.selectBone(hitTip);
+      const b = project.value.bones.find((x) => x.id === hitTip);
+      const W = worldBindBoneMatrices(project.value).get(hitTip);
+      const startLen = b?.length ?? 0;
+      const previewLen = W && b ? boneLengthFromWorldPointer(W, wx, wy) : startLen;
+      boneLengthDrag.value = { boneId: hitTip, startLength: startLen, previewLength: previewLen };
+      try {
+        c.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      draw();
+      return;
+    }
     const hitB = hitTestBone(wx, wy, 18);
     if (hitB) {
       e.preventDefault();
@@ -681,6 +784,18 @@ function onCanvasPointerMove(e: PointerEvent) {
     return;
   }
 
+  if (boneLengthDrag.value) {
+    e.preventDefault();
+    const { wx, wy } = worldFromClient(e, c);
+    const W = worldBindBoneMatrices(project.value).get(boneLengthDrag.value.boneId);
+    if (W) {
+      const len = boneLengthFromWorldPointer(W, wx, wy);
+      boneLengthDrag.value = { ...boneLengthDrag.value, previewLength: len };
+    }
+    draw();
+    return;
+  }
+
   if (boneDrag.value) {
     e.preventDefault();
     const { wx, wy } = worldFromClient(e, c);
@@ -717,6 +832,23 @@ function onCanvasPointerUp(e: PointerEvent) {
 
   if (viewDrag.value) {
     viewDrag.value = null;
+    if (c?.hasPointerCapture(e.pointerId)) {
+      try {
+        c.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+    draw();
+    return;
+  }
+
+  if (boneLengthDrag.value) {
+    const d = boneLengthDrag.value;
+    boneLengthDrag.value = null;
+    if (Math.abs(d.previewLength - d.startLength) > 1e-3) {
+      store.dispatch({ type: "setBoneLength", boneId: d.boneId, length: d.previewLength });
+    }
     if (c?.hasPointerCapture(e.pointerId)) {
       try {
         c.releasePointerCapture(e.pointerId);
@@ -803,6 +935,7 @@ watch(
     characterRigModalStep,
     pendingBonePlacementId,
     boneDrag,
+    boneLengthDrag,
     rigCameraWorldYScale,
     rigWorldYCompress,
   ],

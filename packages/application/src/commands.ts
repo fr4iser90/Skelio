@@ -1,4 +1,5 @@
 import {
+  childBindTranslationAtParentTip,
   createDemoSkinnedMesh,
   createId,
   normalizeReferenceImageMime,
@@ -14,10 +15,13 @@ import {
 } from "@skelio/domain";
 
 export type Command =
-  | { type: "addBone"; parentId: string | null; name: string }
+  | { type: "addBone"; parentId: string | null; name: string; placeAtParentTip?: boolean }
   | { type: "removeBone"; boneId: string }
   | { type: "renameBone"; boneId: string; name: string }
   | { type: "setBindPose"; boneId: string; partial: Partial<{ x: number; y: number; rotation: number; sx: number; sy: number }> }
+  | { type: "setBoneLength"; boneId: string; length: number }
+  | { type: "snapBoneToParentTip"; boneId: string }
+  | { type: "setBoneFollowParentTip"; boneId: string; follow: boolean }
   | { type: "setMetaName"; name: string }
   | { type: "setFps"; fps: number }
   | { type: "addKeyframe"; boneId: string; property: ChannelProperty; t: number; v: number }
@@ -124,6 +128,34 @@ function insertSorted(keys: Keyframe[], k: Keyframe): Keyframe[] {
   return next;
 }
 
+function defaultBindPoseForNewChild(
+  p: EditorProject,
+  parentId: string | null,
+  placeAtParentTip: boolean,
+): { x: number; y: number; rotation: number; sx: number; sy: number } {
+  if (!placeAtParentTip || parentId === null) {
+    return { x: 40, y: 0, rotation: 0, sx: 1, sy: 1 };
+  }
+  const parent = p.bones.find((b) => b.id === parentId);
+  if (!parent || parent.length <= 1e-9) {
+    return { x: 40, y: 0, rotation: 0, sx: 1, sy: 1 };
+  }
+  const tip = childBindTranslationAtParentTip(p, parentId);
+  if (!tip) return { x: 40, y: 0, rotation: 0, sx: 1, sy: 1 };
+  return { x: tip.x, y: tip.y, rotation: 0, sx: 1, sy: 1 };
+}
+
+function syncDirectChildrenFollowParentTip(p: EditorProject, parentId: string): void {
+  const tip = childBindTranslationAtParentTip(p, parentId);
+  if (!tip) return;
+  for (const c of p.bones) {
+    if (c.parentId === parentId && c.followParentTip) {
+      c.bindPose.x = tip.x;
+      c.bindPose.y = tip.y;
+    }
+  }
+}
+
 export function applyCommand(project: EditorProject, cmd: Command): EditorProject {
   const p: EditorProject = structuredClone(project);
 
@@ -203,6 +235,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
         parentId: root.id,
         name: "ik_mid",
         bindPose: { x: 70, y: 0, rotation: 0, sx: 1, sy: 1 },
+        length: 65,
       };
       p.bones.push(mid);
     }
@@ -212,9 +245,13 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
         parentId: mid.id,
         name: "ik_tip",
         bindPose: { x: 65, y: 0, rotation: 0, sx: 1, sy: 1 },
+        length: 0,
       };
       p.bones.push(tip);
     }
+    root.length = 70;
+    mid.length = 65;
+    tip.length = 0;
     if (!p.ikTwoBoneChains) p.ikTwoBoneChains = [];
     if (p.ikTwoBoneChains.some((c) => c.name === "demo_arm")) return p;
     p.ikTwoBoneChains.push({
@@ -506,18 +543,56 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   if (cmd.type === "setBindPose") {
     const b = p.bones.find((x) => x.id === cmd.boneId);
     if (b) {
+      if (b.followParentTip && (cmd.partial.x !== undefined || cmd.partial.y !== undefined)) {
+        b.followParentTip = false;
+      }
       Object.assign(b.bindPose, cmd.partial);
+      syncDirectChildrenFollowParentTip(p, b.id);
+    }
+    return p;
+  }
+
+  if (cmd.type === "setBoneLength") {
+    const b = p.bones.find((x) => x.id === cmd.boneId);
+    if (!b || !Number.isFinite(cmd.length) || cmd.length < 0) return project;
+    b.length = cmd.length;
+    syncDirectChildrenFollowParentTip(p, b.id);
+    return p;
+  }
+
+  if (cmd.type === "snapBoneToParentTip") {
+    const b = p.bones.find((x) => x.id === cmd.boneId);
+    if (!b || b.parentId === null) return project;
+    const tip = childBindTranslationAtParentTip(p, b.parentId);
+    if (!tip) return project;
+    b.bindPose.x = tip.x;
+    b.bindPose.y = tip.y;
+    return p;
+  }
+
+  if (cmd.type === "setBoneFollowParentTip") {
+    const b = p.bones.find((x) => x.id === cmd.boneId);
+    if (!b || b.parentId === null) return project;
+    b.followParentTip = cmd.follow;
+    if (cmd.follow) {
+      const tip = childBindTranslationAtParentTip(p, b.parentId);
+      if (tip) {
+        b.bindPose.x = tip.x;
+        b.bindPose.y = tip.y;
+      }
     }
     return p;
   }
 
   if (cmd.type === "addBone") {
     const id = createId("bone");
+    const placeTip = cmd.placeAtParentTip !== false;
     const bone: Bone = {
       id,
       parentId: cmd.parentId,
       name: cmd.name,
-      bindPose: { x: 40, y: 0, rotation: 0, sx: 1, sy: 1 },
+      bindPose: defaultBindPoseForNewChild(p, cmd.parentId, placeTip),
+      length: 40,
     };
     p.bones.push(bone);
     return p;

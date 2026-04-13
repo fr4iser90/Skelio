@@ -72,18 +72,37 @@ export type CharacterRigSliceEmbeddedImage = {
 };
 
 /**
- * One sprite part: either a rect from `spriteSheet` (`embedded` unset) or a full embedded image (`embedded` set).
- * `worldCx` / `worldCy`: slice center in editor/bind space (viewport).
+ * Imported texture page (right-hand “sprite sheets” in Character Rig).
+ */
+export type CharacterRigSpriteSheetEntry = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
+  pixelWidth?: number;
+  pixelHeight?: number;
+};
+
+/**
+ * One sprite **slot** (left list): can be empty (0×0) until a region is picked from a sheet.
+ * Pixels: `embedded` **or** rect in `spriteSheets` via `sheetId` + x,y,width,height.
  */
 export type CharacterRigSpriteSlice = {
   id: string;
   name: string;
+  /** Pixel rect inside `sheetId` image (ignored when embedded or empty slot). */
   x: number;
   y: number;
   width: number;
   height: number;
   worldCx: number;
   worldCy: number;
+  /** Smack-style animation view label (e.g. "Default"). */
+  viewName?: string;
+  /** Body facing for this part in the view. */
+  side?: "front" | "back";
+  /** Which sheet the rect refers to (when not embedded). */
+  sheetId?: string;
   embedded?: CharacterRigSliceEmbeddedImage;
 };
 
@@ -102,18 +121,19 @@ export type CharacterRigSliceDepth = {
 };
 
 /**
- * Character builder data: sheet + slices + bone bindings + optional depth.
- * Filled via the Character Rig dialog; runtime export unchanged until attachments exist.
+ * Character builder: sprite sheets (assets) + part slots + bindings + optional depth.
+ * Legacy `spriteSheet` is migrated to `spriteSheets` in normalizeEditorProjectInPlace.
  */
 export type CharacterRigConfig = {
-  spriteSheet: {
+  /** @deprecated Use `spriteSheets`; removed after migrate. */
+  spriteSheet?: {
     fileName: string;
     mimeType: string;
     dataBase64: string;
-    /** Set on import for UI/validation (optional in saved JSON). */
     pixelWidth?: number;
     pixelHeight?: number;
   } | null;
+  spriteSheets: CharacterRigSpriteSheetEntry[];
   slices: CharacterRigSpriteSlice[];
   bindings: CharacterRigBinding[];
   sliceDepths: CharacterRigSliceDepth[];

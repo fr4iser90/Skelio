@@ -45,6 +45,10 @@ export const useEditorStore = defineStore("editor", () => {
   /** Character Rig: Viewport + Schritte + Sprite-Import. */
   const characterRigModalOpen = ref(false);
 
+  /** Modal: Region aus Sprite-Sheet in gewählten Slot übernehmen. */
+  const sheetSliceModalOpen = ref(false);
+  const sheetSliceModalSheetId = ref<string | null>(null);
+
   /** Viewport: ausgewählter Character-Rig-Slice (pixelgenau verschieben). */
   const selectedCharacterRigSliceId = ref<string | null>(null);
 
@@ -95,12 +99,12 @@ export const useEditorStore = defineStore("editor", () => {
     return structuredClone(toRaw(project.value));
   }
 
-  function dispatch(cmd: Command) {
+  function dispatch(cmd: Command): boolean {
     const next = applyCommand(toRaw(project.value), cmd);
     const issues = validateEditorProject(next);
     if (issues.length > 0) {
       console.warn("Skelio: command rejected", issues);
-      return;
+      return false;
     }
     past.value.push(cloneProjectPlain());
     if (past.value.length > MAX_UNDO) past.value.shift();
@@ -108,6 +112,7 @@ export const useEditorStore = defineStore("editor", () => {
     project.value = next;
     ensureSelection();
     ensureMeshVertexSelection();
+    return true;
   }
 
   function undo() {
@@ -230,6 +235,18 @@ export const useEditorStore = defineStore("editor", () => {
 
   function closeCharacterRigModal() {
     characterRigModalOpen.value = false;
+    sheetSliceModalOpen.value = false;
+    sheetSliceModalSheetId.value = null;
+  }
+
+  function openSheetSliceModal(sheetId: string) {
+    sheetSliceModalSheetId.value = sheetId;
+    sheetSliceModalOpen.value = true;
+  }
+
+  function closeSheetSliceModal() {
+    sheetSliceModalOpen.value = false;
+    sheetSliceModalSheetId.value = null;
   }
 
   function selectCharacterRigSlice(id: string | null) {
@@ -268,6 +285,10 @@ export const useEditorStore = defineStore("editor", () => {
     characterRigModalOpen,
     openCharacterRigModal,
     closeCharacterRigModal,
+    sheetSliceModalOpen,
+    sheetSliceModalSheetId,
+    openSheetSliceModal,
+    closeSheetSliceModal,
     selectedCharacterRigSliceId,
     selectCharacterRigSlice,
     ensureSelection,

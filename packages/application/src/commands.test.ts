@@ -37,6 +37,30 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
+  it("patches character rig slice meta and validates", () => {
+    const tinyPng =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    let p = createDefaultEditorProject();
+    p = applyCommand(p, {
+      type: "addCharacterRigImportedSprite",
+      name: "a",
+      mimeType: "image/png",
+      dataBase64: tinyPng,
+      pixelWidth: 1,
+      pixelHeight: 1,
+    });
+    const sid = p.characterRig!.slices[0]!.id;
+    p = applyCommand(p, {
+      type: "patchCharacterRigSlice",
+      sliceId: sid,
+      viewName: "Walk",
+      side: "back",
+    });
+    expect(p.characterRig?.slices[0]?.viewName).toBe("Walk");
+    expect(p.characterRig?.slices[0]?.side).toBe("back");
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
   it("adds imported character rig sprite (embedded) and validates", () => {
     const tinyPng =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -64,6 +88,8 @@ describe("applyCommand", () => {
       pixelWidth: 1,
       pixelHeight: 1,
     });
+    expect(p.characterRig?.spriteSheets).toHaveLength(1);
+    expect(p.characterRig?.spriteSheets?.[0]?.fileName).toBe("sheet.png");
     p = applyCommand(p, {
       type: "addCharacterRigSlice",
       name: "head",

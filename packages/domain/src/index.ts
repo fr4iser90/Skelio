@@ -12,6 +12,7 @@ export type {
   CharacterRigConfig,
   CharacterRigSliceDepth,
   CharacterRigSliceEmbeddedImage,
+  CharacterRigSpriteSheetEntry,
   CharacterRigSpriteSlice,
   EditorMeta,
   EditorProject,

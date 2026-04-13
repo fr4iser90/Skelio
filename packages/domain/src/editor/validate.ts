@@ -107,25 +107,23 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
   const sliceIds = new Set<string>();
   const rig = project.characterRig;
   if (rig) {
-    const sheet = rig.spriteSheet;
-    const needsGlobalSheet = rig.slices.some((s) => !s.embedded);
-    if (rig.slices.length > 0 && needsGlobalSheet && sheet === null) {
-      issues.push({
-        path: "characterRig",
-        message: "sprite sheet required for sheet-based slices; import embedded sprites or load a sheet",
-      });
-    }
-    if (sheet !== null) {
-      if (typeof sheet.fileName !== "string" || sheet.fileName.length === 0) {
-        issues.push({ path: "characterRig.spriteSheet.fileName", message: "sprite sheet needs a file name" });
+    const sheets = rig.spriteSheets ?? [];
+    const sheetIds = new Set<string>();
+    for (const sh of sheets) {
+      if (sheetIds.has(sh.id)) {
+        issues.push({ path: "characterRig.spriteSheets", message: `duplicate sprite sheet id: ${sh.id}` });
       }
-      if (typeof sheet.dataBase64 !== "string" || sheet.dataBase64.length === 0) {
-        issues.push({ path: "characterRig.spriteSheet.dataBase64", message: "sprite sheet payload is empty" });
+      sheetIds.add(sh.id);
+      if (typeof sh.fileName !== "string" || sh.fileName.length === 0) {
+        issues.push({ path: `characterRig.spriteSheets.${sh.id}.fileName`, message: "sprite sheet needs a file name" });
       }
-      const norm = normalizeReferenceImageMime(sheet.mimeType);
+      if (typeof sh.dataBase64 !== "string" || sh.dataBase64.length === 0) {
+        issues.push({ path: `characterRig.spriteSheets.${sh.id}.dataBase64`, message: "sprite sheet payload is empty" });
+      }
+      const norm = normalizeReferenceImageMime(sh.mimeType);
       if (!norm) {
         issues.push({
-          path: "characterRig.spriteSheet.mimeType",
+          path: `characterRig.spriteSheets.${sh.id}.mimeType`,
           message: "unsupported sprite sheet type (use PNG, JPEG, or WebP)",
         });
       }
@@ -138,11 +136,30 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
       if (typeof s.name !== "string" || s.name.length === 0) {
         issues.push({ path: `characterRig.slices.${s.id}.name`, message: "slice needs a name" });
       }
-      if (!(s.width > 0) || !(s.height > 0)) {
-        issues.push({ path: `characterRig.slices.${s.id}`, message: "slice width/height must be positive" });
+      const emptySlot = s.width <= 0 || s.height <= 0;
+      if (!emptySlot && (!(s.width > 0) || !(s.height > 0))) {
+        issues.push({ path: `characterRig.slices.${s.id}`, message: "slice width/height must be positive when not empty" });
       }
       if (!Number.isFinite(s.worldCx) || !Number.isFinite(s.worldCy)) {
         issues.push({ path: `characterRig.slices.${s.id}`, message: "slice world position must be finite" });
+      }
+      if (s.viewName != null && (typeof s.viewName !== "string" || s.viewName.length === 0)) {
+        issues.push({ path: `characterRig.slices.${s.id}.viewName`, message: "view name must be non-empty when set" });
+      }
+      if (s.side != null && s.side !== "front" && s.side !== "back") {
+        issues.push({ path: `characterRig.slices.${s.id}.side`, message: "side must be front or back" });
+      }
+      if (emptySlot) {
+        continue;
+      }
+      if (s.embedded && s.sheetId) {
+        issues.push({ path: `characterRig.slices.${s.id}`, message: "slice cannot have both embedded and sheetId" });
+      }
+      if (!s.embedded && !s.sheetId) {
+        issues.push({
+          path: `characterRig.slices.${s.id}`,
+          message: "slice with size needs embedded image or sheetId + rect",
+        });
       }
       if (s.embedded) {
         const em = s.embedded;
@@ -166,19 +183,25 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
           });
         }
       }
-      if (
-        !s.embedded &&
-        sheet &&
-        typeof sheet.pixelWidth === "number" &&
-        typeof sheet.pixelHeight === "number" &&
-        sheet.pixelWidth > 0 &&
-        sheet.pixelHeight > 0
-      ) {
-        if (s.x < 0 || s.y < 0 || s.x + s.width > sheet.pixelWidth + 1e-6 || s.y + s.height > sheet.pixelHeight + 1e-6) {
-          issues.push({
-            path: `characterRig.slices.${s.id}`,
-            message: "slice rect outside sprite sheet bounds",
-          });
+      if (s.sheetId && !s.embedded) {
+        if (!sheetIds.has(s.sheetId)) {
+          issues.push({ path: `characterRig.slices.${s.id}.sheetId`, message: "unknown sprite sheet id" });
+        } else {
+          const sh = sheets.find((x) => x.id === s.sheetId)!;
+          const pw = sh.pixelWidth;
+          const ph = sh.pixelHeight;
+          if (
+            typeof pw === "number" &&
+            typeof ph === "number" &&
+            pw > 0 &&
+            ph > 0 &&
+            (s.x < 0 || s.y < 0 || s.x + s.width > pw + 1e-6 || s.y + s.height > ph + 1e-6)
+          ) {
+            issues.push({
+              path: `characterRig.slices.${s.id}`,
+              message: "slice rect outside sprite sheet bounds",
+            });
+          }
         }
       }
     }

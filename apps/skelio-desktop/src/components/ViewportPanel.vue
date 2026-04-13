@@ -5,6 +5,7 @@ import {
   worldBindBoneMatrices,
   worldPoseBoneMatrices,
   worldPoseOriginsWithIk,
+  type CharacterRigSpriteSlice,
   type SkinInfluence,
   type SkinnedMesh,
 } from "@skelio/domain";
@@ -25,6 +26,7 @@ const {
   selectedBoneId,
   selectedMeshId,
   selectedVertexIndex,
+  selectedCharacterRigSliceId,
   weightBrushEnabled,
   weightBrushRadius,
   weightBrushStrength,
@@ -33,7 +35,15 @@ const {
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const referenceBitmap = shallowRef<HTMLImageElement | null>(null);
+/** Decoded sprite sheets by id (rect slices reference `sheetId`). */
+const rigSheetBitmaps = shallowRef(new Map<string, HTMLImageElement>());
+/** Per-slice embedded imports (PNG/WebP). */
+const embeddedRigImages = shallowRef(new Map<string, HTMLImageElement>());
 const brushStroke = ref<BrushStroke | null>(null);
+/** Dragging a rig slice: grab offset from pointer to slice center. */
+const rigSliceDrag = ref<{ sliceId: string; grabDx: number; grabDy: number } | null>(null);
+/** Live position while dragging (before commit). */
+const rigSlicePreview = ref<{ id: string; cx: number; cy: number } | null>(null);
 
 function meshForRender(mesh: SkinnedMesh): SkinnedMesh {
   if (brushStroke.value && brushStroke.value.meshId === mesh.id) {
@@ -60,6 +70,85 @@ watch(
   },
   { immediate: true },
 );
+
+watch(
+  () => project.value.characterRig?.spriteSheets,
+  (sheets) => {
+    const m = new Map(rigSheetBitmaps.value);
+    const keep = new Set((sheets ?? []).map((s) => s.id));
+    for (const k of m.keys()) {
+      if (!keep.has(k)) m.delete(k);
+    }
+    rigSheetBitmaps.value = m;
+    for (const sh of sheets ?? []) {
+      if (rigSheetBitmaps.value.has(sh.id)) continue;
+      const id = sh.id;
+      const img = new Image();
+      img.onload = () => {
+        const nm = new Map(rigSheetBitmaps.value);
+        nm.set(id, img);
+        rigSheetBitmaps.value = nm;
+        draw();
+      };
+      img.onerror = () => {
+        draw();
+      };
+      img.src = `data:${sh.mimeType};base64,${sh.dataBase64}`;
+    }
+    draw();
+  },
+  { deep: true, immediate: true },
+);
+
+watch(
+  () => project.value.characterRig?.slices,
+  (slices) => {
+    const m = new Map(embeddedRigImages.value);
+    const keep = new Set<string>();
+    for (const s of slices ?? []) {
+      if (s.embedded) keep.add(s.id);
+    }
+    for (const k of m.keys()) {
+      if (!keep.has(k)) m.delete(k);
+    }
+    embeddedRigImages.value = m;
+    for (const s of slices ?? []) {
+      if (!s.embedded) continue;
+      if (embeddedRigImages.value.has(s.id)) continue;
+      const id = s.id;
+      const em = s.embedded;
+      const img = new Image();
+      img.onload = () => {
+        const nm = new Map(embeddedRigImages.value);
+        nm.set(id, img);
+        embeddedRigImages.value = nm;
+        draw();
+      };
+      img.src = `data:${em.mimeType};base64,${em.dataBase64}`;
+    }
+  },
+  { deep: true, immediate: true },
+);
+
+function effectiveSliceCenter(s: CharacterRigSpriteSlice): { cx: number; cy: number } {
+  const pr = rigSlicePreview.value;
+  if (pr && pr.id === s.id) return { cx: pr.cx, cy: pr.cy };
+  return { cx: s.worldCx, cy: s.worldCy };
+}
+
+function hitTestRigSlice(wx: number, wy: number): string | null {
+  const slices = project.value.characterRig?.slices;
+  if (!slices?.length) return null;
+  for (let i = slices.length - 1; i >= 0; i--) {
+    const s = slices[i]!;
+    if (s.width <= 0 || s.height <= 0) continue;
+    const { cx, cy } = effectiveSliceCenter(s);
+    const hw = s.width / 2;
+    const hh = s.height / 2;
+    if (wx >= cx - hw && wx <= cx + hw && wy >= cy - hh && wy <= cy + hh) return s.id;
+  }
+  return null;
+}
 
 function draw() {
   const c = canvas.value;
@@ -96,6 +185,43 @@ function draw() {
     ctx.moveTo(-400, y);
     ctx.lineTo(400, y);
     ctx.stroke();
+  }
+
+  const rig = project.value.characterRig;
+  if (rig?.slices?.length) {
+    for (const s of rig.slices) {
+      if (s.width <= 0 || s.height <= 0) continue;
+      const { cx, cy } = effectiveSliceCenter(s);
+      const dx = cx - s.width / 2;
+      const dy = cy - s.height / 2;
+      if (s.embedded) {
+        const eimg = embeddedRigImages.value.get(s.id);
+        if (eimg?.complete && eimg.naturalWidth > 0) {
+          ctx.drawImage(eimg, dx, dy, s.width, s.height);
+        }
+      } else if (s.sheetId) {
+        const rigImg = rigSheetBitmaps.value.get(s.sheetId);
+        if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
+          ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, dx, dy, s.width, s.height);
+        }
+      }
+    }
+    ctx.save();
+    for (const s of rig.slices) {
+      if (s.width <= 0 || s.height <= 0) continue;
+      const { cx, cy } = effectiveSliceCenter(s);
+      const dx = cx - s.width / 2;
+      const dy = cy - s.height / 2;
+      const sel = s.id === selectedCharacterRigSliceId.value;
+      if (sel) {
+        ctx.strokeStyle = "rgba(251, 191, 36, 0.95)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(dx - 1, dy - 1, s.width + 2, s.height + 2);
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.restore();
   }
 
   const skinMeshes = project.value.skinnedMeshes ?? [];
@@ -251,12 +377,35 @@ function onCanvasPointerDown(e: PointerEvent) {
     return;
   }
 
+  const { wx, wy } = worldFromClient(e, c);
+  const hitSlice = hitTestRigSlice(wx, wy);
+  if (hitSlice) {
+    e.preventDefault();
+    const slices = project.value.characterRig?.slices;
+    const s = slices?.find((x) => x.id === hitSlice);
+    if (!s) return;
+    const { cx, cy } = effectiveSliceCenter(s);
+    rigSliceDrag.value = { sliceId: hitSlice, grabDx: wx - cx, grabDy: wy - cy };
+    rigSlicePreview.value = { id: hitSlice, cx, cy };
+    store.selectCharacterRigSlice(hitSlice);
+    store.clearMeshVertexSelection();
+    try {
+      c.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    draw();
+    return;
+  }
+
+  store.selectCharacterRigSlice(null);
+  rigSlicePreview.value = null;
+
   const meshes = project.value.skinnedMeshes ?? [];
   if (meshes.length === 0) {
     store.clearMeshVertexSelection();
     return;
   }
-  const { wx, wy } = worldFromClient(e, c);
   const bindM = worldBindBoneMatrices(project.value);
   const poseM = worldPoseBoneMatrices(project.value, currentTime.value);
   const threshold2 = 20 * 20;
@@ -280,9 +429,23 @@ function onCanvasPointerDown(e: PointerEvent) {
 }
 
 function onCanvasPointerMove(e: PointerEvent) {
-  if (!brushStroke.value) return;
   const c = canvas.value;
   if (!c) return;
+
+  if (rigSliceDrag.value) {
+    e.preventDefault();
+    const { wx, wy } = worldFromClient(e, c);
+    const d = rigSliceDrag.value;
+    rigSlicePreview.value = {
+      id: d.sliceId,
+      cx: wx - d.grabDx,
+      cy: wy - d.grabDy,
+    };
+    draw();
+    return;
+  }
+
+  if (!brushStroke.value) return;
   e.preventDefault();
   const { wx, wy } = worldFromClient(e, c);
   applyBrushAt(wx, wy);
@@ -290,8 +453,30 @@ function onCanvasPointerMove(e: PointerEvent) {
 }
 
 function onCanvasPointerUp(e: PointerEvent) {
-  if (!brushStroke.value) return;
   const c = canvas.value;
+
+  if (rigSliceDrag.value && rigSlicePreview.value) {
+    const p = rigSlicePreview.value;
+    store.dispatch({
+      type: "setCharacterRigSliceWorldPosition",
+      sliceId: rigSliceDrag.value.sliceId,
+      worldCx: p.cx,
+      worldCy: p.cy,
+    });
+    rigSliceDrag.value = null;
+    rigSlicePreview.value = null;
+    if (c?.hasPointerCapture(e.pointerId)) {
+      try {
+        c.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+    draw();
+    return;
+  }
+
+  if (!brushStroke.value) return;
   if (c?.hasPointerCapture(e.pointerId)) {
     c.releasePointerCapture(e.pointerId);
   }
@@ -319,6 +504,7 @@ watch(
     selectedBoneId,
     selectedMeshId,
     selectedVertexIndex,
+    selectedCharacterRigSliceId,
     weightBrushEnabled,
     weightBrushRadius,
     weightBrushStrength,
@@ -328,6 +514,7 @@ watch(
   { deep: true },
 );
 watch(referenceBitmap, draw);
+watch(rigSheetBitmaps, draw, { deep: true });
 watch(brushStroke, draw);
 </script>
 
@@ -346,7 +533,9 @@ watch(brushStroke, draw);
       {{
         weightBrushEnabled
           ? "Pinsel: gewählter Knochen · Ziehen im Viewport (ein Undo pro Strich)"
-          : "Y unten · Vertex für Gewichte anklicken"
+          : (project.characterRig?.slices?.length ?? 0) > 0
+            ? "Mitte: Referenz + Raster + Rig-Slices · Slices ziehen (pixelgenau) · Mesh-Vertex für Gewichte"
+            : "Y unten · Vertex für Gewichte anklicken"
       }}
     </div>
   </div>

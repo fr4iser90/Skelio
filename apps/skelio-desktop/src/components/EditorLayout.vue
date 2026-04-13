@@ -6,6 +6,8 @@ import { useEditorStore } from "../stores/editor.js";
 import HierarchyPanel from "./HierarchyPanel.vue";
 import InspectorPanel from "./InspectorPanel.vue";
 import TimelinePanel from "./TimelinePanel.vue";
+import CharacterRigModal from "./CharacterRigModal.vue";
+import SpriteSheetSliceModal from "./SpriteSheetSliceModal.vue";
 import ToolbarPanel from "./ToolbarPanel.vue";
 import ViewportPanel from "./ViewportPanel.vue";
 
@@ -64,6 +66,8 @@ function onKey(e: KeyboardEvent) {
       </aside>
     </div>
     <TimelinePanel @set-playing="setPlaying" />
+    <CharacterRigModal />
+    <SpriteSheetSliceModal />
   </div>
 </template>
 

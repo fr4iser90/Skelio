@@ -104,6 +104,79 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
   }
 
   const ikChainIds = new Set<string>();
+  const sliceIds = new Set<string>();
+  const rig = project.characterRig;
+  if (rig) {
+    const sheet = rig.spriteSheet;
+    if (rig.slices.length > 0 && sheet === null) {
+      issues.push({ path: "characterRig", message: "sprite sheet must be loaded before slices exist" });
+    }
+    if (sheet !== null) {
+      if (typeof sheet.fileName !== "string" || sheet.fileName.length === 0) {
+        issues.push({ path: "characterRig.spriteSheet.fileName", message: "sprite sheet needs a file name" });
+      }
+      if (typeof sheet.dataBase64 !== "string" || sheet.dataBase64.length === 0) {
+        issues.push({ path: "characterRig.spriteSheet.dataBase64", message: "sprite sheet payload is empty" });
+      }
+      const norm = normalizeReferenceImageMime(sheet.mimeType);
+      if (!norm) {
+        issues.push({
+          path: "characterRig.spriteSheet.mimeType",
+          message: "unsupported sprite sheet type (use PNG, JPEG, or WebP)",
+        });
+      }
+    }
+    for (const s of rig.slices) {
+      if (sliceIds.has(s.id)) {
+        issues.push({ path: "characterRig.slices", message: `duplicate slice id: ${s.id}` });
+      }
+      sliceIds.add(s.id);
+      if (typeof s.name !== "string" || s.name.length === 0) {
+        issues.push({ path: `characterRig.slices.${s.id}.name`, message: "slice needs a name" });
+      }
+      if (!(s.width > 0) || !(s.height > 0)) {
+        issues.push({ path: `characterRig.slices.${s.id}`, message: "slice width/height must be positive" });
+      }
+      if (
+        sheet &&
+        typeof sheet.pixelWidth === "number" &&
+        typeof sheet.pixelHeight === "number" &&
+        sheet.pixelWidth > 0 &&
+        sheet.pixelHeight > 0
+      ) {
+        if (s.x < 0 || s.y < 0 || s.x + s.width > sheet.pixelWidth + 1e-6 || s.y + s.height > sheet.pixelHeight + 1e-6) {
+          issues.push({
+            path: `characterRig.slices.${s.id}`,
+            message: "slice rect outside sprite sheet bounds",
+          });
+        }
+      }
+    }
+    const boundSlice = new Set<string>();
+    for (const b of rig.bindings) {
+      if (!sliceIds.has(b.sliceId)) {
+        issues.push({ path: "characterRig.bindings", message: `unknown slice id in binding: ${b.sliceId}` });
+      }
+      if (!ids.has(b.boneId)) {
+        issues.push({ path: "characterRig.bindings", message: `unknown bone id in binding: ${b.boneId}` });
+      }
+      if (boundSlice.has(b.sliceId)) {
+        issues.push({ path: "characterRig.bindings", message: `duplicate binding for slice: ${b.sliceId}` });
+      }
+      boundSlice.add(b.sliceId);
+    }
+    const depthSlice = new Set<string>();
+    for (const d of rig.sliceDepths ?? []) {
+      if (!sliceIds.has(d.sliceId)) {
+        issues.push({ path: "characterRig.sliceDepths", message: `unknown slice id in depth: ${d.sliceId}` });
+      }
+      if (depthSlice.has(d.sliceId)) {
+        issues.push({ path: "characterRig.sliceDepths", message: `duplicate depth entry for slice: ${d.sliceId}` });
+      }
+      depthSlice.add(d.sliceId);
+    }
+  }
+
   for (const ch of project.ikTwoBoneChains ?? []) {
     if (ikChainIds.has(ch.id)) {
       issues.push({ path: "ikTwoBoneChains", message: `duplicate IK chain id: ${ch.id}` });

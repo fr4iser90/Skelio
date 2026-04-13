@@ -6,6 +6,7 @@ import {
   validateSkinnedMesh,
   type Bone,
   type ChannelProperty,
+  type CharacterRigConfig,
   type EditorProject,
   type Keyframe,
   type SkinInfluence,
@@ -31,7 +32,36 @@ export type Command =
   | { type: "addDemoIkChain" }
   | { type: "setIkChainTarget"; chainId: string; targetX: number; targetY: number }
   | { type: "setIkChainEnabled"; chainId: string; enabled: boolean }
-  | { type: "removeIkChain"; chainId: string };
+  | { type: "removeIkChain"; chainId: string }
+  | {
+      type: "setCharacterRigSpriteSheet";
+      fileName: string;
+      mimeType: string;
+      dataBase64: string;
+      pixelWidth?: number;
+      pixelHeight?: number;
+    }
+  | { type: "clearCharacterRigSpriteSheet" }
+  | { type: "clearCharacterRig" }
+  | { type: "addCharacterRigSlice"; name: string; x: number; y: number; width: number; height: number }
+  | { type: "renameCharacterRigSlice"; sliceId: string; name: string }
+  | { type: "removeCharacterRigSlice"; sliceId: string }
+  | { type: "setCharacterRigBinding"; sliceId: string; boneId: string }
+  | { type: "clearCharacterRigBinding"; sliceId: string }
+  | {
+      type: "setCharacterRigSliceDepth";
+      sliceId: string;
+      maxDepthFront: number;
+      maxDepthBack: number;
+      syncBackWithFront: boolean;
+    };
+
+function ensureCharacterRig(p: EditorProject): CharacterRigConfig {
+  if (!p.characterRig) {
+    p.characterRig = { spriteSheet: null, slices: [], bindings: [], sliceDepths: [] };
+  }
+  return p.characterRig;
+}
 
 function activeClip(project: EditorProject) {
   return project.clips.find((c) => c.id === project.activeClipId)!;
@@ -172,6 +202,103 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     return p;
   }
 
+  if (cmd.type === "setCharacterRigSpriteSheet") {
+    const mime = normalizeReferenceImageMime(cmd.mimeType);
+    if (!mime || !cmd.dataBase64) return project;
+    const rig = ensureCharacterRig(p);
+    rig.spriteSheet = {
+      fileName: cmd.fileName,
+      mimeType: mime,
+      dataBase64: cmd.dataBase64,
+      ...(typeof cmd.pixelWidth === "number" && cmd.pixelWidth > 0 ? { pixelWidth: cmd.pixelWidth } : {}),
+      ...(typeof cmd.pixelHeight === "number" && cmd.pixelHeight > 0 ? { pixelHeight: cmd.pixelHeight } : {}),
+    };
+    rig.slices = [];
+    rig.bindings = [];
+    rig.sliceDepths = [];
+    return p;
+  }
+
+  if (cmd.type === "clearCharacterRigSpriteSheet") {
+    if (!p.characterRig) return p;
+    p.characterRig.spriteSheet = null;
+    p.characterRig.slices = [];
+    p.characterRig.bindings = [];
+    p.characterRig.sliceDepths = [];
+    return p;
+  }
+
+  if (cmd.type === "clearCharacterRig") {
+    delete p.characterRig;
+    return p;
+  }
+
+  if (cmd.type === "addCharacterRigSlice") {
+    const rig = ensureCharacterRig(p);
+    if (!rig.spriteSheet) return project;
+    if (!(cmd.width > 0) || !(cmd.height > 0)) return project;
+    const name = cmd.name.trim() || `Part ${rig.slices.length + 1}`;
+    const id = createId("slice");
+    rig.slices.push({
+      id,
+      name,
+      x: cmd.x,
+      y: cmd.y,
+      width: cmd.width,
+      height: cmd.height,
+    });
+    return p;
+  }
+
+  if (cmd.type === "renameCharacterRigSlice") {
+    const rig = p.characterRig;
+    if (!rig) return project;
+    const s = rig.slices.find((x) => x.id === cmd.sliceId);
+    if (!s) return project;
+    s.name = cmd.name.trim() || s.name;
+    return p;
+  }
+
+  if (cmd.type === "removeCharacterRigSlice") {
+    const rig = p.characterRig;
+    if (!rig) return project;
+    rig.slices = rig.slices.filter((s) => s.id !== cmd.sliceId);
+    rig.bindings = rig.bindings.filter((b) => b.sliceId !== cmd.sliceId);
+    rig.sliceDepths = (rig.sliceDepths ?? []).filter((d) => d.sliceId !== cmd.sliceId);
+    return p;
+  }
+
+  if (cmd.type === "setCharacterRigBinding") {
+    const rig = ensureCharacterRig(p);
+    if (!rig.slices.some((s) => s.id === cmd.sliceId)) return project;
+    if (!p.bones.some((b) => b.id === cmd.boneId)) return project;
+    const others = rig.bindings.filter((b) => b.sliceId !== cmd.sliceId);
+    others.push({ sliceId: cmd.sliceId, boneId: cmd.boneId });
+    rig.bindings = others;
+    return p;
+  }
+
+  if (cmd.type === "clearCharacterRigBinding") {
+    const rig = p.characterRig;
+    if (!rig) return project;
+    rig.bindings = rig.bindings.filter((b) => b.sliceId !== cmd.sliceId);
+    return p;
+  }
+
+  if (cmd.type === "setCharacterRigSliceDepth") {
+    const rig = ensureCharacterRig(p);
+    if (!rig.slices.some((s) => s.id === cmd.sliceId)) return project;
+    const depths = [...(rig.sliceDepths ?? [])].filter((d) => d.sliceId !== cmd.sliceId);
+    depths.push({
+      sliceId: cmd.sliceId,
+      maxDepthFront: cmd.maxDepthFront,
+      maxDepthBack: cmd.syncBackWithFront ? cmd.maxDepthFront : cmd.maxDepthBack,
+      syncBackWithFront: cmd.syncBackWithFront,
+    });
+    rig.sliceDepths = depths;
+    return p;
+  }
+
   if (cmd.type === "setMetaName") {
     p.meta.name = cmd.name;
     return p;
@@ -229,6 +356,9 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
         (c) => c.rootBoneId !== cmd.boneId && c.midBoneId !== cmd.boneId && c.tipBoneId !== cmd.boneId,
       );
       if (p.ikTwoBoneChains.length === 0) delete p.ikTwoBoneChains;
+    }
+    if (p.characterRig?.bindings?.length) {
+      p.characterRig.bindings = p.characterRig.bindings.filter((b) => b.boneId !== cmd.boneId);
     }
     return p;
   }

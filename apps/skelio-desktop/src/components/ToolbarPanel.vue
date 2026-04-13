@@ -161,6 +161,12 @@ function download(name: string, body: string) {
       <button type="button" title="Nach project.skelio.json im gewählten Ordner speichern" @click="onSaveProjectFolder">Ordner speichern</button>
       <button type="button" class="ghost" title="Anderen Zielordner (Pfad)" @click="onSaveProjectFolderAs">Speichern unter…</button>
     </template>
+    <button type="button" title="Smack-ähnlich: Sheet, Slices, Knochen binden, Tiefe" @click="store.openCharacterRigModal()">
+      Character Rig…
+    </button>
+    <button type="button" title="Sheet temporär laden, Rechtecke ziehen — eigenes Fenster" @click="store.openSpriteSheetSliceModal()">
+      Sprite-Sheet…
+    </button>
     <button type="button" @click="triggerRefImage">Referenzbild…</button>
     <input
       ref="refImageInput"

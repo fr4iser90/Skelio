@@ -37,6 +37,33 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
+  it("sets character rig sheet and slice, validates", () => {
+    let p = createDefaultEditorProject();
+    p = applyCommand(p, {
+      type: "setCharacterRigSpriteSheet",
+      fileName: "sheet.png",
+      mimeType: "image/png",
+      dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      pixelWidth: 1,
+      pixelHeight: 1,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "head",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    });
+    expect(p.characterRig?.slices).toHaveLength(1);
+    expect(p.characterRig?.bindings).toEqual([]);
+    expect(validateEditorProject(p)).toHaveLength(0);
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: p.characterRig!.slices[0]!.id, boneId: root });
+    expect(p.characterRig?.bindings).toHaveLength(1);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
   it("ignores IK commands for unknown chain id", () => {
     let p = createDefaultEditorProject();
     p = applyCommand(p, { type: "addDemoIkChain" });

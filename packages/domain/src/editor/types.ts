@@ -63,6 +63,48 @@ export type EditorReferenceImage = {
   dataBase64: string;
 };
 
+/** One rectangular region cut from a sprite sheet (pixel coords, top-left origin, y down). */
+export type CharacterRigSpriteSlice = {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+/** Maps a slice to a bone (Smack-style bind step). */
+export type CharacterRigBinding = {
+  sliceId: string;
+  boneId: string;
+};
+
+/** Optional 2.5D depth per slice (editor spike; not in runtime export yet). */
+export type CharacterRigSliceDepth = {
+  sliceId: string;
+  maxDepthFront: number;
+  maxDepthBack: number;
+  syncBackWithFront: boolean;
+};
+
+/**
+ * Character builder data: sheet + slices + bone bindings + optional depth.
+ * Filled via the Character Rig dialog; runtime export unchanged until attachments exist.
+ */
+export type CharacterRigConfig = {
+  spriteSheet: {
+    fileName: string;
+    mimeType: string;
+    dataBase64: string;
+    /** Set on import for UI/validation (optional in saved JSON). */
+    pixelWidth?: number;
+    pixelHeight?: number;
+  } | null;
+  slices: CharacterRigSpriteSlice[];
+  bindings: CharacterRigBinding[];
+  sliceDepths: CharacterRigSliceDepth[];
+};
+
 /** One bone influence on a vertex (linear blend skinning). */
 export type SkinInfluence = { boneId: string; weight: number };
 
@@ -94,4 +136,6 @@ export type EditorProject = {
   skinnedMeshes?: SkinnedMesh[];
   /** Optional IK chains (editor / viewport spike; not in runtime export). */
   ikTwoBoneChains?: IkTwoBoneChain[];
+  /** Optional Smack-style character rig (sheet, slices, bindings). */
+  characterRig?: CharacterRigConfig;
 };

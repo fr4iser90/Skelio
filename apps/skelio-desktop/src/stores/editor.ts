@@ -41,6 +41,11 @@ export const useEditorStore = defineStore("editor", () => {
   const weightBrushStrength = ref(0.06);
   const weightBrushSubtract = ref(false);
 
+  /** Smack-style Character Rig wizard (sprite sheet → bones → bind → depth → preview). */
+  const characterRigModalOpen = ref(false);
+  /** Eigenes Fenster: Sheet laden & Rechtecke (nicht im Character-Rig-Dialog). */
+  const spriteSheetSliceModalOpen = ref(false);
+
   const selectedBone = computed(() =>
     project.value.bones.find((b) => b.id === selectedBoneId.value) ?? null,
   );
@@ -215,6 +220,22 @@ export const useEditorStore = defineStore("editor", () => {
     return JSON.stringify(editorProjectToRuntime(toRaw(project.value)), null, 2);
   }
 
+  function openCharacterRigModal() {
+    characterRigModalOpen.value = true;
+  }
+
+  function closeCharacterRigModal() {
+    characterRigModalOpen.value = false;
+  }
+
+  function openSpriteSheetSliceModal() {
+    spriteSheetSliceModalOpen.value = true;
+  }
+
+  function closeSpriteSheetSliceModal() {
+    spriteSheetSliceModalOpen.value = false;
+  }
+
   return {
     project,
     projectRootPath,
@@ -244,6 +265,12 @@ export const useEditorStore = defineStore("editor", () => {
     saveProjectToFolderAs,
     saveEditorJson,
     saveRuntimeJson,
+    characterRigModalOpen,
+    openCharacterRigModal,
+    closeCharacterRigModal,
+    spriteSheetSliceModalOpen,
+    openSpriteSheetSliceModal,
+    closeSpriteSheetSliceModal,
     ensureSelection,
     /** Manifest-Dateiname (für UI). */
     projectManifestFileName: PROJECT_MANIFEST_FILE,

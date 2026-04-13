@@ -1,0 +1,93 @@
+<script setup lang="ts">
+import { clipDurationSeconds } from "@skelio/domain";
+import { storeToRefs } from "pinia";
+import { computed, onMounted, onUnmounted } from "vue";
+import { useEditorStore } from "../stores/editor.js";
+import HierarchyPanel from "./HierarchyPanel.vue";
+import InspectorPanel from "./InspectorPanel.vue";
+import TimelinePanel from "./TimelinePanel.vue";
+import ToolbarPanel from "./ToolbarPanel.vue";
+import ViewportPanel from "./ViewportPanel.vue";
+
+const store = useEditorStore();
+const { project, currentTime, playing } = storeToRefs(store);
+
+const playMax = computed(() => {
+  const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
+  if (!clip) return 4;
+  return Math.max(1, clipDurationSeconds(clip, project.value.bones));
+});
+
+let raf = 0;
+function tick() {
+  if (!playing.value) return;
+  const dt = 1 / Math.max(1, project.value.meta.fps);
+  currentTime.value += dt;
+  const max = playMax.value;
+  if (currentTime.value > max) currentTime.value = 0;
+  raf = requestAnimationFrame(tick);
+}
+
+function setPlaying(v: boolean) {
+  playing.value = v;
+  if (v) raf = requestAnimationFrame(tick);
+  else cancelAnimationFrame(raf);
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", onKey);
+});
+onUnmounted(() => {
+  window.removeEventListener("keydown", onKey);
+  cancelAnimationFrame(raf);
+});
+
+function onKey(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+    e.preventDefault();
+    if (e.shiftKey) store.redo();
+    else store.undo();
+  }
+}
+</script>
+
+<template>
+  <div class="shell">
+    <ToolbarPanel />
+    <div class="workspace">
+      <aside class="side">
+        <HierarchyPanel />
+      </aside>
+      <ViewportPanel />
+      <aside class="side right">
+        <InspectorPanel />
+      </aside>
+    </div>
+    <TimelinePanel @set-playing="setPlaying" />
+  </div>
+</template>
+
+<style scoped>
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr 200px;
+  height: 100vh;
+  font-family: system-ui, sans-serif;
+  background: #1a1b1e;
+  color: #e6e6e6;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: 220px 1fr 260px;
+  min-height: 0;
+}
+.side {
+  border-right: 1px solid #333;
+  overflow: auto;
+  background: #222;
+}
+.side.right {
+  border-right: none;
+  border-left: 1px solid #333;
+}
+</style>

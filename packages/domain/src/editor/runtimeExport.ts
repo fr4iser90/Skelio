@@ -1,0 +1,85 @@
+import { RUNTIME_SCHEMA_VERSION } from "../constants.js";
+import { clipDurationSeconds } from "./pose.js";
+import type { AnimationClip, Bone, EditorProject } from "./types.js";
+
+/** Runtime JSON shape (subset validated by schemas/runtime-1.0.0.json). */
+export type RuntimeExport = {
+  schemaVersion: string;
+  meta: {
+    name: string;
+    fps: number;
+    duration: number;
+    coordinateSystem: "y-down";
+  };
+  assets: { id: string; type: "texture"; path: string }[];
+  armature: {
+    bones: {
+      id: string;
+      parentId: string | null;
+      name: string;
+      bindPose: { x: number; y: number; rotation: number; sx: number; sy: number };
+    }[];
+    attachments: {
+      id: string;
+      boneId: string;
+      assetId: string;
+      transform: { x: number; y: number; rotation: number; sx: number; sy: number };
+    }[];
+  };
+  animations: {
+    id: string;
+    name: string;
+    length: number;
+    tracks: {
+      boneId: string;
+      channels: {
+        property: "tx" | "ty" | "rot" | "sx" | "sy";
+        interpolation: "linear" | "hold";
+        keys: { t: number; v: number }[];
+      }[];
+    }[];
+  }[];
+};
+
+function mapClip(clip: AnimationClip, bones: Bone[]): RuntimeExport["animations"][0] {
+  const length = clipDurationSeconds(clip, bones);
+  return {
+    id: clip.id,
+    name: clip.name,
+    length,
+    tracks: clip.tracks.map((tr) => ({
+      boneId: tr.boneId,
+      channels: tr.channels.map((ch) => ({
+        property: ch.property,
+        interpolation: ch.interpolation,
+        keys: ch.keys.map((k) => ({ t: k.t, v: k.v })),
+      })),
+    })),
+  };
+}
+
+export function editorProjectToRuntime(project: EditorProject): RuntimeExport {
+  const clip = project.clips.find((c) => c.id === project.activeClipId) ?? project.clips[0]!;
+  const duration = clipDurationSeconds(clip, project.bones);
+
+  return {
+    schemaVersion: RUNTIME_SCHEMA_VERSION,
+    meta: {
+      name: project.meta.name,
+      fps: project.meta.fps,
+      duration,
+      coordinateSystem: "y-down",
+    },
+    assets: [],
+    armature: {
+      bones: project.bones.map((b) => ({
+        id: b.id,
+        parentId: b.parentId,
+        name: b.name,
+        bindPose: { ...b.bindPose },
+      })),
+      attachments: [],
+    },
+    animations: project.clips.map((c) => mapClip(c, project.bones)),
+  };
+}

@@ -23,5 +23,7 @@ Siehe [0000-template.md](0000-template.md).
 | [0006](0006-runtime-zeitbasis-sekunden.md) | Runtime-Zeitbasis: Sekunden | angenommen |
 | [0007](0007-runtime-koordinaten-rotation.md) | Runtime: y-down + Rotation Radiant | angenommen |
 | [0008](0008-runtime-json-camelcase.md) | Runtime-JSON: camelCase | angenommen |
+| [0009](0009-mesh-skinning-roadmap.md) | Mesh-Skinning: Zielbild & Integrationspfad | angenommen |
+| [0010](0010-inverse-kinematics-roadmap.md) | Inverse Kinematics (IK): Zielbild & Integrationspfad | angenommen |
 
 Neue ADRs: Kopie von `0000-template.md`, Nummer +1, PR verlinken.

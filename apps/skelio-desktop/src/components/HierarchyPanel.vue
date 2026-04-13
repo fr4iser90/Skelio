@@ -4,7 +4,7 @@ import { computed } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 
 const store = useEditorStore();
-const { project, selectedBoneId } = storeToRefs(store);
+const { project, selectedBoneId, selectedMeshId } = storeToRefs(store);
 
 const rows = computed(() => {
   const out: { id: string; name: string; depth: number }[] = [];
@@ -30,6 +30,10 @@ function addChild(parentId: string) {
 function remove(id: string) {
   store.dispatch({ type: "removeBone", boneId: id });
 }
+
+function selectMesh(id: string) {
+  store.selectMeshOnly(id);
+}
 </script>
 
 <template>
@@ -44,6 +48,16 @@ function remove(id: string) {
         </div>
       </li>
     </ul>
+    <template v-if="project.skinnedMeshes?.length">
+      <h3>Meshes</h3>
+      <ul class="tree">
+        <li v-for="m in project.skinnedMeshes" :key="m.id">
+          <div class="row" :class="{ sel: m.id === selectedMeshId }">
+            <button type="button" class="pick" @click="selectMesh(m.id)">{{ m.name }}</button>
+          </div>
+        </li>
+      </ul>
+    </template>
   </div>
 </template>
 

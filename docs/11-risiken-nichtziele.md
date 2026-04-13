@@ -12,8 +12,8 @@
 
 ## Technische Risiken
 
-- **Inverse Kinematics** später: mathematisch und UX-intensiv — erst nach stabilem Forward-Kinematics-Pfad.
-- **Mesh-Deformation:** Performance und Tooling (Weight Paint) sind groß; klar von MVP trennen.
+- **Inverse Kinematics** später: mathematisch und UX-intensiv — erst nach stabilem Forward-Kinematics-Pfad (Leitplanken: [ADR-0010](adr/0010-inverse-kinematics-roadmap.md)).
+- **Mesh-Deformation:** Performance und Tooling (Weight Paint) sind groß; klar von MVP trennen ([ADR-0009](adr/0009-mesh-skinning-roadmap.md)).
 
 ## Nicht-Ziele (explizit)
 

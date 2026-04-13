@@ -6,6 +6,7 @@
     "dev": "pnpm --filter @skelio/desktop dev",
     "build": "pnpm --filter @skelio/desktop build",
     "test": "pnpm -r run test",
-    "typecheck": "pnpm -r run typecheck"
+    "typecheck": "pnpm -r run typecheck",
+    "ci": "pnpm typecheck && pnpm test"
   }
 }

@@ -1,8 +1,8 @@
 import { RUNTIME_SCHEMA_VERSION } from "../constants.js";
 import { clipDurationSeconds } from "./pose.js";
-import type { AnimationClip, Bone, EditorProject } from "./types.js";
+import type { AnimationClip, Bone, EditorProject, SkinnedMesh } from "./types.js";
 
-/** Runtime JSON shape (subset validated by schemas/runtime-1.0.0.json). */
+/** Runtime JSON shape (validated by schemas/runtime-1.1.0.json). */
 export type RuntimeExport = {
   schemaVersion: string;
   meta: {
@@ -39,7 +39,27 @@ export type RuntimeExport = {
       }[];
     }[];
   }[];
+  /** 2D skinned meshes (bind space); empty array if none. Since 1.1.0. */
+  skins: RuntimeSkinnedMesh[];
 };
+
+export type RuntimeSkinnedMesh = {
+  id: string;
+  name: string;
+  vertices: { x: number; y: number }[];
+  indices: number[];
+  influences: { boneId: string; weight: number }[][];
+};
+
+function mapSkinnedMesh(m: SkinnedMesh): RuntimeSkinnedMesh {
+  return {
+    id: m.id,
+    name: m.name,
+    vertices: m.vertices.map((v) => ({ x: v.x, y: v.y })),
+    indices: [...m.indices],
+    influences: m.influences.map((row) => row.map((inf) => ({ boneId: inf.boneId, weight: inf.weight }))),
+  };
+}
 
 function mapClip(clip: AnimationClip, bones: Bone[]): RuntimeExport["animations"][0] {
   const length = clipDurationSeconds(clip, bones);
@@ -61,6 +81,7 @@ function mapClip(clip: AnimationClip, bones: Bone[]): RuntimeExport["animations"
 export function editorProjectToRuntime(project: EditorProject): RuntimeExport {
   const clip = project.clips.find((c) => c.id === project.activeClipId) ?? project.clips[0]!;
   const duration = clipDurationSeconds(clip, project.bones);
+  const meshes = project.skinnedMeshes ?? [];
 
   return {
     schemaVersion: RUNTIME_SCHEMA_VERSION,
@@ -81,5 +102,6 @@ export function editorProjectToRuntime(project: EditorProject): RuntimeExport {
       attachments: [],
     },
     animations: project.clips.map((c) => mapClip(c, project.bones)),
+    skins: meshes.map(mapSkinnedMesh),
   };
 }

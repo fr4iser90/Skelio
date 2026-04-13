@@ -1,9 +1,9 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "meta": {
     "name": "fixture-minimal",
     "fps": 60,
-    "duration": 0,
+    "duration": 1,
     "coordinateSystem": "y-down"
   },
   "assets": [],
@@ -18,5 +18,46 @@
     ],
     "attachments": []
   },
-  "animations": []
+  "animations": [
+    {
+      "id": "anim_main",
+      "name": "main",
+      "length": 1,
+      "tracks": [
+        {
+          "boneId": "bone_root",
+          "channels": [
+            {
+              "property": "tx",
+              "interpolation": "linear",
+              "keys": [
+                { "t": 0, "v": 0 },
+                { "t": 0.5, "v": 140 },
+                { "t": 1, "v": 0 }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "skins": [
+    {
+      "id": "skin_quad",
+      "name": "fixture_quad",
+      "vertices": [
+        { "x": -50, "y": -50 },
+        { "x": 50, "y": -50 },
+        { "x": 50, "y": 50 },
+        { "x": -50, "y": 50 }
+      ],
+      "indices": [0, 1, 2, 0, 2, 3],
+      "influences": [
+        [{ "boneId": "bone_root", "weight": 1 }],
+        [{ "boneId": "bone_root", "weight": 1 }],
+        [{ "boneId": "bone_root", "weight": 1 }],
+        [{ "boneId": "bone_root", "weight": 1 }]
+      ]
+    }
+  ]
 }

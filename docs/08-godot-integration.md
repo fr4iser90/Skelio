@@ -43,6 +43,10 @@ Alternative: **Single Node** ohne Kind-Knoten pro Bone (performanter) — für M
   - Lädt festes Fixture-JSON.
   - Screenshot- oder Positions-Assert (manuell zuerst, später automatisierbar mit Godot Headless falls gewünscht).
 
+## Mesh, Skinning & IK (später)
+
+Die offizielle Schnittstelle bleibt das **versionierte Runtime-JSON**. Geplante Erweiterungen (Mesh-Deformation, optionale IK-Metadaten oder gebakte FKs) sind in [ADR-0009](adr/0009-mesh-skinning-roadmap.md) und [ADR-0010](adr/0010-inverse-kinematics-roadmap.md) beschrieben; die Godot-Referenz wird angepasst, sobald das Schema entsprechende Felder trägt.
+
 ## Versionierung
 
 - Godot-Addon trägt eigene Version; Kompatibilitätstabelle:
@@ -50,6 +54,7 @@ Alternative: **Single Node** ohne Kind-Knoten pro Bone (performanter) — für M
 | Skelio `schemaVersion` | Addon `minVersion` |
 |--------------------------|--------------------|
 | 1.0.0 | 1.0.0 |
+| 1.1.0 (enthält `skins`) | 1.1.0 |
 
 Tabelle in Addon-README pflegen.
 

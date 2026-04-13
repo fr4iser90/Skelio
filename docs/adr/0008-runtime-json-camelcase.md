@@ -25,4 +25,4 @@ Alle **öffentlichen** Keys im **Runtime-Export** und in den **JSON-Schema**-Dat
 ## Referenzen
 
 - [06-designpatterns-konventionen.md](../06-designpatterns-konventionen.md)
-- `schemas/runtime-1.0.0.json`
+- `schemas/runtime-1.0.0.json` / `schemas/runtime-1.1.0.json` (gleiche Namenskonvention)

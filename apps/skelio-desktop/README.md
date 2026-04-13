@@ -1,7 +1,14 @@
-# Tauri + Vue + TypeScript
+# Skelio Desktop (Vue + Tauri)
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+## Ordnerprojekt (ADR-0004)
 
-## Recommended IDE Setup
+- Im Projektordner liegen **`project.skelio.json`** (Editor-Zustand) und **`assets/`** (für spätere Binärdateien; wird beim Speichern angelegt).
+- In der Desktop-App: **Ordner…** / **Ordner speichern** — der Pfad wird per **Eingabedialog** gesetzt (kein nativer Ordner-Picker in dieser Version, damit Linux-Builds ohne GTK-Dialog-Toolchain auskommen).
 
-- [VS Code](https://code.visualstudio.com/) + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Entwicklung
+
+```bash
+pnpm --filter @skelio/desktop tauri dev
+```
+
+Voraussetzungen siehe [Tauri (Linux)](https://tauri.app/start/prerequisites/).

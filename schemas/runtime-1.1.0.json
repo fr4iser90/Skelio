@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skelio.dev/schemas/runtime-1.1.0.json",
+  "title": "Skelio Runtime Export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "meta", "assets", "armature", "animations", "skins"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "fps", "duration", "coordinateSystem"],
+      "properties": {
+        "name": { "type": "string" },
+        "fps": { "type": "number", "exclusiveMinimum": 0 },
+        "duration": { "type": "number", "minimum": 0 },
+        "coordinateSystem": { "type": "string", "const": "y-down" }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/asset" }
+    },
+    "armature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bones", "attachments"],
+      "properties": {
+        "bones": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/bone" }
+        },
+        "attachments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/attachment" }
+        }
+      }
+    },
+    "animations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/animation" }
+    },
+    "skins": {
+      "type": "array",
+      "description": "2D skinned triangle meshes in bind space (linear blend skinning). Empty if none.",
+      "items": { "$ref": "#/$defs/skinnedMesh" }
+    }
+  },
+  "$defs": {
+    "vec2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "skinInfluence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boneId", "weight"],
+      "properties": {
+        "boneId": { "type": "string", "minLength": 1 },
+        "weight": { "type": "number", "minimum": 0 }
+      }
+    },
+    "skinnedMesh": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "vertices", "indices", "influences"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "vertices": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/vec2" }
+        },
+        "indices": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 }
+        },
+        "influences": {
+          "type": "array",
+          "description": "Per-vertex bone weights; length must match vertices (enforced by exporters, not JSON Schema).",
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/skinInfluence" }
+          }
+        }
+      }
+    },
+    "transform2d": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "rotation", "sx", "sy"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "rotation": { "type": "number" },
+        "sx": { "type": "number" },
+        "sy": { "type": "number" }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "path"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "const": "texture" },
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "bone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "parentId", "name", "bindPose"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "parentId": {
+          "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "bindPose": { "$ref": "#/$defs/transform2d" }
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "boneId", "assetId", "transform"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "boneId": { "type": "string", "minLength": 1 },
+        "assetId": { "type": "string", "minLength": 1 },
+        "transform": { "$ref": "#/$defs/transform2d" }
+      }
+    },
+    "keyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "v"],
+      "properties": {
+        "t": { "type": "number", "minimum": 0 },
+        "v": { "type": "number" }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property", "interpolation", "keys"],
+      "properties": {
+        "property": {
+          "type": "string",
+          "enum": ["tx", "ty", "rot", "sx", "sy"]
+        },
+        "interpolation": {
+          "type": "string",
+          "enum": ["linear", "hold"]
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/keyframe" }
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boneId", "channels"],
+      "properties": {
+        "boneId": { "type": "string", "minLength": 1 },
+        "channels": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/channel" }
+        }
+      }
+    },
+    "animation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "length", "tracks"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "length": { "type": "number", "minimum": 0 },
+        "tracks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/track" }
+        }
+      }
+    }
+  }
+}

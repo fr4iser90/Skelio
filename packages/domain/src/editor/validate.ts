@@ -1,3 +1,5 @@
+import { normalizeReferenceImageMime } from "./referenceImage.js";
+import { validateSkinnedMesh } from "./skinning.js";
 import type { EditorProject } from "./types.js";
 
 export type ValidationIssue = { path: string; message: string };
@@ -40,6 +42,49 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
     issues.push({ path: "activeClipId", message: `active clip not found: ${activeClipId}` });
   }
 
+  const ref = project.referenceImage;
+  if (ref != null) {
+    if (typeof ref.fileName !== "string" || ref.fileName.length === 0) {
+      issues.push({ path: "referenceImage.fileName", message: "reference image needs a file name" });
+    }
+    if (typeof ref.dataBase64 !== "string" || ref.dataBase64.length === 0) {
+      issues.push({ path: "referenceImage.dataBase64", message: "reference image payload is empty" });
+    }
+    const norm = normalizeReferenceImageMime(ref.mimeType);
+    if (!norm) {
+      issues.push({
+        path: "referenceImage.mimeType",
+        message: "unsupported reference image type (use PNG, JPEG, or WebP)",
+      });
+    }
+  }
+
+  const meshIds = new Set<string>();
+  for (const m of project.skinnedMeshes ?? []) {
+    if (meshIds.has(m.id)) {
+      issues.push({ path: "skinnedMeshes", message: `duplicate mesh id: ${m.id}` });
+    }
+    meshIds.add(m.id);
+    if (m.assetPath) {
+      const hasInline = m.vertices.length > 0 || m.indices.length > 0 || (m.influences?.length ?? 0) > 0;
+      if (hasInline) {
+        issues.push({
+          path: `skinnedMeshes.${m.id}`,
+          message: "assetPath cannot be combined with inline mesh geometry",
+        });
+        continue;
+      }
+      issues.push({
+        path: `skinnedMeshes.${m.id}.assetPath`,
+        message: "external mesh not loaded (hydrate folder assets first)",
+      });
+      continue;
+    }
+    for (const iss of validateSkinnedMesh(m, ids)) {
+      issues.push(iss);
+    }
+  }
+
   for (const clip of clips) {
     for (const tr of clip.tracks) {
       if (!ids.has(tr.boneId)) {
@@ -54,6 +99,30 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
             });
           }
         }
+      }
+    }
+  }
+
+  const ikChainIds = new Set<string>();
+  for (const ch of project.ikTwoBoneChains ?? []) {
+    if (ikChainIds.has(ch.id)) {
+      issues.push({ path: "ikTwoBoneChains", message: `duplicate IK chain id: ${ch.id}` });
+    }
+    ikChainIds.add(ch.id);
+    for (const bid of [ch.rootBoneId, ch.midBoneId, ch.tipBoneId]) {
+      if (!ids.has(bid)) {
+        issues.push({ path: `ikTwoBoneChains.${ch.id}`, message: `unknown bone: ${bid}` });
+      }
+    }
+    const root = bones.find((b) => b.id === ch.rootBoneId);
+    const mid = bones.find((b) => b.id === ch.midBoneId);
+    const tip = bones.find((b) => b.id === ch.tipBoneId);
+    if (root && mid && tip) {
+      if (mid.parentId !== root.id) {
+        issues.push({ path: `ikTwoBoneChains.${ch.id}`, message: "mid bone must be direct child of root" });
+      }
+      if (tip.parentId !== mid.id) {
+        issues.push({ path: `ikTwoBoneChains.${ch.id}`, message: "tip bone must be direct child of mid" });
       }
     }
   }

@@ -32,10 +32,16 @@ Deliverables:
 - Mesh-Attachments, Weights, Deformation (abhängig von Renderer-Entscheidung).
 - Weight Paint UX (Grundlagen).
 
+**Architektur:** [ADR-0009: Mesh-Skinning — Zielbild & Integrationspfad](adr/0009-mesh-skinning-roadmap.md)  
+**GitHub:** vorgefertigte Issues — [.github/issues/phase-3-mesh/README.md](../.github/issues/phase-3-mesh/README.md), Skript `scripts/create-phase-3-mesh-issues.sh`.
+
 ## Phase 4 — Fortgeschrittene Animation
 
 - IK, mehrere Clips, Easing-Kurven.
 - Import aus anderen Formaten (optional, niedrige Priorität).
+
+**Architektur:** [ADR-0010: Inverse Kinematics — Zielbild & Integrationspfad](adr/0010-inverse-kinematics-roadmap.md)  
+**GitHub:** vorgefertigte Issues — [.github/issues/phase-4-ik/README.md](../.github/issues/phase-4-ik/README.md), Skript `scripts/create-phase-4-ik-issues.sh`.
 
 ## Phase 5 — Ökosystem
 
@@ -53,4 +59,6 @@ Phase 1 (Slice)
                       → Phase 5 (Plugins / Ökosystem)
 ```
 
-Phasen 3+ können teilweise **parallel** starten (z. B. IK-Prototyp), sollten aber **keinen** MVP-Blocker erzeugen.
+Phasen 3+ können teilweise **parallel** starten (z. B. IK-Prototyp an einfachen Bones laut [ADR-0010](adr/0010-inverse-kinematics-roadmap.md)), sollten aber **keinen** MVP-Blocker erzeugen.
+
+**Mesh vs. IK:** Reihenfolge laut Graph unten; Details und Abgrenzungen in [ADR-0009](adr/0009-mesh-skinning-roadmap.md) und [ADR-0010](adr/0010-inverse-kinematics-roadmap.md).

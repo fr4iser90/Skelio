@@ -3,7 +3,7 @@
 ## Grundsätze
 
 1. **Zwei Welten:** (A) **Editor-Projekt** — kann mehr Metadaten speichern (Auswahl, UI-Layout optional). (B) **Runtime-Export** — minimiert, stabil, versioniert.
-2. **Schema-Version:** Feld `schemaVersion` (SemVer-String, z. B. `"1.0.0"`) an Wurzel jedes JSON.
+2. **Schema-Version:** Feld `schemaVersion` (SemVer-String, aktuell Export **`"1.1.0"`**) an Wurzel jedes JSON.
 3. **Breaking Change:** Major-Version erhöhen + ADR + Migrationsnotiz; wo möglich **Reader** für ältere Versionen bereitstellen.
 
 ## Domain-Modell (konzeptionell)
@@ -21,6 +21,8 @@ Project
 │       └── channels[]
 │           ├── property   (enum: tx, ty, rot, sx, sy — MVP subset)
 │           └── keys[]     (time, value, interpolation: hold | linear)
+├── skinnedMeshes? (optional, Editor — siehe unten)
+├── ikTwoBoneChains? (optional, Editor — 2-Segment-IK-Spike; kein Runtime-Export)
 └── editorOnly?  (optional block, stripped on runtime export)
 ```
 
@@ -41,7 +43,7 @@ Verbindlich für den Runtime-Export:
 
 ```json
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "meta": {
     "name": "example",
     "fps": 60,
@@ -90,7 +92,8 @@ Verbindlich für den Runtime-Export:
         }
       ]
     }
-  ]
+  ],
+  "skins": []
 }
 ```
 
@@ -112,10 +115,39 @@ Empfehlung (per ADR festzurren):
 
 MVP soll **Option A** bevorzugen, sofern nicht anders entschieden.
 
+**Umsetzung:** Manifest-Name `project.skelio.json`, Unterordner `assets/` — Konstanten in `@skelio/domain`, I/O-Hilfen in `@skelio/infrastructure` (`writeProjectToDirectory` / `readProjectFromDirectory`). Die Desktop-App (Tauri) schreibt/liest über eingebaute Commands; Ordnerwahl aktuell per **Pfad-Eingabe** (siehe `apps/skelio-desktop/README.md`).
+
+## Editor: Skinning (Umsetzung begonnen)
+
+Das **Editor-Projekt** kann optional **`skinnedMeshes`** tragen: Dreiecks-Meshes in bind space mit Einflüssen pro Vertex (`SkinInfluence`). Der Viewport deformat mit **linear blend skinning** (2D). Der **Runtime-Export** `schemaVersion: "1.1.0"` mappt diese Daten nach **`skins`** (siehe `schemas/runtime-1.1.0.json`, [ADR-0002](adr/0002-runtime-json-schema-versioning.md), [ADR-0009](adr/0009-mesh-skinning-roadmap.md)).
+
+## Editor: IK — Zwei-Knochen-Ketten (Spike)
+
+Optional **`ikTwoBoneChains`**: jeweils eine Kette **root → mid → tip** (strikte Bone-Parent-Kette). Lösung im Editor: **FABRIK** in der Ebene auf Welt-Positionen der Gelenke; **FK bleibt kanonisch** für Keyframes und Skinning im Spike ([ADR-0010](adr/0010-inverse-kinematics-roadmap.md)). Der **Runtime-Export** enthält diese Felder **nicht** (Bake/Runtime-Vertrag folgt später).
+
+Konzeptionelle Felder (camelCase, wie `@skelio/domain`):
+
+| Feld | Bedeutung |
+|------|-----------|
+| `id` | Stabile Ketten-ID |
+| `name` | Anzeigename |
+| `enabled` | IK ein/aus |
+| `rootBoneId`, `midBoneId`, `tipBoneId` | Bone-IDs; `mid.parentId === root`, `tip.parentId === mid` |
+| `targetX`, `targetY` | IK-Ziel in Weltkoordinaten (2D) |
+
+## Post-MVP: Mesh-Skinning & IK (Richtung)
+
+Für **Mesh-Skinning** und **Inverse Kinematics** gelten die Architektur-ADRs; Runtime-Export-Erweiterungen folgen **Minor-Versionierung** ([ADR-0002](adr/0002-runtime-json-schema-versioning.md)):
+
+- [ADR-0009 — Mesh-Skinning: Zielbild & Integrationspfad](adr/0009-mesh-skinning-roadmap.md)
+- [ADR-0010 — Inverse Kinematics: Zielbild & Integrationspfad](adr/0010-inverse-kinematics-roadmap.md)
+
+Konkrete **Runtime**-JSON-Felder für IK werden ergänzt, sobald Bake/Runtime-Vertrag festliegt; der Editor-Spike nutzt nur die oben beschriebenen Projekt-Felder.
+
 ## Migration
 
 - Jede Schema-Änderung: `docs/adr/` + Abschnitt „Migration von X zu Y“ in diesem Dokument oder verlinktem `schemas/CHANGELOG.md` (wird bei Implementierung angelegt).
 
 ## JSON Schema
 
-Offizielles Schema: **`schemas/runtime-1.0.0.json`** (Changelog: `schemas/CHANGELOG.md`). Exporte in CI dagegen validieren, sobald der Exporter steht.
+Aktuelles Schema: **`schemas/runtime-1.1.0.json`** (Changelog: `schemas/CHANGELOG.md`). Ältere Version: `runtime-1.0.0.json` (ohne `skins`). Exporte in Tests gegen 1.1.0 validieren.

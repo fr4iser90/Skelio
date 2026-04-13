@@ -1,11 +1,16 @@
 [gd_scene load_steps=2 format=3 uid="uid://skelio_minimal_main"]
 
-[ext_resource type="Script" path="res://main.gd" id="1_main"]
+[ext_resource type="Script" path="res://skelio_player.gd" id="1_player"]
 
 [node name="Main" type="Node2D"]
-script = ExtResource("1_main")
+
+[node name="SkelioPlayer" type="Node2D" parent="."]
+script = ExtResource("1_player")
+runtime_json_path = "res://fixtures/runtime-minimal.valid.json"
+status_label_path = NodePath("../Label")
 
 [node name="Label" type="Label" parent="."]
-offset_left = 16.0
-offset_top = 16.0
-text = "Skelio Godot minimal — siehe README.md"
+offset_left = 12.0
+offset_top = 10.0
+theme_override_font_sizes/font_size = 16
+text = "Skelio Godot minimal"

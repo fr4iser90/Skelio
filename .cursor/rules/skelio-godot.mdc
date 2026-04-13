@@ -1,0 +1,10 @@
+---
+description: Skelio Godot-Integration
+globs: examples/godot-minimal/**/*
+alwaysApply: false
+---
+
+# Godot
+
+- Quelle: `docs/08-godot-integration.md`, `docs/adr/0005-godot-referenz-runtime-gdscript.md` (Referenz: **GDScript**).
+- Schnittstelle zum Editor ist das **Runtime-JSON** (`schemas/runtime-1.0.0.json`), keine parallele proprietäre Definition im GDScript ohne Doku-Update.

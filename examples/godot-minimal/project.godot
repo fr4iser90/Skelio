@@ -1,0 +1,6 @@
+; Skelio minimal Godot project (Godot 4.x)
+config_version=5
+
+[application]
+config/name="Skelio Minimal"
+run/main_scene="res://main.tscn"

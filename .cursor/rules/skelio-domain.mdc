@@ -1,0 +1,11 @@
+---
+description: Skelio Domain-Paket
+globs: packages/domain/**/*
+alwaysApply: false
+---
+
+# Domain (`@skelio/domain`)
+
+- Siehe `docs/04-datenmodell-schema.md` und ADRs `docs/adr/0006-*.md` bis `0008-*.md` für Zeit, Koordinaten und JSON-Konventionen.
+- Öffentliche Konstante `RUNTIME_SCHEMA_VERSION` muss mit `schemas/runtime-1.0.0.json` und Fixtures unter `packages/domain/test/fixtures/` übereinstimmen.
+- Tests: `pnpm --filter @skelio/domain test`.

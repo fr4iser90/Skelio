@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "meta": {
+    "name": "fixture-minimal",
+    "fps": 60,
+    "duration": 0,
+    "coordinateSystem": "y-down"
+  },
+  "assets": [],
+  "armature": {
+    "bones": [
+      {
+        "id": "bone_root",
+        "parentId": null,
+        "name": "root",
+        "bindPose": { "x": 0, "y": 0, "rotation": 0, "sx": 1, "sy": 1 }
+      }
+    ],
+    "attachments": []
+  },
+  "animations": []
+}

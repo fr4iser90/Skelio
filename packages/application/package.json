@@ -1,0 +1,20 @@
+{
+  "name": "@skelio/application",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@skelio/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.2",
+    "vitest": "^2.1.9"
+  }
+}

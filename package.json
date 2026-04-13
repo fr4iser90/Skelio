@@ -1,0 +1,11 @@
+{
+  "name": "skelio",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --filter @skelio/desktop dev",
+    "build": "pnpm --filter @skelio/desktop build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck"
+  }
+}

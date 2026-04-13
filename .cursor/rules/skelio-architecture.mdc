@@ -1,0 +1,12 @@
+---
+description: Skelio Schichten & Modulgrenzen
+globs: packages/**/*
+alwaysApply: false
+---
+
+# Architektur
+
+- Quelle: `docs/03-systemarchitektur.md`, `docs/05-modulgrenzen-schnittstellen.md`, `docs/06-designpatterns-konventionen.md`.
+- `packages/domain` ist **framework-frei**: keine Imports aus `vue`, `@tauri-apps/*`, Node-spezifischen FS-APIs in Domänentypen (reine Logik ausgenommen klar gekapselter Helfer).
+- UI (`apps/skelio-desktop`) mutiert den Projekt-Zustand nur über **Commands** / Application-API, nicht durch direktes Patchen geteilter Objekte nebenbei.
+- Runtime-Export nur über eine **Mapping**-Schicht (Anti-Corruption) in Richtung `schemas/runtime-1.0.0.json`.

@@ -23,6 +23,9 @@ import {
 
 const MAX_UNDO = 80;
 
+/** Character-Rig-Viewport: 2D flach vs. leichte Y-Stauchung (kein echtes 3D). */
+export type RigCameraViewKind = "2d" | "2.5d" | "3d";
+
 export const useEditorStore = defineStore("editor", () => {
   const project = ref<EditorProject>(createDefaultEditorProject());
   /** Set when a folder project is open (Tauri); `project.skelio.json` lives here. */
@@ -48,6 +51,25 @@ export const useEditorStore = defineStore("editor", () => {
   /** Modal: Region aus Sprite-Sheet in gewählten Slot übernehmen. */
   const sheetSliceModalOpen = ref(false);
   const sheetSliceModalSheetId = ref<string | null>(null);
+
+  /** Character-Rig-Assistent: aktiver Schritt (0–4), für Viewport-Logik. */
+  const characterRigModalStep = ref(0);
+  /** Nächster Klick im Viewport setzt die Position dieses Knochens (BindPose). */
+  const pendingBonePlacementId = ref<string | null>(null);
+
+  /** Nur im Character-Rig-Modal: leichte Y-Stauchung der Welt (Pseudo-Tiefe). Beim Schließen → 2D. */
+  const rigCameraViewKind = ref<RigCameraViewKind>("2d");
+
+  const rigCameraWorldYScale = computed(() => {
+    switch (rigCameraViewKind.value) {
+      case "2.5d":
+        return 0.88;
+      case "3d":
+        return 0.74;
+      default:
+        return 1;
+    }
+  });
 
   /** Viewport: ausgewählter Character-Rig-Slice (pixelgenau verschieben). */
   const selectedCharacterRigSliceId = ref<string | null>(null);
@@ -237,6 +259,13 @@ export const useEditorStore = defineStore("editor", () => {
     characterRigModalOpen.value = false;
     sheetSliceModalOpen.value = false;
     sheetSliceModalSheetId.value = null;
+    characterRigModalStep.value = 0;
+    pendingBonePlacementId.value = null;
+    rigCameraViewKind.value = "2d";
+  }
+
+  function setRigCameraViewKind(kind: RigCameraViewKind) {
+    rigCameraViewKind.value = kind;
   }
 
   function openSheetSliceModal(sheetId: string) {
@@ -251,6 +280,19 @@ export const useEditorStore = defineStore("editor", () => {
 
   function selectCharacterRigSlice(id: string | null) {
     selectedCharacterRigSliceId.value = id;
+  }
+
+  function selectBone(boneId: string) {
+    if (!project.value.bones.some((b) => b.id === boneId)) return;
+    selectedBoneId.value = boneId;
+  }
+
+  function setCharacterRigModalStep(n: number) {
+    characterRigModalStep.value = n;
+  }
+
+  function setPendingBonePlacement(boneId: string | null) {
+    pendingBonePlacementId.value = boneId;
   }
 
   return {
@@ -291,6 +333,14 @@ export const useEditorStore = defineStore("editor", () => {
     closeSheetSliceModal,
     selectedCharacterRigSliceId,
     selectCharacterRigSlice,
+    selectBone,
+    characterRigModalStep,
+    setCharacterRigModalStep,
+    pendingBonePlacementId,
+    setPendingBonePlacement,
+    rigCameraViewKind,
+    rigCameraWorldYScale,
+    setRigCameraViewKind,
     ensureSelection,
     /** Manifest-Dateiname (für UI). */
     projectManifestFileName: PROJECT_MANIFEST_FILE,

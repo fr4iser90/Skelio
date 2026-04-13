@@ -2,7 +2,9 @@
 import {
   addBoneWeightDelta,
   deformSkinnedMesh,
+  localBindTranslationForWorldOrigin,
   worldBindBoneMatrices,
+  worldBindOrigins,
   worldPoseBoneMatrices,
   worldPoseOriginsWithIk,
   type CharacterRigSpriteSlice,
@@ -10,7 +12,7 @@ import {
   type SkinnedMesh,
 } from "@skelio/domain";
 import { storeToRefs } from "pinia";
-import { onMounted, ref, shallowRef, watch } from "vue";
+import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 
 type BrushStroke = {
@@ -31,7 +33,16 @@ const {
   weightBrushRadius,
   weightBrushStrength,
   weightBrushSubtract,
+  characterRigModalOpen,
+  characterRigModalStep,
+  pendingBonePlacementId,
+  rigCameraWorldYScale,
 } = storeToRefs(store);
+
+/** Y-Stauchung nur im Character-Rig-Modal (Pseudo-2.5D/3D). */
+const rigWorldYCompress = computed(() =>
+  characterRigModalOpen.value ? rigCameraWorldYScale.value : 1,
+);
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const referenceBitmap = shallowRef<HTMLImageElement | null>(null);
@@ -44,6 +55,133 @@ const brushStroke = ref<BrushStroke | null>(null);
 const rigSliceDrag = ref<{ sliceId: string; grabDx: number; grabDy: number } | null>(null);
 /** Live position while dragging (before commit). */
 const rigSlicePreview = ref<{ id: string; cx: number; cy: number } | null>(null);
+/** Schritt „Knochen“ im Character-Rig-Modal: Knochen in der Welt ziehen. */
+const boneDrag = ref<{ boneId: string } | null>(null);
+
+const rigModalBoneStep = computed(
+  () => characterRigModalOpen.value && characterRigModalStep.value === 1,
+);
+
+const viewportHintText = computed(() => {
+  if (weightBrushEnabled.value) {
+    return "Pinsel: gewählter Knochen · Ziehen im Viewport (ein Undo pro Strich)";
+  }
+  if (characterRigModalOpen.value && rigCameraWorldYScale.value < 0.999) {
+    return "Kamera: Y gestaucht (Pseudo-Tiefe) — gleiche Logik für Klicks · Rad = Zoom";
+  }
+  if (rigModalBoneStep.value) {
+    if (pendingBonePlacementId.value) {
+      return "Klick in die Fläche = neuen Knochen platzieren (orange Kreis) · Rad = Zoom";
+    }
+    return "Knochen: Punkt anklicken & ziehen · Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
+  }
+  if ((project.value.characterRig?.slices?.length ?? 0) > 0) {
+    return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Slices mit Links ziehen";
+  }
+  return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Y unten · Vertex für Gewichte";
+});
+
+function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null {
+  const origins = worldBindOrigins(project.value);
+  const r2 = radiusWorld * radiusWorld;
+  let best: string | null = null;
+  let bestD = r2;
+  for (const b of project.value.bones) {
+    const o = origins.get(b.id);
+    if (!o) continue;
+    const d = (o.x - wx) ** 2 + (o.y - wy) ** 2;
+    if (d <= r2 && d < bestD) {
+      bestD = d;
+      best = b.id;
+    }
+  }
+  return best;
+}
+
+function tryPlacePendingBoneAt(wx: number, wy: number): boolean {
+  const id = pendingBonePlacementId.value;
+  if (!id) return false;
+  const local = localBindTranslationForWorldOrigin(project.value, id, wx, wy);
+  if (!local) return false;
+  const ok = store.dispatch({ type: "setBindPose", boneId: id, partial: { x: local.x, y: local.y } });
+  if (ok) store.setPendingBonePlacement(null);
+  return ok;
+}
+
+/** 2D-Viewport: Pan (Bildschirm px), Zoom, Rotation (rad) — gleiche Welt wie Knochen/Rig. */
+const viewPanX = ref(0);
+const viewPanY = ref(0);
+const viewZoom = ref(1);
+const viewRotation = ref(0);
+const viewDrag = ref<{ kind: "pan" | "rotate"; lastX: number; lastY: number } | null>(null);
+
+const zoomPercent = computed(() => Math.round(viewZoom.value * 100));
+
+function resetViewportView() {
+  viewPanX.value = 0;
+  viewPanY.value = 0;
+  viewZoom.value = 1;
+  viewRotation.value = 0;
+  draw();
+}
+
+function zoomViewportIn() {
+  viewZoom.value = Math.min(14, viewZoom.value * 1.12);
+  draw();
+}
+
+function zoomViewportOut() {
+  viewZoom.value = Math.max(0.12, viewZoom.value / 1.12);
+  draw();
+}
+
+function worldFromClientPx(mx: number, my: number, c: HTMLCanvasElement) {
+  const w = c.width;
+  const h = c.height;
+  const x = mx - w / 2 - viewPanX.value;
+  const y = my - h / 2 - viewPanY.value;
+  const rot = viewRotation.value;
+  const c0 = Math.cos(rot);
+  const s0 = Math.sin(rot);
+  const z = viewZoom.value;
+  let wx = (x * c0 + y * s0) / z;
+  let wy = (-x * s0 + y * c0) / z;
+  const ky = rigWorldYCompress.value;
+  if (Math.abs(ky - 1) > 1e-6) wy /= ky;
+  return { wx, wy };
+}
+
+/** Sichtbarer Welt-Ausschnitt (für Raster + Hintergrund), leicht erweitert. */
+function visibleWorldBounds(c: HTMLCanvasElement, marginWorld: number) {
+  const w = c.width;
+  const h = c.height;
+  if (w <= 0 || h <= 0) {
+    return { minX: -400, maxX: 400, minY: -400, maxY: 400 };
+  }
+  const padPx = 64;
+  const corners: [number, number][] = [
+    [-padPx, -padPx],
+    [w + padPx, -padPx],
+    [w + padPx, h + padPx],
+    [-padPx, h + padPx],
+  ];
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [mx, my] of corners) {
+    const p = worldFromClientPx(mx, my, c);
+    minX = Math.min(minX, p.wx);
+    maxX = Math.max(maxX, p.wx);
+    minY = Math.min(minY, p.wy);
+    maxY = Math.max(maxY, p.wy);
+  }
+  minX -= marginWorld;
+  maxX += marginWorld;
+  minY -= marginWorld;
+  maxY += marginWorld;
+  return { minX, maxX, minY, maxY };
+}
 
 function meshForRender(mesh: SkinnedMesh): SkinnedMesh {
   if (brushStroke.value && brushStroke.value.meshId === mesh.id) {
@@ -160,40 +298,59 @@ function draw() {
   ctx.fillStyle = "#121316";
   ctx.fillRect(0, 0, w, h);
   const refImg = referenceBitmap.value;
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.translate(viewPanX.value, viewPanY.value);
+  ctx.rotate(viewRotation.value);
+  ctx.scale(viewZoom.value, viewZoom.value);
+  const kyDraw = rigWorldYCompress.value;
+  if (Math.abs(kyDraw - 1) > 1e-6) ctx.scale(1, kyDraw);
+
+  const vb = visibleWorldBounds(c, 120);
+  ctx.fillStyle = "#16171c";
+  ctx.fillRect(vb.minX, vb.minY, vb.maxX - vb.minX, vb.maxY - vb.minY);
+
   if (refImg && refImg.complete && refImg.naturalWidth > 0) {
     const iw = refImg.naturalWidth;
     const ih = refImg.naturalHeight;
     const scale = Math.min(w / iw, h / ih) * 0.98;
     const dw = iw * scale;
     const dh = ih * scale;
-    const x = (w - dw) / 2;
-    const y = (h - dh) / 2;
-    ctx.drawImage(refImg, x, y, dw, dh);
+    ctx.drawImage(refImg, -dw / 2, -dh / 2, dw, dh);
   }
-  ctx.save();
-  ctx.translate(w / 2, h / 2);
   const gridAlpha = refImg && refImg.complete && refImg.naturalWidth > 0 ? 0.22 : 1;
   ctx.strokeStyle = `rgba(51,51,51,${gridAlpha})`;
-  for (let x = -400; x <= 400; x += 40) {
+  const gridStep = 40;
+  const x0 = Math.floor(vb.minX / gridStep) * gridStep;
+  const x1 = Math.ceil(vb.maxX / gridStep) * gridStep;
+  const y0 = Math.floor(vb.minY / gridStep) * gridStep;
+  const y1 = Math.ceil(vb.maxY / gridStep) * gridStep;
+  for (let x = x0; x <= x1; x += gridStep) {
     ctx.beginPath();
-    ctx.moveTo(x, -400);
-    ctx.lineTo(x, 400);
+    ctx.moveTo(x, vb.minY);
+    ctx.lineTo(x, vb.maxY);
     ctx.stroke();
   }
-  for (let y = -400; y <= 400; y += 40) {
+  for (let y = y0; y <= y1; y += gridStep) {
     ctx.beginPath();
-    ctx.moveTo(-400, y);
-    ctx.lineTo(400, y);
+    ctx.moveTo(vb.minX, y);
+    ctx.lineTo(vb.maxX, y);
     ctx.stroke();
   }
 
   const rig = project.value.characterRig;
   if (rig?.slices?.length) {
+    const activeSliceId = selectedCharacterRigSliceId.value;
     for (const s of rig.slices) {
       if (s.width <= 0 || s.height <= 0) continue;
       const { cx, cy } = effectiveSliceCenter(s);
       const dx = cx - s.width / 2;
       const dy = cy - s.height / 2;
+      const isActive = activeSliceId !== null && s.id === activeSliceId;
+      /** Mit Auswahl: aktives Teil voll, andere ausgegraut. Ohne Auswahl: alle sichtbar (auf Referenz legen). */
+      const alpha = activeSliceId === null ? 1 : isActive ? 1 : 0.44;
+      ctx.save();
+      ctx.globalAlpha = alpha;
       if (s.embedded) {
         const eimg = embeddedRigImages.value.get(s.id);
         if (eimg?.complete && eimg.naturalWidth > 0) {
@@ -205,6 +362,7 @@ function draw() {
           ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, dx, dy, s.width, s.height);
         }
       }
+      ctx.restore();
     }
     ctx.save();
     for (const s of rig.slices) {
@@ -278,6 +436,20 @@ function draw() {
     ctx.fill();
   }
 
+  const pendId = pendingBonePlacementId.value;
+  if (pendId && rigModalBoneStep.value) {
+    const o = worldBindOrigins(project.value).get(pendId);
+    if (o) {
+      ctx.strokeStyle = "rgba(251, 146, 60, 0.95)";
+      ctx.lineWidth = 2 / viewZoom.value;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, 16, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
   const smId = selectedMeshId.value;
   const sv = selectedVertexIndex.value;
   if (smId !== null && sv !== null && skinMeshes.length > 0) {
@@ -304,7 +476,15 @@ function worldFromClient(e: PointerEvent, c: HTMLCanvasElement) {
   const rect = c.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
-  return { wx: mx - c.width / 2, wy: my - c.height / 2 };
+  return worldFromClientPx(mx, my, c);
+}
+
+function onWheelView(e: WheelEvent) {
+  e.preventDefault();
+  const z0 = viewZoom.value;
+  const factor = e.deltaY > 0 ? 0.92 : 1.08;
+  viewZoom.value = Math.min(14, Math.max(0.12, z0 * factor));
+  draw();
 }
 
 function targetBrushMeshId(): string | null {
@@ -355,6 +535,29 @@ function onCanvasPointerDown(e: PointerEvent) {
   const c = canvas.value;
   if (!c) return;
 
+  if (e.button === 1 || (e.button === 0 && e.altKey)) {
+    e.preventDefault();
+    viewDrag.value = { kind: "pan", lastX: e.clientX, lastY: e.clientY };
+    try {
+      c.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    draw();
+    return;
+  }
+  if (e.button === 2) {
+    e.preventDefault();
+    viewDrag.value = { kind: "rotate", lastX: e.clientX, lastY: e.clientY };
+    try {
+      c.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    draw();
+    return;
+  }
+
   if (weightBrushEnabled.value && selectedBoneId.value) {
     const mid = targetBrushMeshId();
     if (!mid) return;
@@ -378,6 +581,34 @@ function onCanvasPointerDown(e: PointerEvent) {
   }
 
   const { wx, wy } = worldFromClient(e, c);
+
+  if (rigModalBoneStep.value && e.button === 0) {
+    if (pendingBonePlacementId.value) {
+      e.preventDefault();
+      tryPlacePendingBoneAt(wx, wy);
+      draw();
+      return;
+    }
+    const hitB = hitTestBone(wx, wy, 18);
+    if (hitB) {
+      e.preventDefault();
+      store.selectBone(hitB);
+      boneDrag.value = { boneId: hitB };
+      try {
+        c.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      draw();
+      return;
+    }
+    store.selectCharacterRigSlice(null);
+    rigSlicePreview.value = null;
+    store.clearMeshVertexSelection();
+    draw();
+    return;
+  }
+
   const hitSlice = hitTestRigSlice(wx, wy);
   if (hitSlice) {
     e.preventDefault();
@@ -432,6 +663,35 @@ function onCanvasPointerMove(e: PointerEvent) {
   const c = canvas.value;
   if (!c) return;
 
+  if (viewDrag.value) {
+    e.preventDefault();
+    const d = viewDrag.value;
+    if (d.kind === "pan") {
+      const dx = e.clientX - d.lastX;
+      const dy = e.clientY - d.lastY;
+      viewPanX.value += dx;
+      viewPanY.value += dy;
+      viewDrag.value = { kind: "pan", lastX: e.clientX, lastY: e.clientY };
+    } else {
+      const dx = e.clientX - d.lastX;
+      viewRotation.value += dx * 0.007;
+      viewDrag.value = { kind: "rotate", lastX: e.clientX, lastY: e.clientY };
+    }
+    draw();
+    return;
+  }
+
+  if (boneDrag.value) {
+    e.preventDefault();
+    const { wx, wy } = worldFromClient(e, c);
+    const local = localBindTranslationForWorldOrigin(project.value, boneDrag.value.boneId, wx, wy);
+    if (local) {
+      store.dispatch({ type: "setBindPose", boneId: boneDrag.value.boneId, partial: { x: local.x, y: local.y } });
+    }
+    draw();
+    return;
+  }
+
   if (rigSliceDrag.value) {
     e.preventDefault();
     const { wx, wy } = worldFromClient(e, c);
@@ -454,6 +714,32 @@ function onCanvasPointerMove(e: PointerEvent) {
 
 function onCanvasPointerUp(e: PointerEvent) {
   const c = canvas.value;
+
+  if (viewDrag.value) {
+    viewDrag.value = null;
+    if (c?.hasPointerCapture(e.pointerId)) {
+      try {
+        c.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+    draw();
+    return;
+  }
+
+  if (boneDrag.value) {
+    boneDrag.value = null;
+    if (c?.hasPointerCapture(e.pointerId)) {
+      try {
+        c.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+    draw();
+    return;
+  }
 
   if (rigSliceDrag.value && rigSlicePreview.value) {
     const p = rigSlicePreview.value;
@@ -509,6 +795,16 @@ watch(
     weightBrushRadius,
     weightBrushStrength,
     weightBrushSubtract,
+    viewPanX,
+    viewPanY,
+    viewZoom,
+    viewRotation,
+    characterRigModalOpen,
+    characterRigModalStep,
+    pendingBonePlacementId,
+    boneDrag,
+    rigCameraWorldYScale,
+    rigWorldYCompress,
   ],
   draw,
   { deep: true },
@@ -528,16 +824,16 @@ watch(brushStroke, draw);
       @pointermove="onCanvasPointerMove"
       @pointerup="onCanvasPointerUp"
       @pointercancel="onCanvasPointerUp"
+      @wheel="onWheelView"
+      @contextmenu.prevent
     />
-    <div class="hint">
-      {{
-        weightBrushEnabled
-          ? "Pinsel: gewählter Knochen · Ziehen im Viewport (ein Undo pro Strich)"
-          : (project.characterRig?.slices?.length ?? 0) > 0
-            ? "Mitte: Referenz + Raster + Rig-Slices · Slices ziehen (pixelgenau) · Mesh-Vertex für Gewichte"
-            : "Y unten · Vertex für Gewichte anklicken"
-      }}
+    <div class="view-toolbar" aria-label="Viewport-Ansicht">
+      <span class="view-toolbar-label">{{ zoomPercent }}%</span>
+      <button type="button" class="view-tb-btn" title="Verkleinern" @click="zoomViewportOut">−</button>
+      <button type="button" class="view-tb-btn" title="Vergrößern" @click="zoomViewportIn">+</button>
+      <button type="button" class="view-tb-btn view-tb-reset" title="Ansicht zurücksetzen" @click="resetViewportView">Reset</button>
     </div>
+    <div class="hint">{{ viewportHintText }}</div>
   </div>
 </template>
 
@@ -557,12 +853,49 @@ watch(brushStroke, draw);
 .cv.brush {
   cursor: cell;
 }
+.view-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(20, 21, 26, 0.85);
+  border: 1px solid #3b3f48;
+  font-size: 0.72rem;
+  color: #9ca3af;
+  z-index: 2;
+}
+.view-toolbar-label {
+  min-width: 2.75rem;
+  text-align: right;
+  color: #d1d5db;
+}
+.view-tb-btn {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #4b5563;
+  background: #2e3138;
+  color: #e5e7eb;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+.view-tb-btn:hover {
+  background: #3d424c;
+}
+.view-tb-reset {
+  margin-left: 2px;
+  font-size: 0.68rem;
+}
 .hint {
   position: absolute;
   bottom: 6px;
   left: 8px;
   font-size: 0.7rem;
   color: #555;
-  max-width: 90%;
+  max-width: 72%;
 }
 </style>

@@ -1,4 +1,4 @@
-import { apply, fromTransform, multiply, type Mat2D } from "./mat2d.js";
+import { apply, fromTransform, invert, multiply, type Mat2D } from "./mat2d.js";
 import type { AnimationClip, Bone, EditorProject, Transform2D } from "./types.js";
 
 function sampleChannel(
@@ -73,6 +73,30 @@ export function worldBindOrigins(project: EditorProject): Map<string, { x: numbe
     origins.set(id, apply(m, 0, 0));
   }
   return origins;
+}
+
+/**
+ * BindPose.x/y so setzen, dass der Knochen-Ursprung (lokales 0,0) an der Weltposition landet.
+ * Rotation/Sx/Sy des Knochens bleiben unverändert (nur Translation).
+ */
+export function localBindTranslationForWorldOrigin(
+  project: EditorProject,
+  boneId: string,
+  worldX: number,
+  worldY: number,
+): { x: number; y: number } | null {
+  const bone = project.bones.find((b) => b.id === boneId);
+  if (!bone) return null;
+  if (bone.parentId === null) {
+    return { x: worldX, y: worldY };
+  }
+  const world = worldBindBoneMatrices(project);
+  const parentWorld = world.get(bone.parentId);
+  if (!parentWorld) return null;
+  const invP = invert(parentWorld);
+  if (!invP) return null;
+  const p = apply(invP, worldX, worldY);
+  return { x: p.x, y: p.y };
 }
 
 /** World positions of bone origins at `time` using active clip. */

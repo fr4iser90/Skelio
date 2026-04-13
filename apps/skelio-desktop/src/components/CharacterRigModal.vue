@@ -3,6 +3,7 @@ import {
   mimeFromFileName,
   normalizeReferenceImageMime,
   REFERENCE_IMAGE_ACCEPT_ATTR,
+  worldBindOrigins,
   type CharacterRigSpriteSheetEntry,
   type CharacterRigSpriteSlice,
 } from "@skelio/domain";
@@ -12,8 +13,15 @@ import { useEditorStore } from "../stores/editor.js";
 import ViewportPanel from "./ViewportPanel.vue";
 
 const store = useEditorStore();
-const { project, characterRigModalOpen, selectedCharacterRigSliceId, sheetSliceModalOpen } =
-  storeToRefs(store);
+const {
+  project,
+  characterRigModalOpen,
+  selectedCharacterRigSliceId,
+  selectedBoneId,
+  selectedBone,
+  sheetSliceModalOpen,
+  rigCameraViewKind,
+} = storeToRefs(store);
 
 const step = ref(0);
 const sheetInput = ref<HTMLInputElement | null>(null);
@@ -44,8 +52,16 @@ const steps = [
     title: "Sprites",
     hint: "Links: + Neu = neuer Teil (Slot). Rechts: Sprite-Sheet hinzufügen, Sheet anklicken, Bereich wählen → in gewählten Slot. Mitte: anordnen.",
   },
-  { id: "bones", title: "Knochen", hint: "Knochen links in der Hierarchy anlegen; Inspector rechts außerhalb dieses Fensters." },
-  { id: "bind", title: "Binden", hint: "Jedes Teil (Sprite-Zeile) einem Knochen zuordnen." },
+  {
+    id: "bones",
+    title: "Knochen",
+    hint: "Links: Hierarchie, + Neu = Kind des gewählten Knochens. Neuen Knochen im Viewport klicken zum Platzieren, Punkt ziehen zum Verschieben. Detaillierte Werte im Inspector (Hauptfenster).",
+  },
+  {
+    id: "bind",
+    title: "Binden",
+    hint: "Links Teile, rechts Sheets + Knochen-Überblick. Unten: jedes Teil einem Knochen zuordnen.",
+  },
   { id: "depth", title: "3D / Tiefe", hint: "Optional: Tiefenwerte pro Teil (2.5D)." },
   { id: "preview", title: "Vorschau", hint: "Überblick über Zuordnungen." },
 ] as const;
@@ -58,6 +74,53 @@ const bindings = computed(() => rig.value?.bindings ?? []);
 const bonesSorted = computed(() =>
   [...project.value.bones].sort((a, b) => a.name.localeCompare(b.name)),
 );
+
+/** Knochen in Baumreihenfolge (Wurzel zuerst, Kinder nach Name). */
+const bonesHierarchy = computed(() => {
+  const bones = project.value.bones;
+  const byId = new Map(bones.map((b) => [b.id, b]));
+  const root = bones.find((b) => b.parentId === null);
+  if (!root) return [] as { id: string; name: string; depth: number }[];
+  const out: { id: string; name: string; depth: number }[] = [];
+  function walk(id: string, depth: number) {
+    const b = byId.get(id);
+    if (!b) return;
+    out.push({ id: b.id, name: b.name, depth });
+    const kids = bones
+      .filter((x) => x.parentId === id)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const k of kids) walk(k.id, depth + 1);
+  }
+  walk(root.id, 0);
+  return out;
+});
+
+/** Schritt 0: nur Sheets; Schritt 1: nur Knochen links, rechts Kurzhinweis; ab Bind wieder Sheets + Knochenliste. */
+const showSheetColumn = computed(() => step.value !== 1);
+const showBoneColumn = computed(() => step.value >= 2);
+
+/** Abstand Parent-Gelenk → gewählter Knochen (Bind-Pose-Welt), Smack-„Length“-Ersatz ohne extra Feld. */
+const selectedBoneParentSpan = computed(() => {
+  const b = selectedBone.value;
+  if (!b?.parentId) return null;
+  const o = worldBindOrigins(project.value);
+  const p = o.get(b.parentId);
+  const c = o.get(b.id);
+  if (!p || !c) return null;
+  return Math.hypot(c.x - p.x, c.y - p.y);
+});
+
+watch(
+  [step, characterRigModalOpen],
+  () => {
+    if (characterRigModalOpen.value) store.setCharacterRigModalStep(step.value);
+  },
+  { immediate: true },
+);
+
+watch(step, (s) => {
+  if (s !== 1) store.setPendingBonePlacement(null);
+});
 
 function bindingBoneId(sliceId: string): string {
   return bindings.value.find((b) => b.sliceId === sliceId)?.boneId ?? "";
@@ -140,6 +203,21 @@ function setSliceSide(sliceId: string, side: "front" | "back") {
   store.dispatch({ type: "patchCharacterRigSlice", sliceId, side });
 }
 
+function onSliceNameChange(s: CharacterRigSpriteSlice, e: Event) {
+  const el = e.target as HTMLInputElement;
+  const v = el.value.trim();
+  if (!v) {
+    el.value = s.name;
+    return;
+  }
+  if (v === s.name) return;
+  const ok = store.dispatch({ type: "patchCharacterRigSlice", sliceId: s.id, name: v });
+  if (!ok) {
+    el.value = s.name;
+    alert("Name konnte nicht gespeichert werden.");
+  }
+}
+
 function setRigMetaName(e: Event) {
   store.dispatch({ type: "setMetaName", name: (e.target as HTMLInputElement).value });
 }
@@ -167,7 +245,12 @@ function readImageFileAsPayload(file: File): Promise<{ fileName: string; mimeTyp
 }
 
 function addEmptySlot() {
-  store.dispatch({ type: "addCharacterRigEmptyPart" });
+  const before = slices.value.length;
+  if (!store.dispatch({ type: "addCharacterRigEmptyPart" })) return;
+  const next = project.value.characterRig?.slices;
+  if (next && next.length > before) {
+    store.selectCharacterRigSlice(next[next.length - 1]!.id);
+  }
 }
 
 function triggerSheetImport() {
@@ -179,11 +262,74 @@ function sheetThumbDataUrl(sh: CharacterRigSpriteSheetEntry): string {
 }
 
 function openSheetSlicePicker(sheetId: string) {
+  let sid = selectedCharacterRigSliceId.value;
+  if (!sid && slices.value.length > 0) {
+    const last = slices.value[slices.value.length - 1]!;
+    store.selectCharacterRigSlice(last.id);
+    sid = last.id;
+  }
+  if (!sid) {
+    alert("Zuerst links einen Teil anlegen oder auswählen (Sheet-Zuweisung braucht einen aktiven Slot).");
+    return;
+  }
   store.openSheetSliceModal(sheetId);
 }
 
 function removeSheet(sheetId: string) {
   store.dispatch({ type: "removeCharacterRigSpriteSheet", sheetId });
+}
+
+function addChildBone() {
+  const bones = project.value.bones;
+  const root = bones.find((b) => b.parentId === null);
+  const sid = selectedBoneId.value;
+  const parentId =
+    sid && bones.some((b) => b.id === sid) ? sid : root?.id ?? null;
+  if (parentId === null) return;
+  const name = `Knochen ${bones.length + 1}`;
+  const nBefore = bones.length;
+  if (!store.dispatch({ type: "addBone", parentId, name })) return;
+  const nb = project.value.bones;
+  if (nb.length > nBefore) {
+    const newId = nb[nb.length - 1]!.id;
+    store.selectBone(newId);
+    store.setPendingBonePlacement(newId);
+  }
+}
+
+function patchSelectedBoneBind(field: "x" | "y" | "rotation" | "sx" | "sy", e: Event) {
+  const id = selectedBoneId.value;
+  if (!id) return;
+  const n = Number((e.target as HTMLInputElement).value);
+  if (Number.isNaN(n)) return;
+  store.dispatch({ type: "setBindPose", boneId: id, partial: { [field]: n } });
+}
+
+function renameSelectedBoneFromInspector(e: Event) {
+  const bone = selectedBone.value;
+  if (!bone) return;
+  const el = e.target as HTMLInputElement;
+  const v = el.value.trim();
+  if (!v) {
+    el.value = bone.name;
+    return;
+  }
+  store.dispatch({ type: "renameBone", boneId: bone.id, name: v });
+}
+
+function onBoneNameChange(boneId: string, e: Event) {
+  const el = e.target as HTMLInputElement;
+  const previousName = project.value.bones.find((x) => x.id === boneId)?.name ?? "";
+  const v = el.value.trim();
+  if (!v) {
+    el.value = previousName;
+    return;
+  }
+  const ok = store.dispatch({ type: "renameBone", boneId, name: v });
+  if (!ok) {
+    el.value = previousName;
+    alert("Name konnte nicht gespeichert werden.");
+  }
 }
 
 async function onSheetFiles(e: Event) {
@@ -235,7 +381,7 @@ async function onSheetFiles(e: Event) {
         </header>
 
         <div class="body">
-          <section class="sprite-rail" aria-label="Sprites und Ansicht">
+          <section v-if="step !== 1" class="sprite-rail" aria-label="Sprites und Ansicht">
             <div class="rail-title">Sprites</div>
             <div class="rail-table-wrap">
               <table v-if="slices.length" class="rail-table">
@@ -255,8 +401,14 @@ async function onSheetFiles(e: Event) {
                     @click="store.selectCharacterRigSlice(s.id)"
                     @dblclick="openPartModal(s.id)"
                   >
-                    <td class="rail-name">
-                      {{ s.name }}
+                    <td class="rail-name" @click.stop>
+                      <input
+                        class="rail-input rail-name-input"
+                        type="text"
+                        :value="s.name"
+                        :title="'Name: ' + s.name"
+                        @change="onSliceNameChange(s, $event)"
+                      />
                       <span v-if="s.width <= 0 || s.height <= 0" class="dim"> (leer)</span>
                     </td>
                     <td @click.stop>
@@ -294,6 +446,39 @@ async function onSheetFiles(e: Event) {
             <button type="button" class="rail-new" @click="addEmptySlot">+ Neu</button>
           </section>
 
+          <section v-else class="sprite-rail bone-rail" aria-label="Knochen-Hierarchie">
+            <div class="rail-title">Knochen</div>
+            <p class="muted rail-bone-intro">
+              Einrückung = Kind von oben. <strong>+ Neu</strong> = Kind des <strong>markierten</strong> Knochens
+              (sonst unter Wurzel). Neu erscheint orange — <strong>Klick</strong> in die Ansicht platziert, dann
+              ziehen.
+            </p>
+            <div class="rail-table-wrap">
+              <ul v-if="bonesHierarchy.length" class="bone-tree">
+                <li
+                  v-for="b in bonesHierarchy"
+                  :key="b.id"
+                  class="bone-tree-row"
+                  :class="{ active: selectedBoneId === b.id }"
+                  :style="{ paddingLeft: `${0.35 + b.depth * 0.65}rem` }"
+                  @click="store.selectBone(b.id)"
+                >
+                  <span v-if="b.depth > 0" class="bone-tree-branch" aria-hidden="true">└ </span>
+                  <input
+                    class="rail-input bone-tree-name"
+                    type="text"
+                    :value="b.name"
+                    :title="b.name"
+                    @click.stop
+                    @change="onBoneNameChange(b.id, $event)"
+                  />
+                </li>
+              </ul>
+              <p v-else class="muted rail-empty">Keine Knochen.</p>
+            </div>
+            <button type="button" class="rail-new rail-new-bone" @click="addChildBone">+ Neu</button>
+          </section>
+
           <nav class="nav" aria-label="Ablauf">
             <button
               v-for="(s, i) in steps"
@@ -308,6 +493,42 @@ async function onSheetFiles(e: Event) {
           </nav>
 
           <div class="main-col">
+            <div class="rig-camera-bar" role="tablist" aria-label="Kamera-Modus (Character Rig)">
+              <span class="rig-camera-label">Kamera</span>
+              <div class="rig-camera-seg">
+                <button
+                  type="button"
+                  class="rig-cam-btn"
+                  :class="{ on: rigCameraViewKind === '2d' }"
+                  role="tab"
+                  :aria-selected="rigCameraViewKind === '2d'"
+                  @click="store.setRigCameraViewKind('2d')"
+                >
+                  2D
+                </button>
+                <button
+                  type="button"
+                  class="rig-cam-btn"
+                  :class="{ on: rigCameraViewKind === '2.5d' }"
+                  role="tab"
+                  :aria-selected="rigCameraViewKind === '2.5d'"
+                  @click="store.setRigCameraViewKind('2.5d')"
+                >
+                  2.5D
+                </button>
+                <button
+                  type="button"
+                  class="rig-cam-btn"
+                  :class="{ on: rigCameraViewKind === '3d' }"
+                  role="tab"
+                  :aria-selected="rigCameraViewKind === '3d'"
+                  @click="store.setRigCameraViewKind('3d')"
+                >
+                  3D
+                </button>
+              </div>
+              <span class="muted rig-camera-cap">Y-Stauchung · Modal zu = zurück 2D</span>
+            </div>
             <div class="viewport-wrap">
               <ViewportPanel />
               <div class="viewport-foot">
@@ -331,18 +552,24 @@ async function onSheetFiles(e: Event) {
                   anklicken, im Modal Bereich wählen (Klick oder Rahmen). Gewählten Teil zuvor in der linken Liste
                   anklicken. Teile im Viewport ziehen.
                 </p>
+                <p class="muted future-note">
+                  Der Bereich unter dem Viewport ist für spätere Werkzeuge gedacht — z. B. einen Pixel-Editor pro Teil
+                  (Retusche, Masken) oder ähnliche Schritte, sobald das ansteht.
+                </p>
               </div>
 
               <div v-show="step === 1" class="panel">
-                <p>
-                  Lege und benenne Knochen in der <strong>Hierarchy</strong> (linker Streifen im Hauptfenster) und im
-                  <strong>Inspector</strong>.
+                <p class="muted">
+                  Links Hierarchie und <strong>+ Neu</strong>. Neuen Knochen im Viewport per <strong>Klick</strong>
+                  platzieren, danach am Punkt ziehen. Rechts: Bind-Werte wie im Inspector.
                 </p>
-                <ul class="bone-list">
-                  <li v-for="b in bonesSorted" :key="b.id">
-                    {{ b.name }} <span class="dim">({{ b.id.slice(0, 8) }}…)</span>
-                  </li>
-                </ul>
+                <p class="muted roadmap-hint">
+                  <strong>Length-Feld (wie Smack):</strong> Vorteil: intuitives Strecken am Bone-Ende, ggf. eigene
+                  Kurven. Nachteil: neues Datenfeld, Migration, Pose/Export/Hit-Tests — doppelte Freiheit zu
+                  X/Y/Scale. Aktuell reicht Kette + Scale; <strong>optional später</strong> ergänzbar.
+                  <strong>Kamera</strong> oben: 2D / 2.5D / 3D = <strong>Y-Stauchung</strong> (Pseudo-Tiefe), kein
+                  echtes 3D-Orbit. Schließen = wieder 2D.
+                </p>
               </div>
 
               <div v-show="step === 2" class="panel">
@@ -439,33 +666,140 @@ async function onSheetFiles(e: Event) {
             </div>
           </div>
 
-          <aside class="tools" aria-label="Sprite sheets">
-            <h3 class="tools-title">Sprite sheets</h3>
-            <p class="tools-hint muted">Nur Roh-Texturen. Klick öffnet Auswahl für den <strong>links gewählten</strong> Teil.</p>
-            <button type="button" class="primary tools-import" @click="triggerSheetImport">Sprite-Sheet hinzufügen…</button>
-            <input
-              ref="sheetInput"
-              type="file"
-              class="hidden"
-              multiple
-              :accept="REFERENCE_IMAGE_ACCEPT_ATTR"
-              @change="onSheetFiles"
-            />
-            <ul v-if="spriteSheets.length" class="tools-list">
-              <li
-                v-for="sh in spriteSheets"
-                :key="sh.id"
-                class="tools-item tools-sheet"
-                @click="openSheetSlicePicker(sh.id)"
-              >
-                <img class="tools-thumb" :src="sheetThumbDataUrl(sh)" alt="" />
-                <span class="tools-name" :title="sh.fileName">{{ sh.fileName }}</span>
-                <button type="button" class="tools-remove" title="Sheet entfernen" @click.stop="removeSheet(sh.id)">
-                  ×
-                </button>
-              </li>
-            </ul>
-            <p v-else class="muted tools-empty">Noch keine Sheets — PNG / JPEG / WebP hinzufügen.</p>
+          <aside class="tools" aria-label="Werkzeuge">
+            <div v-if="showSheetColumn" class="tools-block tools-block-sheets">
+              <h3 class="tools-title">Sprite sheets</h3>
+              <p class="tools-hint muted">
+                Nur Roh-Texturen. Klick öffnet Auswahl für den <strong>links gewählten</strong> Teil.
+              </p>
+              <button type="button" class="primary tools-import" @click="triggerSheetImport">
+                Sprite-Sheet hinzufügen…
+              </button>
+              <input
+                ref="sheetInput"
+                type="file"
+                class="hidden"
+                multiple
+                :accept="REFERENCE_IMAGE_ACCEPT_ATTR"
+                @change="onSheetFiles"
+              />
+              <ul v-if="spriteSheets.length" class="tools-list">
+                <li
+                  v-for="sh in spriteSheets"
+                  :key="sh.id"
+                  class="tools-item tools-sheet"
+                  @click="openSheetSlicePicker(sh.id)"
+                >
+                  <img class="tools-thumb" :src="sheetThumbDataUrl(sh)" alt="" />
+                  <span class="tools-name" :title="sh.fileName">{{ sh.fileName }}</span>
+                  <button type="button" class="tools-remove" title="Sheet entfernen" @click.stop="removeSheet(sh.id)">
+                    ×
+                  </button>
+                </li>
+              </ul>
+              <p v-else class="muted tools-empty">Noch keine Sheets — PNG / JPEG / WebP hinzufügen.</p>
+            </div>
+
+            <div v-if="step === 1" class="tools-block bone-settings-aside">
+              <h3 class="bone-settings-title">
+                Bone Settings<span v-if="selectedBone" class="bone-settings-name">: {{ selectedBone.name }}</span>
+              </h3>
+              <p v-if="!selectedBone" class="muted bone-settings-sub">Kein Knochen gewählt</p>
+              <p class="muted bone-settings-note">
+                Skelio: <strong>2D-Bindpose</strong> (gleiche Felder wie der Inspector rechts im Hauptfenster). Kein
+                Smack-Z/Tilt/Spin/Länge — dafür bräuchte es ein erweitertes Bone-Modell.
+              </p>
+              <template v-if="selectedBone">
+                <label class="bs-lbl"
+                  >Name
+                  <input
+                    class="bs-inp"
+                    type="text"
+                    :value="selectedBone.name"
+                    @change="renameSelectedBoneFromInspector($event)"
+                  />
+                </label>
+                <label class="bs-lbl"
+                  >X (Bind)
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.1"
+                    :value="selectedBone.bindPose.x"
+                    @change="patchSelectedBoneBind('x', $event)"
+                  />
+                </label>
+                <label class="bs-lbl"
+                  >Y (Bind)
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.1"
+                    :value="selectedBone.bindPose.y"
+                    @change="patchSelectedBoneBind('y', $event)"
+                  />
+                </label>
+                <label class="bs-lbl"
+                  >Rotation (rad)
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.01"
+                    :value="selectedBone.bindPose.rotation"
+                    @change="patchSelectedBoneBind('rotation', $event)"
+                  />
+                </label>
+                <label class="bs-lbl"
+                  >Scale X
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.05"
+                    :value="selectedBone.bindPose.sx"
+                    @change="patchSelectedBoneBind('sx', $event)"
+                  />
+                </label>
+                <label class="bs-lbl"
+                  >Scale Y
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.05"
+                    :value="selectedBone.bindPose.sy"
+                    @change="patchSelectedBoneBind('sy', $event)"
+                  />
+                </label>
+                <p v-if="selectedBone.parentId && selectedBoneParentSpan !== null" class="muted bs-chain">
+                  Abstand zum Parent: <strong>{{ selectedBoneParentSpan.toFixed(1) }}</strong>
+                  <span class="dim"> (Orientierung, kein Smack-Length-Feld)</span>
+                </p>
+                <p v-else-if="selectedBone" class="muted bs-chain">
+                  <span class="dim">Wurzel — kein Parent-Abstand.</span>
+                </p>
+              </template>
+            </div>
+
+            <div v-if="showBoneColumn" class="tools-block tools-block-bones" :class="{ 'tools-divider': showSheetColumn }">
+              <h3 class="tools-title tools-title-bones">Knochen (Überblick)</h3>
+              <p class="tools-hint muted">
+                Klick = Auswahl. „Kind anlegen“ = wie links „+ Neu“ (Kind des gewählten Knochens).
+              </p>
+              <button type="button" class="primary bone-add-btn" @click="addChildBone">Kind anlegen</button>
+              <div class="bone-list-wrap">
+                <ul class="bone-rail-list">
+                  <li
+                    v-for="b in bonesHierarchy"
+                    :key="b.id"
+                    class="bone-rail-item"
+                    :class="{ active: selectedBoneId === b.id }"
+                    :style="{ paddingLeft: `${0.35 + b.depth * 0.55}rem` }"
+                    @click="store.selectBone(b.id)"
+                  >
+                    <span class="bone-rail-name">{{ b.name }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </aside>
         </div>
 
@@ -582,7 +916,7 @@ async function onSheetFiles(e: Event) {
   display: grid;
   /* Mitte mindestens ~40% / 320px — verhindert „dünne“ Viewport-Spalte; rechts fest schmal */
   grid-template-columns:
-    minmax(180px, 240px) minmax(112px, 152px) minmax(320px, 1fr) minmax(168px, 200px);
+    minmax(180px, 240px) minmax(112px, 152px) minmax(320px, 1fr) minmax(180px, 280px);
   min-height: 0;
   flex: 1;
   overflow: hidden;
@@ -681,6 +1015,114 @@ async function onSheetFiles(e: Event) {
 .rail-new:hover {
   background: #274a3c;
 }
+.bone-rail .rail-bone-intro {
+  margin: 0 0 0.35rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+.bone-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.75rem;
+}
+.bone-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.22rem 0.25rem;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.bone-tree-row:hover {
+  background: #2a2d35;
+}
+.bone-tree-row.active {
+  background: #2a3150;
+  border-color: #4f6ab8;
+}
+.bone-tree-branch {
+  color: #6b7280;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+}
+.bone-tree-name {
+  flex: 1;
+  min-width: 0;
+}
+.rail-new-bone {
+  border-color: #4f5a8a;
+  background: #252a45;
+  color: #a5b4fc;
+}
+.rail-new-bone:hover {
+  background: #2e3555;
+}
+.bone-settings-aside {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+}
+.bone-settings-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+}
+.bone-settings-name {
+  font-weight: 500;
+  color: #a5b4fc;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.bone-settings-sub {
+  margin: 0 0 0.15rem;
+  font-size: 0.78rem;
+}
+.bone-settings-note {
+  margin: 0 0 0.35rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+.bs-lbl {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
+.bs-inp {
+  padding: 0.3rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #18191c;
+  color: #e5e7eb;
+  font-size: 0.78rem;
+}
+.bs-inp.bs-num {
+  max-width: 100%;
+}
+.bs-chain {
+  margin: 0.35rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+.roadmap-hint {
+  margin-top: 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.roadmap-hint code {
+  font-size: 0.85em;
+  color: #a5b4fc;
+}
 .nav {
   display: flex;
   flex-direction: column;
@@ -714,9 +1156,59 @@ async function onSheetFiles(e: Event) {
   min-width: min(100%, 320px);
   min-height: 0;
 }
+.rig-camera-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid #3b3f48;
+  background: #1e1f24;
+}
+.rig-camera-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+}
+.rig-camera-seg {
+  display: inline-flex;
+  border-radius: 6px;
+  border: 1px solid #444;
+  overflow: hidden;
+}
+.rig-cam-btn {
+  padding: 0.28rem 0.65rem;
+  border: none;
+  border-right: 1px solid #444;
+  background: #25262b;
+  color: #9ca3af;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rig-cam-btn:last-child {
+  border-right: none;
+}
+.rig-cam-btn:hover {
+  background: #2e3138;
+  color: #e5e7eb;
+}
+.rig-cam-btn.on {
+  background: #3730a3;
+  color: #eef;
+}
+.rig-camera-cap {
+  font-size: 0.65rem;
+  flex: 1 1 140px;
+  min-width: 0;
+  line-height: 1.3;
+}
 .viewport-wrap {
-  flex: 1 1 55%;
-  min-height: 220px;
+  flex: 1 1 72%;
+  min-height: 280px;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -750,10 +1242,21 @@ async function onSheetFiles(e: Event) {
   color: #e5e7eb;
 }
 .step-scroll {
-  flex: 0 1 45%;
-  min-height: 120px;
+  flex: 0 1 28%;
+  min-height: 88px;
+  max-height: min(220px, 32vh);
   overflow: auto;
   padding: 0.75rem 1rem;
+}
+.future-note {
+  margin-top: 0.65rem;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+.rail-name-input {
+  max-width: 7rem;
+  font-weight: 500;
+  color: #e5e7eb;
 }
 .tools {
   border-left: 1px solid #3b3f48;
@@ -764,8 +1267,27 @@ async function onSheetFiles(e: Event) {
   gap: 0.5rem;
   min-height: 0;
   min-width: 0;
-  max-width: 220px;
+  max-width: 280px;
+  overflow: hidden;
+}
+.tools-block-sheets {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 48%;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.tools-block-bones {
+  flex: 1 1 40%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.tools-block-bones:not(.tools-divider) {
+  flex: 1 1 auto;
 }
 .tools-title {
   margin: 0;
@@ -846,6 +1368,53 @@ async function onSheetFiles(e: Event) {
 .tools-empty {
   font-size: 0.82rem;
   line-height: 1.4;
+}
+.tools-title-bones {
+  margin-top: 0;
+}
+.tools-divider {
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #3b3f48;
+}
+.bone-add-btn {
+  width: auto;
+  max-width: 100%;
+  align-self: flex-start;
+  margin-bottom: 0.35rem;
+}
+.bone-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin-top: 0.25rem;
+}
+.bone-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.78rem;
+}
+.bone-rail-item {
+  padding: 0.28rem 0.35rem;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #d1d5db;
+  border: 1px solid transparent;
+}
+.bone-rail-item:hover {
+  background: #2a2d35;
+}
+.bone-rail-item.active {
+  background: #2a3150;
+  border-color: #4f6ab8;
+  color: #a5b4fc;
+}
+.bone-rail-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
 }
 .hint {
   margin: 0 0 0.75rem;

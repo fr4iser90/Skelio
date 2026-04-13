@@ -49,6 +49,7 @@ export {
   worldPoseBoneMatrices,
   worldPoseOrigins,
   clipDurationSeconds,
+  localBindTranslationForWorldOrigin,
 } from "./editor/pose.js";
 export { fabrik2dThreeJoints, segmentLengthsFromBindOrigins } from "./editor/ik2d.js";
 export { worldPoseOriginsWithIk } from "./editor/ikPose.js";

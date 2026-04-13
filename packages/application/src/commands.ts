@@ -20,6 +20,7 @@ export type Command =
   | { type: "renameBone"; boneId: string; name: string }
   | { type: "setBindPose"; boneId: string; partial: Partial<{ x: number; y: number; rotation: number; sx: number; sy: number }> }
   | { type: "setBoneLength"; boneId: string; length: number }
+  | { type: "setBoneLengthAndBindRotation"; boneId: string; length: number; rotation: number }
   | { type: "snapBoneToParentTip"; boneId: string }
   | { type: "setBoneFollowParentTip"; boneId: string; follow: boolean }
   | { type: "setMetaName"; name: string }
@@ -556,6 +557,15 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     const b = p.bones.find((x) => x.id === cmd.boneId);
     if (!b || !Number.isFinite(cmd.length) || cmd.length < 0) return project;
     b.length = cmd.length;
+    syncDirectChildrenFollowParentTip(p, b.id);
+    return p;
+  }
+
+  if (cmd.type === "setBoneLengthAndBindRotation") {
+    const b = p.bones.find((x) => x.id === cmd.boneId);
+    if (!b || !Number.isFinite(cmd.length) || cmd.length < 0 || !Number.isFinite(cmd.rotation)) return project;
+    b.length = cmd.length;
+    b.bindPose.rotation = cmd.rotation;
     syncDirectChildrenFollowParentTip(p, b.id);
     return p;
   }

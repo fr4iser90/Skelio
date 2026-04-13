@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDefaultEditorProject } from "./projectFactory.js";
 import {
   BONE_LENGTH_HIT_MIN_LOCAL,
+  boneLengthAndBindRotationFromWorldTip,
   boneLengthFromWorldPointer,
   childBindTranslationAtParentTip,
   localBindTranslationForWorldOrigin,
@@ -78,5 +79,29 @@ describe("bone length / tip", () => {
     const W = worldBindBoneMatrices(p).get(root.id)!;
     expect(boneLengthFromWorldPointer(W, 30, 0)).toBeCloseTo(30, 5);
     expect(boneLengthFromWorldPointer(W, -10, 0)).toBe(0);
+  });
+
+  it("tip drag aims bone at pointer (length + rotation)", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones.find((b) => b.parentId === null)!;
+    root.bindPose = { x: 0, y: 0, rotation: 0, sx: 1, sy: 1 };
+    root.length = 10;
+    const up = boneLengthAndBindRotationFromWorldTip(p, root.id, 0, 40)!;
+    expect(up.length).toBeCloseTo(40, 5);
+    expect(up.rotation).toBeCloseTo(Math.PI / 2, 5);
+    const left = boneLengthAndBindRotationFromWorldTip(p, root.id, -25, 0)!;
+    expect(left.length).toBeCloseTo(25, 5);
+    expect(left.rotation).toBeCloseTo(Math.PI, 5);
+  });
+
+  it("tip drag uses preview bind pose for stable joint basis", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones.find((b) => b.parentId === null)!;
+    root.bindPose = { x: 0, y: 0, rotation: 0, sx: 1, sy: 1 };
+    root.length = 20;
+    const preview = { ...root.bindPose, rotation: Math.PI / 2 };
+    const r = boneLengthAndBindRotationFromWorldTip(p, root.id, 30, 0, preview)!;
+    expect(r.length).toBeCloseTo(30, 5);
+    expect(r.rotation).toBeCloseTo(0, 5);
   });
 });

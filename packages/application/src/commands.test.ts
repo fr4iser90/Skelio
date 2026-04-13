@@ -146,6 +146,25 @@ describe("applyCommand", () => {
     expect(applyCommand(p, { type: "setBoneLength", boneId: bid, length: -2 })).toEqual(before);
   });
 
+  it("sets bone length and bind rotation in one step", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, {
+      type: "setBoneLengthAndBindRotation",
+      boneId: root,
+      length: 55,
+      rotation: 1.23,
+    });
+    const b = p.bones.find((x) => x.id === root)!;
+    expect(b.length).toBe(55);
+    expect(b.bindPose.rotation).toBeCloseTo(1.23, 5);
+    expect(validateEditorProject(p)).toHaveLength(0);
+    const before = structuredClone(p);
+    expect(
+      applyCommand(p, { type: "setBoneLengthAndBindRotation", boneId: root, length: -1, rotation: 0 }),
+    ).toEqual(before);
+  });
+
   it("places new child at parent tip when parent has length", () => {
     let p = createDefaultEditorProject();
     const root = p.bones[0]!;

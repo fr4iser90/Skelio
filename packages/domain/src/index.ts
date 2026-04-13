@@ -45,6 +45,7 @@ export { validateEditorProject, type ValidationIssue } from "./editor/validate.j
 export type { Mat2D } from "./editor/mat2d.js";
 export {
   worldBindBoneMatrices,
+  worldBindBoneMatricesOverridingBindPose,
   worldBindOrigins,
   worldBindBoneTips,
   worldBindBoneTipForLengthHit,
@@ -55,6 +56,7 @@ export {
   clipDurationSeconds,
   localBindTranslationForWorldOrigin,
   boneLengthFromWorldPointer,
+  boneLengthAndBindRotationFromWorldTip,
   childBindTranslationAtParentTip,
 } from "./editor/pose.js";
 export {

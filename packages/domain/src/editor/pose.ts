@@ -59,6 +59,15 @@ export function worldBindBoneMatrices(project: EditorProject): Map<string, Mat2D
   return worldMatricesFromLocals(project, (b) => b.bindPose);
 }
 
+/** Like {@link worldBindBoneMatrices}, but one bone uses `bindPoseOverride` for FK (descendants follow). */
+export function worldBindBoneMatricesOverridingBindPose(
+  project: EditorProject,
+  boneId: string,
+  bindPoseOverride: Transform2D,
+): Map<string, Mat2D> {
+  return worldMatricesFromLocals(project, (b) => (b.id === boneId ? bindPoseOverride : b.bindPose));
+}
+
 /** World bone matrices at animation time `time` (active clip). */
 export function worldPoseBoneMatrices(project: EditorProject, time: number): Map<string, Mat2D> {
   const clip = project.clips.find((c) => c.id === project.activeClipId);
@@ -125,6 +134,37 @@ export function boneLengthFromWorldPointer(W: Mat2D, worldX: number, worldY: num
   const dd = dx * dx + dy * dy;
   if (dd < 1e-20) return 0;
   return Math.max(0, (px * dx + py * dy) / dd);
+}
+
+/**
+ * Tip-drag style: distance from joint to pointer = bone length; bind rotation turns local +X toward the pointer.
+ * Pass `previewBindPose` (usually same as bone.bindPose but with last frame’s preview rotation) so joint/tangent
+ * stay consistent while dragging.
+ */
+export function boneLengthAndBindRotationFromWorldTip(
+  project: EditorProject,
+  boneId: string,
+  worldX: number,
+  worldY: number,
+  previewBindPose?: Transform2D,
+): { length: number; rotation: number } | null {
+  const bone = project.bones.find((b) => b.id === boneId);
+  if (!bone) return null;
+  const local = previewBindPose ?? bone.bindPose;
+  const mats = worldBindBoneMatricesOverridingBindPose(project, boneId, local);
+  const W = mats.get(boneId);
+  if (!W) return null;
+  const J = apply(W, 0, 0);
+  const dx = worldX - J.x;
+  const dy = worldY - J.y;
+  const L = Math.max(1e-6, Math.hypot(dx, dy));
+  const tgt = Math.atan2(dy, dx);
+  const cur = Math.atan2(W.b, W.a);
+  let dr = tgt - cur;
+  while (dr > Math.PI) dr -= 2 * Math.PI;
+  while (dr < -Math.PI) dr += 2 * Math.PI;
+  const rotation = local.rotation + dr;
+  return { length: L, rotation };
 }
 
 /**

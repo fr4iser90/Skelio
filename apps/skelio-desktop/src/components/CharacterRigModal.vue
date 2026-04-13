@@ -594,9 +594,10 @@ async function onSheetFiles(e: Event) {
                   platzieren, danach am Punkt ziehen. Rechts: Bind-Werte wie im Inspector.
                 </p>
                 <p class="muted roadmap-hint">
-                  <strong>Length:</strong> lokal +X, gelbes Ende im Viewport zum Ziehen.
-                  <strong>Kette:</strong> optional „an Spitze“, Schnappen, „Parent-Spitze folgen“ (rechts unter Bind).
-                  <strong>Kamera</strong> oben: 2D / 2.5D / 3D (Y-Stauchung). Schließen = wieder 2D.
+                  <strong>Length:</strong> Griff oder <strong>Shift+Gelenk</strong> ziehen, <strong>Esc</strong> =
+                  Vorschau abbrechen, loslassen = speichern.
+                  <strong>Kette:</strong> an Spitze / folgen (rechts). <strong>Kamera</strong> 2D·2.5D·3D
+                  (Y-Stauchung).
                 </p>
               </div>
 
@@ -789,8 +790,8 @@ async function onSheetFiles(e: Event) {
                   />
                 </label>
                 <p v-if="!selectedBone.parentId" class="muted bs-root-length-hint">
-                  Wurzel: oft <strong>Length 0</strong> (nur Gelenk). Im Viewport trotzdem Griff zum Aufziehen; Zug
-                  folgt der Knochenachse (auch bei 2.5D-Kamera), nicht nur waagerecht.
+                  Wurzel: oft <strong>Length 0</strong> (nur Gelenk). Griff oder <strong>Shift+Gelenk</strong> ziehen;
+                  <strong>Esc</strong> bricht die Längen-Vorschau ab. Zug folgt der Knochenachse (auch 2.5D).
                 </p>
                 <label class="bs-lbl"
                   >Scale X

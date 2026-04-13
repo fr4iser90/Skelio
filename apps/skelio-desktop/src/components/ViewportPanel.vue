@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import {
   addBoneWeightDelta,
-  boneLengthFromWorldPointer,
+  boneLengthAndBindRotationFromWorldTip,
   deformSkinnedMesh,
   localBindTranslationForWorldOrigin,
   worldBindBoneMatrices,
+  worldBindBoneMatricesOverridingBindPose,
   BONE_LENGTH_HIT_MIN_LOCAL,
   worldBindBoneTipForLengthHit,
   worldBindOrigins,
@@ -15,7 +16,7 @@ import {
   type SkinnedMesh,
 } from "@skelio/domain";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 
 type BrushStroke = {
@@ -61,10 +62,16 @@ const rigSlicePreview = ref<{ id: string; cx: number; cy: number } | null>(null)
 /** Schritt „Knochen“ im Character-Rig-Modal: Knochen in der Welt ziehen. */
 const boneDrag = ref<{ boneId: string } | null>(null);
 /**
- * Länge ziehen: nur Vorschau bis loslassen (ein Dispatch / ein Undo), Smack-ähnlich.
- * `previewLength` folgt der Maus entlang der Knochenachse in Welt (nicht Bildschirm horizontal).
+ * Spitze ziehen: Live-Vorschau (Länge + Bind-Rotation zur Maus), Commit beim Loslassen (ein Undo).
  */
-const boneLengthDrag = ref<{ boneId: string; startLength: number; previewLength: number } | null>(null);
+const boneLengthDrag = ref<{
+  boneId: string;
+  startLength: number;
+  startRotation: number;
+  previewLength: number;
+  previewRotation: number;
+  pointerId: number;
+} | null>(null);
 
 const rigModalBoneStep = computed(
   () => characterRigModalOpen.value && characterRigModalStep.value === 1,
@@ -81,7 +88,7 @@ const viewportHintText = computed(() => {
     if (pendingBonePlacementId.value) {
       return "Klick in die Fläche = neuen Knochen platzieren (orange Kreis) · Rad = Zoom";
     }
-    return "Knochen: Länge am Griff ziehen, loslassen = übernehmen (ein Undo) · Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
+    return "Knochen: Spitze/Shift+Gelenk ziehen (Richtung + Länge) · Loslassen = übernehmen · Esc = abbrechen · Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
   }
   if ((project.value.characterRig?.slices?.length ?? 0) > 0) {
     return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Slices mit Links ziehen";
@@ -123,6 +130,54 @@ function lengthForBoneVisual(
     return BONE_LENGTH_HIT_MIN_LOCAL;
   }
   return L;
+}
+
+function releaseBoneLengthPointerCapture(pointerId: number) {
+  const c = canvas.value;
+  if (c?.hasPointerCapture(pointerId)) {
+    try {
+      c.releasePointerCapture(pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function beginBoneLengthDrag(boneId: string, wx: number, wy: number, e: PointerEvent, c: HTMLCanvasElement) {
+  store.selectBone(boneId);
+  const b = project.value.bones.find((x) => x.id === boneId);
+  const startLen = b?.length ?? 0;
+  const startRot = b?.bindPose.rotation ?? 0;
+  const tip = b ? boneLengthAndBindRotationFromWorldTip(project.value, boneId, wx, wy) : null;
+  boneLengthDrag.value = {
+    boneId,
+    startLength: startLen,
+    startRotation: startRot,
+    previewLength: tip?.length ?? startLen,
+    previewRotation: tip?.rotation ?? startRot,
+    pointerId: e.pointerId,
+  };
+  try {
+    c.setPointerCapture(e.pointerId);
+  } catch {
+    /* ignore */
+  }
+}
+
+function cancelBoneLengthPreview() {
+  const d = boneLengthDrag.value;
+  if (!d) return;
+  boneLengthDrag.value = null;
+  releaseBoneLengthPointerCapture(d.pointerId);
+  draw();
+}
+
+function onLengthDragEscapeKey(e: KeyboardEvent) {
+  if (e.key !== "Escape") return;
+  if (!boneLengthDrag.value) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  cancelBoneLengthPreview();
 }
 
 function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null {
@@ -456,10 +511,22 @@ function draw() {
     }
   }
 
-  const boneM = rigModalBoneStep.value ? bindM : poseM;
-  const boneO = rigModalBoneStep.value
+  const lenDrag = boneLengthDrag.value;
+  let boneM = rigModalBoneStep.value ? bindM : poseM;
+  let boneO = rigModalBoneStep.value
     ? worldBindOrigins(project.value)
     : worldPoseOriginsWithIk(project.value, currentTime.value);
+  if (rigModalBoneStep.value && lenDrag) {
+    const b = project.value.bones.find((x) => x.id === lenDrag.boneId);
+    if (b) {
+      boneM = worldBindBoneMatricesOverridingBindPose(project.value, lenDrag.boneId, {
+        ...b.bindPose,
+        rotation: lenDrag.previewRotation,
+      });
+      boneO = new Map();
+      for (const [id, m] of boneM) boneO.set(id, { x: m.e, y: m.f });
+    }
+  }
   const bones = project.value.bones;
   ctx.strokeStyle = "#6b7280";
   ctx.lineWidth = 2;
@@ -675,20 +742,19 @@ function onCanvasPointerDown(e: PointerEvent) {
       draw();
       return;
     }
+    if (e.shiftKey) {
+      const hitShift = hitTestBone(wx, wy, 18);
+      if (hitShift) {
+        e.preventDefault();
+        beginBoneLengthDrag(hitShift, wx, wy, e, c);
+        draw();
+        return;
+      }
+    }
     const hitTip = hitTestBoneTip(wx, wy, 16);
     if (hitTip) {
       e.preventDefault();
-      store.selectBone(hitTip);
-      const b = project.value.bones.find((x) => x.id === hitTip);
-      const W = worldBindBoneMatrices(project.value).get(hitTip);
-      const startLen = b?.length ?? 0;
-      const previewLen = W && b ? boneLengthFromWorldPointer(W, wx, wy) : startLen;
-      boneLengthDrag.value = { boneId: hitTip, startLength: startLen, previewLength: previewLen };
-      try {
-        c.setPointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
+      beginBoneLengthDrag(hitTip, wx, wy, e, c);
       draw();
       return;
     }
@@ -787,10 +853,18 @@ function onCanvasPointerMove(e: PointerEvent) {
   if (boneLengthDrag.value) {
     e.preventDefault();
     const { wx, wy } = worldFromClient(e, c);
-    const W = worldBindBoneMatrices(project.value).get(boneLengthDrag.value.boneId);
-    if (W) {
-      const len = boneLengthFromWorldPointer(W, wx, wy);
-      boneLengthDrag.value = { ...boneLengthDrag.value, previewLength: len };
+    const d = boneLengthDrag.value;
+    const b = project.value.bones.find((x) => x.id === d.boneId);
+    if (b) {
+      const previewBind = { ...b.bindPose, rotation: d.previewRotation };
+      const tip = boneLengthAndBindRotationFromWorldTip(project.value, d.boneId, wx, wy, previewBind);
+      if (tip) {
+        boneLengthDrag.value = {
+          ...d,
+          previewLength: tip.length,
+          previewRotation: tip.rotation,
+        };
+      }
     }
     draw();
     return;
@@ -846,16 +920,17 @@ function onCanvasPointerUp(e: PointerEvent) {
   if (boneLengthDrag.value) {
     const d = boneLengthDrag.value;
     boneLengthDrag.value = null;
-    if (Math.abs(d.previewLength - d.startLength) > 1e-3) {
-      store.dispatch({ type: "setBoneLength", boneId: d.boneId, length: d.previewLength });
+    const lenChanged = Math.abs(d.previewLength - d.startLength) > 1e-3;
+    const rotChanged = Math.abs(d.previewRotation - d.startRotation) > 1e-6;
+    if (lenChanged || rotChanged) {
+      store.dispatch({
+        type: "setBoneLengthAndBindRotation",
+        boneId: d.boneId,
+        length: d.previewLength,
+        rotation: d.previewRotation,
+      });
     }
-    if (c?.hasPointerCapture(e.pointerId)) {
-      try {
-        c.releasePointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    }
+    releaseBoneLengthPointerCapture(d.pointerId);
     draw();
     return;
   }
@@ -903,6 +978,7 @@ function onCanvasPointerUp(e: PointerEvent) {
 }
 
 onMounted(() => {
+  window.addEventListener("keydown", onLengthDragEscapeKey, true);
   const c = canvas.value;
   if (!c) return;
   const ro = new ResizeObserver(() => {
@@ -913,6 +989,10 @@ onMounted(() => {
     draw();
   });
   ro.observe(c.parentElement!);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("keydown", onLengthDragEscapeKey, true);
 });
 
 watch(
@@ -945,6 +1025,15 @@ watch(
 watch(referenceBitmap, draw);
 watch(rigSheetBitmaps, draw, { deep: true });
 watch(brushStroke, draw);
+
+function onCanvasPointerCancel(e: PointerEvent) {
+  if (boneLengthDrag.value) {
+    e.preventDefault();
+    cancelBoneLengthPreview();
+    return;
+  }
+  onCanvasPointerUp(e);
+}
 </script>
 
 <template>
@@ -956,7 +1045,7 @@ watch(brushStroke, draw);
       @pointerdown="onCanvasPointerDown"
       @pointermove="onCanvasPointerMove"
       @pointerup="onCanvasPointerUp"
-      @pointercancel="onCanvasPointerUp"
+      @pointercancel="onCanvasPointerCancel"
       @wheel="onWheelView"
       @contextmenu.prevent
     />

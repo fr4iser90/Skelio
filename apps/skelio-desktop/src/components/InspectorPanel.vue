@@ -8,6 +8,7 @@ const store = useEditorStore();
 const {
   selectedBone,
   project,
+  currentTime,
   selectedBoneId,
   selectedMeshId,
   selectedVertexIndex,
@@ -157,12 +158,16 @@ function removeIkChain(chainId: string) {
 
 <template>
   <div class="panel">
-    <h3>Projekt</h3>
+    <h3 class="panel-title">Projekt</h3>
     <label class="lbl">Name <input class="inp" :value="project.meta.name" @change="patchMeta" /></label>
     <label class="lbl">FPS <input class="inp sm" type="number" min="1" :value="project.meta.fps" @change="patchFps" /></label>
 
     <template v-if="selectedBone">
-      <h3>Knochen</h3>
+      <h3 class="panel-title">Knochen</h3>
+      <p class="bone-hint">
+        <strong>Bind-Pose</strong> = Ruhe-Skelett. Die <strong>Animation</strong> steuerst du mit Keys zur Zeit
+        <span class="tmono">{{ currentTime.toFixed(2) }}s</span> (Timeline unten oder Knochen im Viewport ziehen).
+      </p>
       <label class="lbl">Name <input class="inp" :value="selectedBone.name" @change="rename" /></label>
       <label class="lbl">Bind X <input class="inp sm" type="number" step="0.1" :value="selectedBone.bindPose.x" @change="patchBind('x', $event)" /></label>
       <label class="lbl">Bind Y <input class="inp sm" type="number" step="0.1" :value="selectedBone.bindPose.y" @change="patchBind('y', $event)" /></label>
@@ -251,7 +256,20 @@ function removeIkChain(chainId: string) {
 
 <style scoped>
 .panel {
-  padding: 0.5rem 0.65rem;
+  padding: 0.55rem 0.65rem 0.75rem;
+}
+.panel-title {
+  margin: 0.85rem 0 0.4rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #2d3340;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #94a3b8;
+}
+.panel-title:first-of-type {
+  margin-top: 0;
 }
 h3 {
   margin: 0.75rem 0 0.35rem;
@@ -262,6 +280,16 @@ h3 {
 }
 h3:first-child {
   margin-top: 0;
+}
+.bone-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: #7c8494;
+}
+.bone-hint .tmono {
+  font-variant-numeric: tabular-nums;
+  color: #a5b4fc;
 }
 .lbl {
   display: flex;

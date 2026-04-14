@@ -76,18 +76,19 @@ function onKey(e: KeyboardEvent) {
 <style scoped>
 .shell {
   display: grid;
-  grid-template-rows: auto 1fr 200px;
+  grid-template-rows: auto 1fr minmax(200px, 240px);
   height: 100vh;
-  font-family: system-ui, sans-serif;
-  background: #1a1b1e;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f1014;
   color: #e6e6e6;
 }
 .workspace {
   display: grid;
-  grid-template-columns: 220px 1fr 260px;
+  grid-template-columns: 228px 1fr 272px;
   min-height: 0;
   height: 100%;
   align-items: stretch;
+  border-bottom: 1px solid #252830;
 }
 .viewport-slot {
   min-width: 0;
@@ -95,14 +96,15 @@ function onKey(e: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: #0f1014;
 }
 .side {
-  border-right: 1px solid #333;
+  border-right: 1px solid #2a2f3a;
   overflow: auto;
-  background: #222;
+  background: linear-gradient(180deg, #1c1e26 0%, #181a20 100%);
 }
 .side.right {
   border-right: none;
-  border-left: 1px solid #333;
+  border-left: 1px solid #2a2f3a;
 }
 </style>

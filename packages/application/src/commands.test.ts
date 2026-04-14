@@ -107,6 +107,55 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
+  it("syncCharacterRigSkinnedMeshes creates rig_slice meshes from bound slices", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, {
+      type: "setCharacterRigSpriteSheet",
+      fileName: "sheet.png",
+      mimeType: "image/png",
+      dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      pixelWidth: 64,
+      pixelHeight: 64,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "Part",
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 10,
+      worldCx: 0,
+      worldCy: 0,
+    });
+    const sid = p.characterRig!.slices[0]!.id;
+    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: sid, boneId: root });
+    p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
+    expect(p.skinnedMeshes?.length).toBe(1);
+    expect(p.skinnedMeshes![0]!.id.startsWith("rig_slice_")).toBe(true);
+    expect(p.skinnedMeshes![0]!.vertices.length).toBe(4);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("setBoneTranslationKeysAtTime writes tx and ty keys in one command", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, {
+      type: "setBoneTranslationKeysAtTime",
+      boneId: root,
+      t: 0.25,
+      x: 12,
+      y: -7,
+    });
+    const clip = p.clips.find((c) => c.id === p.activeClipId)!;
+    const tr = clip.tracks.find((t) => t.boneId === root)!;
+    const tx = tr.channels.find((c) => c.property === "tx")!.keys;
+    const ty = tr.channels.find((c) => c.property === "ty")!.keys;
+    expect(tx.some((k) => Math.abs(k.t - 0.25) < 1e-9 && k.v === 12)).toBe(true);
+    expect(ty.some((k) => Math.abs(k.t - 0.25) < 1e-9 && k.v === -7)).toBe(true);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
   it("ignores IK commands for unknown chain id", () => {
     let p = createDefaultEditorProject();
     p = applyCommand(p, { type: "addDemoIkChain" });

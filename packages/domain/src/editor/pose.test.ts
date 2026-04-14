@@ -6,6 +6,7 @@ import {
   boneLengthFromWorldPointer,
   childBindTranslationAtParentTip,
   localBindTranslationForWorldOrigin,
+  localTranslationForWorldJointAtPoseTime,
   worldBindBoneMatrices,
   worldBindBoneTipForLengthHit,
   worldBindBoneTips,
@@ -41,6 +42,15 @@ describe("localBindTranslationForWorldOrigin", () => {
     const root = p.bones.find((b) => b.parentId === null)!;
     const local = localBindTranslationForWorldOrigin(p, root.id, 99, -12);
     expect(local).toEqual({ x: 99, y: -12 });
+  });
+});
+
+describe("localTranslationForWorldJointAtPoseTime", () => {
+  it("maps root to world coordinates at any time", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones.find((b) => b.parentId === null)!;
+    const r = localTranslationForWorldJointAtPoseTime(p, root.id, 0.5, 3, -4);
+    expect(r).toEqual({ x: 3, y: -4 });
   });
 });
 

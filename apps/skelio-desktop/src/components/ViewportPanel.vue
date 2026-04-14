@@ -4,6 +4,7 @@ import {
   boneLengthAndBindRotationFromWorldTip,
   deformSkinnedMesh,
   localBindTranslationForWorldOrigin,
+  localTranslationForWorldJointAtPoseTime,
   worldBindBoneMatrices,
   worldBindBoneMatricesOverridingBindPose,
   BONE_LENGTH_HIT_MIN_LOCAL,
@@ -80,6 +81,9 @@ const rigModalBoneStep = computed(
 const viewportHintText = computed(() => {
   if (weightBrushEnabled.value) {
     return "Pinsel: gewählter Knochen · Ziehen im Viewport (ein Undo pro Strich)";
+  }
+  if (!characterRigModalOpen.value) {
+    return "Animator: Zeit unten wählen · Knochen anklicken & ziehen = TX/TY-Keys an dieser Zeit · Rad = Zoom · Alt+Links = schieben · Rechts = drehen · Mesh-Vertex = Gewichte";
   }
   if (characterRigModalOpen.value && rigCameraWorldYScale.value < 0.999) {
     return "Kamera: Y gestaucht (Pseudo-Tiefe) — gleiche Logik für Klicks · Rad = Zoom";
@@ -182,6 +186,24 @@ function onLengthDragEscapeKey(e: KeyboardEvent) {
 
 function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null {
   const origins = worldBindOrigins(project.value);
+  const r2 = radiusWorld * radiusWorld;
+  let best: string | null = null;
+  let bestD = r2;
+  for (const b of project.value.bones) {
+    const o = origins.get(b.id);
+    if (!o) continue;
+    const d = (o.x - wx) ** 2 + (o.y - wy) ** 2;
+    if (d <= r2 && d < bestD) {
+      bestD = d;
+      best = b.id;
+    }
+  }
+  return best;
+}
+
+/** Pick bones where they are **drawn** (Pose + IK), für Hauptfenster-Animation. */
+function hitTestBoneAtPose(wx: number, wy: number, radiusWorld: number): string | null {
+  const origins = worldPoseOriginsWithIk(project.value, currentTime.value);
   const r2 = radiusWorld * radiusWorld;
   let best: string | null = null;
   let bestD = r2;
@@ -778,6 +800,22 @@ function onCanvasPointerDown(e: PointerEvent) {
     return;
   }
 
+  if (e.button === 0 && !characterRigModalOpen.value) {
+    const hitPose = hitTestBoneAtPose(wx, wy, 20);
+    if (hitPose) {
+      e.preventDefault();
+      store.selectBone(hitPose);
+      boneDrag.value = { boneId: hitPose };
+      try {
+        c.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      draw();
+      return;
+    }
+  }
+
   const hitSlice = hitTestRigSlice(wx, wy);
   if (hitSlice) {
     e.preventDefault();
@@ -873,9 +911,28 @@ function onCanvasPointerMove(e: PointerEvent) {
   if (boneDrag.value) {
     e.preventDefault();
     const { wx, wy } = worldFromClient(e, c);
-    const local = localBindTranslationForWorldOrigin(project.value, boneDrag.value.boneId, wx, wy);
-    if (local) {
-      store.dispatch({ type: "setBindPose", boneId: boneDrag.value.boneId, partial: { x: local.x, y: local.y } });
+    if (rigModalBoneStep.value) {
+      const local = localBindTranslationForWorldOrigin(project.value, boneDrag.value.boneId, wx, wy);
+      if (local) {
+        store.dispatch({ type: "setBindPose", boneId: boneDrag.value.boneId, partial: { x: local.x, y: local.y } });
+      }
+    } else {
+      const local = localTranslationForWorldJointAtPoseTime(
+        project.value,
+        boneDrag.value.boneId,
+        currentTime.value,
+        wx,
+        wy,
+      );
+      if (local) {
+        store.dispatch({
+          type: "setBoneTranslationKeysAtTime",
+          boneId: boneDrag.value.boneId,
+          t: currentTime.value,
+          x: local.x,
+          y: local.y,
+        });
+      }
     }
     draw();
     return;
@@ -1118,10 +1175,16 @@ function onCanvasPointerCancel(e: PointerEvent) {
 }
 .hint {
   position: absolute;
-  bottom: 6px;
+  bottom: 8px;
   left: 8px;
-  font-size: 0.7rem;
-  color: #555;
-  max-width: 72%;
+  max-width: min(92%, 28rem);
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: #94a3b8;
+  background: rgba(15, 16, 20, 0.88);
+  border: 1px solid #2d3340;
+  pointer-events: none;
 }
 </style>

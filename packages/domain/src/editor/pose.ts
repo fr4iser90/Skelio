@@ -204,6 +204,31 @@ export function localBindTranslationForWorldOrigin(
   return { x: p.x, y: p.y };
 }
 
+/**
+ * Parent chain from **pose at `time`** (not bind). Use when dragging in the main viewport to write
+ * TX/TY keys so the joint moves to `(worldX, worldY)` at that time.
+ */
+export function localTranslationForWorldJointAtPoseTime(
+  project: EditorProject,
+  boneId: string,
+  time: number,
+  worldX: number,
+  worldY: number,
+): { x: number; y: number } | null {
+  const bone = project.bones.find((b) => b.id === boneId);
+  if (!bone) return null;
+  if (bone.parentId === null) {
+    return { x: worldX, y: worldY };
+  }
+  const world = worldPoseBoneMatrices(project, time);
+  const parentWorld = world.get(bone.parentId);
+  if (!parentWorld) return null;
+  const invP = invert(parentWorld);
+  if (!invP) return null;
+  const p = apply(invP, worldX, worldY);
+  return { x: p.x, y: p.y };
+}
+
 /** World positions of bone origins at `time` using active clip. */
 export function worldPoseOrigins(project: EditorProject, time: number): Map<string, { x: number; y: number }> {
   const world = worldPoseBoneMatrices(project, time);

@@ -3,7 +3,9 @@ import {
   createDemoSkinnedMesh,
   createId,
   normalizeReferenceImageMime,
+  RIG_SLICE_MESH_ID_PREFIX,
   sanitizeInfluenceRow,
+  skinnedMeshesFromCharacterRig,
   validateSkinnedMesh,
   type Bone,
   type ChannelProperty,
@@ -106,7 +108,11 @@ export type Command =
       maxDepthFront: number;
       maxDepthBack: number;
       syncBackWithFront: boolean;
-    };
+    }
+  /** Replaces auto-generated rig meshes (`rig_slice_*`) from bound slices + depths; keeps other meshes. */
+  | { type: "syncCharacterRigSkinnedMeshes" }
+  /** TX/TY keys at `t` in one step (single undo) — main-view bone drag animation. */
+  | { type: "setBoneTranslationKeysAtTime"; boneId: string; t: number; x: number; y: number };
 
 function ensureCharacterRig(p: EditorProject): CharacterRigConfig {
   if (!p.characterRig) {
@@ -349,11 +355,19 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     p.characterRig.slices = [];
     p.characterRig.bindings = [];
     p.characterRig.sliceDepths = [];
+    if (p.skinnedMeshes?.length) {
+      p.skinnedMeshes = p.skinnedMeshes.filter((m) => !m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX));
+      if (p.skinnedMeshes.length === 0) delete p.skinnedMeshes;
+    }
     return p;
   }
 
   if (cmd.type === "clearCharacterRig") {
     delete p.characterRig;
+    if (p.skinnedMeshes?.length) {
+      p.skinnedMeshes = p.skinnedMeshes.filter((m) => !m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX));
+      if (p.skinnedMeshes.length === 0) delete p.skinnedMeshes;
+    }
     return p;
   }
 
@@ -492,6 +506,11 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     rig.slices = rig.slices.filter((s) => s.id !== cmd.sliceId);
     rig.bindings = rig.bindings.filter((b) => b.sliceId !== cmd.sliceId);
     rig.sliceDepths = (rig.sliceDepths ?? []).filter((d) => d.sliceId !== cmd.sliceId);
+    const rigMeshId = `${RIG_SLICE_MESH_ID_PREFIX}${cmd.sliceId}`;
+    if (p.skinnedMeshes?.length) {
+      p.skinnedMeshes = p.skinnedMeshes.filter((m) => m.id !== rigMeshId);
+      if (p.skinnedMeshes.length === 0) delete p.skinnedMeshes;
+    }
     return p;
   }
 
@@ -523,6 +542,43 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       syncBackWithFront: cmd.syncBackWithFront,
     });
     rig.sliceDepths = depths;
+    return p;
+  }
+
+  if (cmd.type === "syncCharacterRigSkinnedMeshes") {
+    const boneIds = new Set(p.bones.map((b) => b.id));
+    const built = skinnedMeshesFromCharacterRig(p);
+    for (const m of built) {
+      if (validateSkinnedMesh(m, boneIds).length > 0) return project;
+    }
+    const rest = (p.skinnedMeshes ?? []).filter((m) => !m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX));
+    const merged = [...rest, ...built];
+    if (merged.length === 0) delete p.skinnedMeshes;
+    else p.skinnedMeshes = merged;
+    return p;
+  }
+
+  if (cmd.type === "setBoneTranslationKeysAtTime") {
+    const b = p.bones.find((x) => x.id === cmd.boneId);
+    if (!b || !Number.isFinite(cmd.t) || !Number.isFinite(cmd.x) || !Number.isFinite(cmd.y)) return project;
+    const clip = activeClip(p);
+    let tr = clip.tracks.find((t) => t.boneId === cmd.boneId);
+    if (!tr) {
+      tr = { boneId: cmd.boneId, channels: [] };
+      clip.tracks.push(tr);
+    }
+    let chx = tr.channels.find((c) => c.property === "tx");
+    if (!chx) {
+      chx = { property: "tx", interpolation: "linear", keys: [] };
+      tr.channels.push(chx);
+    }
+    let chy = tr.channels.find((c) => c.property === "ty");
+    if (!chy) {
+      chy = { property: "ty", interpolation: "linear", keys: [] };
+      tr.channels.push(chy);
+    }
+    chx.keys = insertSorted(chx.keys, { t: cmd.t, v: cmd.x });
+    chy.keys = insertSorted(chy.keys, { t: cmd.t, v: cmd.y });
     return p;
   }
 

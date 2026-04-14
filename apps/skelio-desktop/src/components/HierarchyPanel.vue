@@ -43,7 +43,7 @@ function selectMesh(id: string) {
 
 <template>
   <div class="panel">
-    <h3>Hierarchy</h3>
+    <h3 class="panel-title">Hierarchie</h3>
     <label class="pref">
       <input type="checkbox" :checked="placeNewBonesAtParentTip" @change="store.setPlaceNewBonesAtParentTip(($event.target as HTMLInputElement).checked)" />
       Neu an Parent-Spitze
@@ -72,7 +72,17 @@ function selectMesh(id: string) {
 
 <style scoped>
 .panel {
-  padding: 0.5rem 0.65rem;
+  padding: 0.55rem 0.65rem 0.75rem;
+}
+.panel-title {
+  margin: 0 0 0.55rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid #2d3340;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #94a3b8;
 }
 h3 {
   margin: 0 0 0.5rem;

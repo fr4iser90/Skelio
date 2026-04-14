@@ -3,6 +3,7 @@ import {
   mimeFromFileName,
   normalizeReferenceImageMime,
   REFERENCE_IMAGE_ACCEPT_ATTR,
+  RIG_SLICE_MESH_ID_PREFIX,
   worldBindOrigins,
   type CharacterRigSpriteSheetEntry,
   type CharacterRigSpriteSlice,
@@ -63,7 +64,11 @@ const steps = [
     title: "Binden",
     hint: "Links Teile, rechts Sheets + Knochen-Überblick. Unten: jedes Teil einem Knochen zuordnen.",
   },
-  { id: "depth", title: "3D / Tiefe", hint: "Optional: Tiefenwerte pro Teil (2.5D)." },
+  {
+    id: "depth",
+    title: "3D / Meshing",
+    hint: "Tiefe pro Teil (Smack-ähnlich). Anschließend Meshes erzeugen — gebundene Teile → Quad-Meshes (100 % Knochen-Gewicht), bei Tiefe zwei Schichten in Y.",
+  },
   { id: "preview", title: "Vorschau", hint: "Überblick über Zuordnungen." },
 ] as const;
 
@@ -170,6 +175,17 @@ function setDepth(sliceId: string, front: number, back: number, sync: boolean) {
     syncBackWithFront: sync,
   });
 }
+
+function syncMeshingFromRig() {
+  const ok = store.dispatch({ type: "syncCharacterRigSkinnedMeshes" });
+  if (!ok) {
+    alert("Mesh-Sync abgelehnt (Validierung). Prüfe: jedes Teil mit Pixeln braucht einen Knochen im Schritt „Binden“.");
+  }
+}
+
+const rigGeneratedMeshCount = computed(
+  () => project.value.skinnedMeshes?.filter((m) => m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)).length ?? 0,
+);
 
 function thumbDataUrl(s: CharacterRigSpriteSlice): string {
   const em = s.embedded;
@@ -628,6 +644,22 @@ async function onSheetFiles(e: Event) {
               </div>
 
               <div v-show="step === 3" class="panel">
+                <div class="meshing-block">
+                  <h4 class="meshing-title">Meshing</h4>
+                  <p class="muted meshing-copy">
+                    Wie in Smack: zuerst <strong>Binden</strong> (Teil → Knochen), hier <strong>Tiefe</strong> einstellen,
+                    dann <strong>Meshes erzeugen</strong>. Pro gebundenem Teil entsteht ein Quad (bei Tiefe &gt; 0 zwei
+                    Schichten entlang Y im Welt-Raum). Erscheint als blaues Mesh im Viewport; Runtime-Export enthält
+                    <code>skins</code>.
+                  </p>
+                  <button type="button" class="primary meshing-btn" @click="syncMeshingFromRig">
+                    Meshes aus Rig erzeugen / aktualisieren
+                  </button>
+                  <p class="muted meshing-count">
+                    Rig-Meshes im Projekt: <strong>{{ rigGeneratedMeshCount }}</strong>
+                    <span v-if="rigGeneratedMeshCount > 0">(IDs <code>rig_slice_…</code>)</span>
+                  </p>
+                </div>
                 <p v-if="!slices.length" class="muted">Keine Teile — links Slots anlegen.</p>
                 <div v-for="s in slices" :key="s.id" class="depth-row">
                   <label class="depth-label">{{ s.name }}</label>
@@ -1556,6 +1588,30 @@ async function onSheetFiles(e: Event) {
   border: 1px solid #444;
   background: #1a1b1e;
   color: inherit;
+}
+.meshing-block {
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #3b3f48;
+  background: rgba(30, 31, 36, 0.95);
+}
+.meshing-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+.meshing-copy {
+  margin: 0 0 0.6rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.meshing-btn {
+  margin-bottom: 0.5rem;
+}
+.meshing-count {
+  margin: 0;
+  font-size: 0.72rem;
 }
 .depth-row {
   display: grid;

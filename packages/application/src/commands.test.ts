@@ -107,6 +107,43 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
+  it("syncCharacterRigSkinnedMeshes does nothing when bindings are incomplete", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, {
+      type: "addCharacterRigSpriteSheet",
+      fileName: "sheet.png",
+      mimeType: "image/png",
+      dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      pixelWidth: 64,
+      pixelHeight: 64,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "A",
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 10,
+      worldCx: 0,
+      worldCy: 0,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "B",
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      worldCx: 0,
+      worldCy: 0,
+    });
+    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: p.characterRig!.slices[0]!.id, boneId: root });
+    const before = p.skinnedMeshes?.length ?? 0;
+    p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
+    expect(p.skinnedMeshes?.length ?? 0).toBe(before);
+  });
+
   it("syncCharacterRigSkinnedMeshes creates rig_slice meshes from bound slices", () => {
     let p = createDefaultEditorProject();
     const root = p.bones[0]!.id;

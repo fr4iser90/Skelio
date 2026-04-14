@@ -7,6 +7,25 @@ export function rigSliceSkinnedMeshId(sliceId: string): string {
   return `${RIG_SLICE_MESH_ID_PREFIX}${sliceId}`;
 }
 
+/**
+ * True when every sprite slice that has pixels (w/h positive) has a binding to an existing bone.
+ * Used to gate 3D / meshing (Smack-style: full bind before depth & mesh generation).
+ */
+export function characterRigBindingsComplete(project: EditorProject): boolean {
+  const rig = project.characterRig;
+  if (!rig?.slices?.length) return false;
+  const boneIds = new Set(project.bones.map((b) => b.id));
+  const bindingBySlice = new Map(rig.bindings.map((b) => [b.sliceId, b.boneId] as const));
+  let anyPixelSlice = false;
+  for (const s of rig.slices) {
+    if (s.width <= 0 || s.height <= 0) continue;
+    anyPixelSlice = true;
+    const bid = bindingBySlice.get(s.id);
+    if (!bid || !boneIds.has(bid)) return false;
+  }
+  return anyPixelSlice;
+}
+
 function influenceRow(boneId: string): { boneId: string; weight: number }[] {
   return [{ boneId, weight: 1 }];
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  characterRigBindingsComplete,
   mimeFromFileName,
   normalizeReferenceImageMime,
   REFERENCE_IMAGE_ACCEPT_ATTR,
@@ -11,7 +12,7 @@ import {
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
-import CharacterRigThreeViewport from "./CharacterRigThreeViewport.vue";
+import ViewportPanel from "./ViewportPanel.vue";
 import DepthTextureEditorModal from "./DepthTextureEditorModal.vue";
 
 const store = useEditorStore();
@@ -22,7 +23,6 @@ const {
   selectedBoneId,
   selectedBone,
   sheetSliceModalOpen,
-  rigCameraViewKind,
   placeNewBonesAtParentTip,
 } = storeToRefs(store);
 
@@ -67,20 +67,44 @@ const steps = [
   {
     id: "bind",
     title: "Binden",
-    hint: "Links Teile, rechts Sheets + Knochen-Überblick. Unten: jedes Teil einem Knochen zuordnen.",
+    hint: "Jedes Teil mit Pixeln muss einem Knochen zugeordnet sein. Erst danach sind „3D / Meshing“ und „Vorschau“ freigeschaltet (wie Smack: volle Bindung vor Tiefe/Meshes).",
   },
   {
     id: "depth",
     title: "3D / Meshing",
-    hint: "Tiefe pro Teil (Front/Back). Meshes sync erzeugt Geometrie; im Viewport erscheint Extrusion entlang Z (WebGL).",
+    hint: "Tiefe pro Teil, Meshes erzeugen — nur nach vollständigem Binden (alle Teile mit Pixeln → Knochen).",
   },
-  { id: "preview", title: "Vorschau", hint: "Überblick über Zuordnungen." },
+  { id: "preview", title: "Vorschau", hint: "Überblick — nur nach vollständigem Binden erreichbar." },
 ] as const;
 
 const rig = computed(() => project.value.characterRig);
 const slices = computed(() => rig.value?.slices ?? []);
 const spriteSheets = computed(() => rig.value?.spriteSheets ?? []);
 const bindings = computed(() => rig.value?.bindings ?? []);
+
+const rigBindingsComplete = computed(() => characterRigBindingsComplete(project.value));
+
+function goToRigStep(i: number) {
+  if ((i === 3 || i === 4) && !rigBindingsComplete.value) {
+    alert(
+      "3D / Meshing und Vorschau sind erst frei, wenn jedes Teil mit Pixeln einem Knochen zugeordnet ist (Schritt „Binden“).",
+    );
+    return;
+  }
+  step.value = i;
+}
+
+watch([rigBindingsComplete, step], () => {
+  if (!rigBindingsComplete.value && (step.value === 3 || step.value === 4)) {
+    step.value = 2;
+  }
+});
+
+watch(characterRigModalOpen, (open) => {
+  if (open && !rigBindingsComplete.value && (step.value === 3 || step.value === 4)) {
+    step.value = 2;
+  }
+});
 
 const bonesSorted = computed(() =>
   [...project.value.bones].sort((a, b) => a.name.localeCompare(b.name)),
@@ -131,8 +155,6 @@ watch(
 
 watch(step, (s) => {
   if (s !== 1) store.setPendingBonePlacement(null);
-  // Meshing/Depth is easier to understand in perspective.
-  if (s === 3 && rigCameraViewKind.value === "2d") store.setRigCameraViewKind("2.5d");
 });
 
 function bindingBoneId(sliceId: string): string {
@@ -184,14 +206,26 @@ function setDepth(sliceId: string, front: number, back: number, sync: boolean) {
 }
 
 function syncMeshingFromRig() {
+  if (!rigBindingsComplete.value) {
+    alert(
+      "Meshes können erst erzeugt werden, wenn alle Teile mit Pixeln einem Knochen zugeordnet sind (Schritt „Binden“).",
+    );
+    return;
+  }
   const ok = store.dispatch({ type: "syncCharacterRigSkinnedMeshes" });
   if (!ok) {
-    alert("Mesh-Sync abgelehnt (Validierung). Prüfe: jedes Teil mit Pixeln braucht einen Knochen im Schritt „Binden“.");
+    alert("Mesh-Sync abgelehnt (Validierung). Prüfe Bindungen und Teile mit Pixeln.");
   }
 }
 
 /** Ein Projekt: Rig-Daten und `skinnedMeshes` sind identisch — vor dem Zurück in die Hauptansicht Meshes aus dem Rig schreiben. */
 function finishRigAndClose() {
+  if (!rigBindingsComplete.value) {
+    alert(
+      "Fertigstellen geht erst, wenn jedes Teil mit Pixeln einem Knochen zugeordnet ist (Schritt „Binden“).",
+    );
+    return;
+  }
   const ok = store.dispatch({ type: "syncCharacterRigSkinnedMeshes" });
   if (!ok) {
     alert("Mesh-Sync abgelehnt (Validierung). Prüfe Bindungen und Teile mit Pixeln, dann erneut „Fertig“.");
@@ -562,52 +596,28 @@ async function onSheetFiles(e: Event) {
               :key="s.id"
               type="button"
               class="nav-btn"
-              :class="{ active: step === i }"
-              @click="step = i"
+              :class="{ active: step === i, 'nav-locked': (i === 3 || i === 4) && !rigBindingsComplete }"
+              :disabled="(i === 3 || i === 4) && !rigBindingsComplete"
+              :title="
+                (i === 3 || i === 4) && !rigBindingsComplete
+                  ? 'Erst im Schritt „Binden“ jedes Teil mit Pixeln einem Knochen zuordnen.'
+                  : undefined
+              "
+              @click="goToRigStep(i)"
             >
               {{ i + 1 }}. {{ s.title }}
             </button>
           </nav>
 
           <div class="main-col">
-            <div class="rig-camera-bar" role="tablist" aria-label="Kamera-Modus (Character Rig)">
-              <span class="rig-camera-label">Kamera</span>
-              <div class="rig-camera-seg">
-                <button
-                  type="button"
-                  class="rig-cam-btn"
-                  :class="{ on: rigCameraViewKind === '2d' }"
-                  role="tab"
-                  :aria-selected="rigCameraViewKind === '2d'"
-                  @click="store.setRigCameraViewKind('2d')"
-                >
-                  2D
-                </button>
-                <button
-                  type="button"
-                  class="rig-cam-btn"
-                  :class="{ on: rigCameraViewKind === '2.5d' }"
-                  role="tab"
-                  :aria-selected="rigCameraViewKind === '2.5d'"
-                  @click="store.setRigCameraViewKind('2.5d')"
-                >
-                  2.5D
-                </button>
-                <button
-                  type="button"
-                  class="rig-cam-btn"
-                  :class="{ on: rigCameraViewKind === '3d' }"
-                  role="tab"
-                  :aria-selected="rigCameraViewKind === '3d'"
-                  @click="store.setRigCameraViewKind('3d')"
-                >
-                  3D
-                </button>
-              </div>
-              <span class="muted rig-camera-cap">WebGL · Ortho / Perspektive · Modal zu = 2D</span>
+            <div class="rig-viewport-cap" role="status">
+              <span class="rig-camera-label">Viewport</span>
+              <span class="muted rig-camera-cap"
+                >2D · Canvas (wie Haupteditor) · Sprite-Sheet-Zuschnitt wie zuvor korrekt</span
+              >
             </div>
             <div class="viewport-wrap">
-              <CharacterRigThreeViewport />
+              <ViewportPanel />
               <div class="viewport-foot">
                 <label class="rig-name-label"
                   >Name:
@@ -643,12 +653,15 @@ async function onSheetFiles(e: Event) {
                 <p class="muted roadmap-hint">
                   <strong>Length:</strong> Griff oder <strong>Shift+Gelenk</strong> ziehen, <strong>Esc</strong> =
                   Vorschau abbrechen, loslassen = speichern.
-                  <strong>Kette:</strong> an Spitze / folgen (rechts). <strong>Kamera</strong> 2D (Ortho) · 2.5D / 3D
-                  (Perspektive, Tiefe = Extrusion).
+                  <strong>Kette:</strong> an Spitze / folgen (rechts). Viewport: <strong>2D-Canvas</strong> (Pan/Zoom/Dreh).
                 </p>
               </div>
 
               <div v-show="step === 2" class="panel">
+                <p v-if="!rigBindingsComplete && slices.length" class="bind-gate-warn" role="status">
+                  Sobald <strong>jedes</strong> Teil mit Pixeln einen Knochen hat, werden <strong>3D / Meshing</strong> und
+                  <strong>Vorschau</strong> freigeschaltet.
+                </p>
                 <p v-if="!slices.length" class="muted">Zuerst links Sprites (+ Neu) anlegen und ggf. Pixel aus Sheets zuweisen.</p>
                 <table v-else class="bind-table">
                   <thead>
@@ -680,11 +693,16 @@ async function onSheetFiles(e: Event) {
                   <p class="muted meshing-copy">
                     Wie in Smack: zuerst <strong>Binden</strong> (Teil → Knochen), hier <strong>Tiefe</strong> einstellen,
                     dann <strong>Meshes erzeugen</strong>. Pro gebundenem Teil entsteht ein Quad (bei Tiefe &gt; 0 zwei
-                    Schichten im 2D-Welt-Raum für Skinning). Im Character-Rig-WebGL-Viewport erscheint dieselbe Tiefe als
-                    <strong>Extrusion entlang Z</strong>. Blaues Mesh = Skinning-Vorschau; Runtime-Export enthält
+                    Schichten im 2D-Welt-Raum für Skinning). Tiefe steuert später die extrudierte Darstellung; im Canvas-Viewport
+                    siehst du die <strong>2D-Projektion</strong>. Blaues Mesh = Skinning-Vorschau; Runtime-Export enthält
                     <code>skins</code>.
                   </p>
-                  <button type="button" class="primary meshing-btn" @click="syncMeshingFromRig">
+                  <button
+                    type="button"
+                    class="primary meshing-btn"
+                    :disabled="!rigBindingsComplete"
+                    @click="syncMeshingFromRig"
+                  >
                     Meshes aus Rig erzeugen / aktualisieren
                   </button>
                   <p class="muted meshing-count">
@@ -941,9 +959,18 @@ async function onSheetFiles(e: Event) {
 
         <footer class="foot">
           <span class="muted">
-            Änderungen sofort im Projekt (Undo/Redo). „Fertig“ synchronisiert Rig-Meshes für die Hauptansicht.
+            Änderungen sofort im Projekt (Undo/Redo). „Fertig“ synchronisiert Rig-Meshes — nur wenn alle Teile mit Pixeln
+            gebunden sind.
           </span>
-          <button type="button" class="primary" @click="finishRigAndClose">Fertig</button>
+          <button
+            type="button"
+            class="primary"
+            :disabled="!rigBindingsComplete"
+            :title="!rigBindingsComplete ? 'Zuerst jedes Teil mit Pixeln einem Knochen zuordnen (Schritt „Binden“).' : undefined"
+            @click="finishRigAndClose"
+          >
+            Fertig
+          </button>
         </footer>
       </div>
     </div>
@@ -1333,13 +1360,32 @@ async function onSheetFiles(e: Event) {
   background: #2a3150;
   color: #a5b4fc;
 }
+.nav-btn:disabled,
+.nav-btn.nav-locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nav-btn:disabled:hover,
+.nav-btn.nav-locked:hover {
+  background: transparent;
+}
+.bind-gate-warn {
+  margin: 0 0 0.65rem;
+  padding: 0.5rem 0.55rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #fcd34d;
+  background: rgba(120, 53, 15, 0.35);
+  border-radius: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
 .main-col {
   display: flex;
   flex-direction: column;
   min-width: min(100%, 320px);
   min-height: 0;
 }
-.rig-camera-bar {
+.rig-viewport-cap {
   flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
@@ -1355,33 +1401,6 @@ async function onSheetFiles(e: Event) {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #9ca3af;
-}
-.rig-camera-seg {
-  display: inline-flex;
-  border-radius: 6px;
-  border: 1px solid #444;
-  overflow: hidden;
-}
-.rig-cam-btn {
-  padding: 0.28rem 0.65rem;
-  border: none;
-  border-right: 1px solid #444;
-  background: #25262b;
-  color: #9ca3af;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.rig-cam-btn:last-child {
-  border-right: none;
-}
-.rig-cam-btn:hover {
-  background: #2e3138;
-  color: #e5e7eb;
-}
-.rig-cam-btn.on {
-  background: #3730a3;
-  color: #eef;
 }
 .rig-camera-cap {
   font-size: 0.65rem;

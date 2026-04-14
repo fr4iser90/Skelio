@@ -1,6 +1,74 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultEditorProject } from "./projectFactory.js";
-import { rigSliceSkinnedMeshId, skinnedMeshesFromCharacterRig } from "./characterRigMesh.js";
+import {
+  characterRigBindingsComplete,
+  rigSliceSkinnedMeshId,
+  skinnedMeshesFromCharacterRig,
+} from "./characterRigMesh.js";
+
+describe("characterRigBindingsComplete", () => {
+  it("is false when a pixel slice has no binding", () => {
+    const p = createDefaultEditorProject();
+    p.characterRig = {
+      spriteSheets: [],
+      slices: [
+        {
+          id: "a",
+          name: "A",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          worldCx: 0,
+          worldCy: 0,
+        },
+        {
+          id: "b",
+          name: "B",
+          x: 0,
+          y: 0,
+          width: 8,
+          height: 8,
+          worldCx: 0,
+          worldCy: 0,
+        },
+      ],
+      bindings: [],
+      sliceDepths: [],
+    };
+    expect(characterRigBindingsComplete(p)).toBe(false);
+    const root = p.bones[0]!.id;
+    p.characterRig!.bindings = [{ sliceId: "a", boneId: root }];
+    expect(characterRigBindingsComplete(p)).toBe(false);
+    p.characterRig!.bindings = [
+      { sliceId: "a", boneId: root },
+      { sliceId: "b", boneId: root },
+    ];
+    expect(characterRigBindingsComplete(p)).toBe(true);
+  });
+
+  it("ignores empty slots and is false when there are no pixel slices", () => {
+    const p = createDefaultEditorProject();
+    p.characterRig = {
+      spriteSheets: [],
+      slices: [
+        {
+          id: "e",
+          name: "E",
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          worldCx: 0,
+          worldCy: 0,
+        },
+      ],
+      bindings: [],
+      sliceDepths: [],
+    };
+    expect(characterRigBindingsComplete(p)).toBe(false);
+  });
+});
 
 describe("skinnedMeshesFromCharacterRig", () => {
   it("builds a flat quad for a bound slice with size", () => {

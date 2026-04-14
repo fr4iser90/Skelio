@@ -1,4 +1,5 @@
 import {
+  characterRigBindingsComplete,
   childBindTranslationAtParentTip,
   createDemoSkinnedMesh,
   createId,
@@ -597,6 +598,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "syncCharacterRigSkinnedMeshes") {
+    if (!characterRigBindingsComplete(p)) return project;
     const boneIds = new Set(p.bones.map((b) => b.id));
     const built = skinnedMeshesFromCharacterRig(p);
     for (const m of built) {

@@ -69,6 +69,7 @@ export { worldPoseOriginsWithIk } from "./editor/ikPose.js";
 export { deformSkinnedMesh, validateSkinnedMesh } from "./editor/skinning.js";
 export { createDemoSkinnedMesh } from "./editor/demoMesh.js";
 export {
+  characterRigBindingsComplete,
   RIG_SLICE_MESH_ID_PREFIX,
   rigSliceSkinnedMeshId,
   skinnedMeshesFromCharacterRig,

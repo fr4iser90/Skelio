@@ -71,12 +71,12 @@ const steps = [
   {
     id: "bind",
     title: "Binden",
-    hint: "Jedes Teil mit Pixeln muss einem Knochen zugeordnet sein. Erst danach sind „3D / Meshing“ und „Vorschau“ freigeschaltet (wie Smack: volle Bindung vor Tiefe/Meshes).",
+    hint: "Teil → Knochen zuordnen. Wenn alles gebunden ist: Rig-Meshes erzeugen (3D-Geometrie + Skinning) — Button unten. Danach Schritt „3D Settings“ für Tiefe & Depth-Texturen.",
   },
   {
     id: "depth",
-    title: "3D Settings / Meshing",
-    hint: "Tiefe pro Teil (3D Settings), Meshes erzeugen — nur nach vollständigem Binden (alle Teile mit Pixeln → Knochen).",
+    title: "3D Settings",
+    hint: "Nur Tiefe & Depth-Texturen pro Teil (links Sprite wählen). Rig-Meshes kommen aus dem Schritt „Binden“. Kamera 3D zum Drehen.",
   },
   { id: "preview", title: "Vorschau", hint: "Überblick — nur nach vollständigem Binden erreichbar." },
 ] as const;
@@ -91,7 +91,7 @@ const rigBindingsComplete = computed(() => characterRigBindingsComplete(project.
 function goToRigStep(i: number) {
   if ((i === 3 || i === 4) && !rigBindingsComplete.value) {
     alert(
-      "3D / Meshing und Vorschau sind erst frei, wenn jedes Teil mit Pixeln einem Knochen zugeordnet ist (Schritt „Binden“).",
+      "„3D Settings“ und „Vorschau“ sind erst frei, wenn jedes Teil mit Pixeln einem Knochen zugeordnet ist (Schritt „Binden“).",
     );
     return;
   }
@@ -105,6 +105,7 @@ watch([rigBindingsComplete, step], () => {
 });
 
 watch(characterRigModalOpen, (open) => {
+  if (!open) meshSyncFeedback.value = "";
   if (open && !rigBindingsComplete.value && (step.value === 3 || step.value === 4)) {
     step.value = 2;
   }
@@ -216,10 +217,20 @@ function syncMeshingFromRig() {
     );
     return;
   }
+  const countBefore = rigGeneratedMeshCount.value;
   const ok = store.dispatch({ type: "syncCharacterRigSkinnedMeshes" });
   if (!ok) {
+    meshSyncFeedback.value = "";
     alert("Mesh-Sync abgelehnt (Validierung). Prüfe Bindungen und Teile mit Pixeln.");
+    return;
   }
+  const n = rigGeneratedMeshCount.value;
+  store.setRigCameraViewKind("3d");
+  step.value = 3;
+  meshSyncFeedback.value =
+    n === countBefore && n > 0
+      ? `Aktualisiert: ${n} Rig-Mesh(es). Schritt „3D Settings“ — Tiefe & Depth.`
+      : `Fertig: ${n} Rig-Mesh(es). Weiter bei „3D Settings“ (Tiefe).`;
 }
 
 /** Ein Projekt: Rig-Daten und `skinnedMeshes` sind identisch — vor dem Zurück in die Hauptansicht Meshes aus dem Rig schreiben. */
@@ -505,6 +516,7 @@ async function onSheetFiles(e: Event) {
                     <th>Sprite</th>
                     <th>View</th>
                     <th>Seite</th>
+                    <th class="rail-th-tools" />
                   </tr>
                 </thead>
                 <tbody>
@@ -514,24 +526,25 @@ async function onSheetFiles(e: Event) {
                     class="rail-row"
                     :class="{ active: selectedCharacterRigSliceId === s.id }"
                     @click="store.selectCharacterRigSlice(s.id)"
-                    @dblclick="openPartModal(s.id)"
                   >
-                    <td class="rail-name" @click.stop>
+                    <td class="rail-name">
                       <input
                         class="rail-input rail-name-input"
                         type="text"
                         :value="s.name"
                         :title="'Name: ' + s.name"
+                        @click.stop
                         @change="onSliceNameChange(s, $event)"
                       />
                       <span v-if="s.width <= 0 || s.height <= 0" class="dim"> (leer)</span>
                     </td>
-                    <td @click.stop>
+                    <td>
                       <input
                         class="rail-input"
                         type="text"
                         :value="s.viewName ?? 'Default'"
                         title="Ansicht (z. B. Default)"
+                        @click.stop
                         @change="
                           store.dispatch({
                             type: 'patchCharacterRigSlice',
@@ -541,10 +554,11 @@ async function onSheetFiles(e: Event) {
                         "
                       />
                     </td>
-                    <td @click.stop>
+                    <td>
                       <select
                         class="rail-select"
                         :value="s.side ?? 'front'"
+                        @click.stop
                         @change="
                           setSliceSide(s.id, ($event.target as HTMLSelectElement).value as 'front' | 'back')
                         "
@@ -552,6 +566,16 @@ async function onSheetFiles(e: Event) {
                         <option value="front">Front</option>
                         <option value="back">Back</option>
                       </select>
+                    </td>
+                    <td class="rail-tools" @click.stop>
+                      <button
+                        type="button"
+                        class="rail-detail-btn"
+                        title="Teil-Details (Name, Ansicht…)"
+                        @click="openPartModal(s.id)"
+                      >
+                        …
+                      </button>
                     </td>
                   </tr>
                 </tbody>
@@ -646,7 +670,7 @@ async function onSheetFiles(e: Event) {
                 </button>
               </div>
               <span class="muted rig-camera-cap"
-                >WebGL · Teile/Knochen wie Hauptlogik · nach Meshing Tiefe im 3D-Modus sichtbar</span
+                >WebGL · Teile/Knochen · Tiefe/Extrusion im 3D-Modus sichtbar</span
               >
             </div>
             <div class="viewport-wrap">
@@ -691,8 +715,9 @@ async function onSheetFiles(e: Event) {
 
               <div v-show="step === 2" class="panel">
                 <p v-if="!rigBindingsComplete && slices.length" class="bind-gate-warn" role="status">
-                  Sobald <strong>jedes</strong> Teil mit Pixeln einen Knochen hat, werden <strong>3D / Meshing</strong> und
-                  <strong>Vorschau</strong> freigeschaltet.
+                  Sobald <strong>jedes</strong> Teil mit Pixeln einen Knochen hat, kannst du <strong>Rig-Meshes
+                  erzeugen</strong> (unten) und die Schritte <strong>3D Settings</strong> sowie <strong>Vorschau</strong>
+                  nutzen.
                 </p>
                 <p v-if="slices.length" class="muted bind-hint">
                   Im Viewport: zuerst <strong>Knochen</strong> anklicken (liegt über den großen Sprite-Flächen) · Teil
@@ -722,16 +747,11 @@ async function onSheetFiles(e: Event) {
                     </tr>
                   </tbody>
                 </table>
-              </div>
-
-              <div v-show="step === 3" class="panel">
-                <div class="meshing-block">
-                  <h4 class="meshing-title">3D Settings · Meshing</h4>
+                <div v-if="slices.length" class="meshing-block meshing-on-bind">
+                  <h4 class="meshing-title">Rig-Meshes erzeugen (3D-Geometrie)</h4>
                   <p class="muted meshing-copy">
-                    Wie in Smack: zuerst <strong>Binden</strong> (Teil → Knochen), hier <strong>3D Settings</strong> (Tiefe,
-                    Depth-Texturen), dann <strong>Meshes erzeugen</strong>. Pro gebundenem Teil entsteht ein Quad (bei
-                    Tiefe &gt; 0 Extrusion). Nach dem Button wechselt die Kamera auf <strong>3D</strong>, damit du sofort
-                    Feedback siehst. Blaues Mesh = Skinning-Vorschau; Runtime-Export enthält <code>skins</code>.
+                    Erzeugt pro gebundenem Teil die <code>rig_slice_…</code>-Meshes (Quad/Extrusion für Skinning).
+                    Läuft lokal. Danach Wechsel zu <strong>3D Settings</strong> (Tiefe).
                   </p>
                   <button
                     type="button"
@@ -741,13 +761,21 @@ async function onSheetFiles(e: Event) {
                   >
                     Meshes aus Rig erzeugen / aktualisieren
                   </button>
-                  <p v-if="meshSyncFeedback" class="mesh-sync-feedback" role="status">{{ meshSyncFeedback }}</p>
                   <p class="muted meshing-count">
                     Rig-Meshes im Projekt: <strong>{{ rigGeneratedMeshCount }}</strong>
                     <span v-if="rigGeneratedMeshCount > 0">(IDs <code>rig_slice_…</code>)</span>
                   </p>
                 </div>
+              </div>
+
+              <div v-show="step === 3" class="panel">
+                <p v-if="meshSyncFeedback" class="mesh-sync-feedback" role="status">{{ meshSyncFeedback }}</p>
                 <p v-if="!slices.length" class="muted">Keine Teile — links Slots anlegen.</p>
+                <p v-else class="muted depth-intro">
+                  <strong>3D Settings:</strong> links ein Sprite wählen — im Viewport (Kamera <strong>3D</strong>) siehst du
+                  das Teil. Hier nur <strong>Tiefe</strong> und <strong>Depth-Texturen</strong>; Rig-Meshes erzeugst du im
+                  Schritt <strong>Binden</strong>.
+                </p>
                 <div v-for="s in slices" :key="s.id" class="depth-row">
                   <label class="depth-label">{{ s.name }}</label>
                   <div class="depth-tools">
@@ -1178,6 +1206,28 @@ async function onSheetFiles(e: Event) {
 .rail-row.active {
   outline: 1px solid #4f6ab8;
   background: #2a3150;
+}
+.rail-th-tools {
+  width: 1.75rem;
+}
+.rail-tools {
+  padding: 0.1rem;
+  text-align: center;
+  vertical-align: middle;
+}
+.rail-detail-btn {
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid #4b5563;
+  background: #2e3138;
+  color: #cbd5e1;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.rail-detail-btn:hover {
+  border-color: #6b7280;
+  color: #fff;
 }
 .rail-name {
   max-width: 6.5rem;
@@ -1725,6 +1775,14 @@ async function onSheetFiles(e: Event) {
   border: 1px solid #3b3f48;
   background: rgba(30, 31, 36, 0.95);
 }
+.meshing-on-bind {
+  margin-top: 0.85rem;
+}
+.depth-intro {
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
 .meshing-title {
   margin: 0 0 0.35rem;
   font-size: 0.92rem;
@@ -1737,6 +1795,13 @@ async function onSheetFiles(e: Event) {
 }
 .meshing-btn {
   margin-bottom: 0.5rem;
+}
+.meshing-btn:focus-visible {
+  outline: 2px solid rgba(129, 140, 248, 0.55);
+  outline-offset: 2px;
+}
+.meshing-btn:focus:not(:focus-visible) {
+  outline: none;
 }
 .mesh-sync-feedback {
   margin: 0 0 0.5rem;

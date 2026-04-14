@@ -246,6 +246,13 @@ function applyRigCameraMode(kind: RigCameraViewKind) {
     }
     controls.minAzimuthAngle = -Infinity;
     controls.maxAzimuthAngle = Infinity;
+    // Ohne Startposition bleibt die Perspektiv-Kamera bei (0,0,0) auf dem Target → nichts sichtbar in 2.5D/3D,
+    // bis man „Reset“ drückt. Gleiche Basis wie resetView().
+    controls.target.set(0, 0, 0);
+    const dist = perspCamera.position.distanceTo(controls.target);
+    if (!Number.isFinite(dist) || dist < 80) {
+      perspCamera.position.set(420, -180, 620);
+    }
   }
   controls.update();
   updateZoomLabel();

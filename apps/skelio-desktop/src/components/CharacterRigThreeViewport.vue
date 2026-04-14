@@ -776,32 +776,6 @@ function rebuildBones() {
 
 function rebuildSkinnedMeshPreview() {
   clearGroup(skinMeshGroup);
-  const skinMeshes = project.value.skinnedMeshes ?? [];
-  if (skinMeshes.length === 0) return;
-  const bindM = worldBindBoneMatrices(project.value);
-  const poseM = worldPoseBoneMatrices(project.value, currentTime.value);
-
-  for (const mesh of skinMeshes) {
-    const m = meshForRender(mesh);
-    const deformed = deformSkinnedMesh(m, bindM, poseM);
-    const pos: number[] = [];
-    for (const p of deformed) {
-      pos.push(p.x, -p.y, 1);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    geo.setIndex([...mesh.indices]);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x648cdc,
-      opacity: 0.38,
-      transparent: true,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const triMesh = new THREE.Mesh(geo, mat);
-    triMesh.renderOrder = 2;
-    skinMeshGroup.add(triMesh);
-  }
 }
 
 function rebuildReferenceImage() {

@@ -86,10 +86,15 @@ function onKey(e: KeyboardEvent) {
   display: grid;
   grid-template-columns: 220px 1fr 260px;
   min-height: 0;
+  height: 100%;
+  align-items: stretch;
 }
 .viewport-slot {
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .side {
   border-right: 1px solid #333;

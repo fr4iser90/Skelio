@@ -1062,12 +1062,16 @@ function onCanvasPointerCancel(e: PointerEvent) {
 <style scoped>
 .viewport {
   position: relative;
+  flex: 1;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .cv {
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  height: 100%;
   display: block;
   cursor: crosshair;
   touch-action: none;

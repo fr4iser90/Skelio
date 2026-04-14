@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "vue-tsc --noEmit",
-    "test": "echo \"(no tests yet)\""
+    "test": "node scripts/verify-ipc-contract.mjs"
   },
   "dependencies": {
     "@skelio/application": "workspace:*",

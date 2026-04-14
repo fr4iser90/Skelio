@@ -3,8 +3,20 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
+  "local": true,
+  "remote": {
+    "urls": [
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*"
+    ]
+  },
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "allow-read-project-manifest",
+    "allow-write-project-manifest",
+    "allow-read-project-subpath",
+    "allow-write-project-subpath",
+    "allow-save-text-file-with-dialog"
   ]
 }

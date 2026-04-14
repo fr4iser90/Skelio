@@ -75,6 +75,14 @@ export type CharacterRigSliceEmbeddedImage = {
   pixelHeight: number;
 };
 
+/** Grayscale depth/height texture per slice side (editor-only; not in runtime export yet). */
+export type CharacterRigSliceDepthTexture = {
+  mimeType: string;
+  dataBase64: string;
+  pixelWidth: number;
+  pixelHeight: number;
+};
+
 /**
  * Imported texture page (right-hand “sprite sheets” in Character Rig).
  */
@@ -122,6 +130,10 @@ export type CharacterRigSliceDepth = {
   maxDepthFront: number;
   maxDepthBack: number;
   syncBackWithFront: boolean;
+  /** Optional depth/height texture for front side (0..1 mapped to maxDepthFront). */
+  depthTextureFront?: CharacterRigSliceDepthTexture;
+  /** Optional depth/height texture for back side (0..1 mapped to maxDepthBack). */
+  depthTextureBack?: CharacterRigSliceDepthTexture;
 };
 
 /**

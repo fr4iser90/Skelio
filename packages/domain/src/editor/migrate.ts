@@ -64,4 +64,7 @@ export function normalizeEditorProjectInPlace(project: EditorProject): void {
     if (s.side !== "front" && s.side !== "back") s.side = "front";
     i++;
   }
+
+  if (!rig.sliceDepths) rig.sliceDepths = [];
+  // Depth textures are editor-only; nothing to migrate yet. Keep existing entries.
 }

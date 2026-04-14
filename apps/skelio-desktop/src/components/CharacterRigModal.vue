@@ -11,7 +11,8 @@ import {
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
-import ViewportPanel from "./ViewportPanel.vue";
+import CharacterRigThreeViewport from "./CharacterRigThreeViewport.vue";
+import DepthTextureEditorModal from "./DepthTextureEditorModal.vue";
 
 const store = useEditorStore();
 const {
@@ -32,6 +33,10 @@ const spriteModalSliceId = ref<string | null>(null);
 const partEditName = ref("");
 const partEditViewName = ref("Default");
 const partEditSide = ref<"front" | "back">("front");
+
+const depthTextureModalOpen = ref(false);
+const depthTextureModalSliceId = ref<string | null>(null);
+const depthTextureModalSide = ref<"front" | "back">("front");
 
 const partModalSlice = computed(() => {
   const id = spriteModalSliceId.value;
@@ -67,7 +72,7 @@ const steps = [
   {
     id: "depth",
     title: "3D / Meshing",
-    hint: "Tiefe pro Teil (Smack-ähnlich). Anschließend Meshes erzeugen — gebundene Teile → Quad-Meshes (100 % Knochen-Gewicht), bei Tiefe zwei Schichten in Y.",
+    hint: "Tiefe pro Teil (Front/Back). Meshes sync erzeugt Geometrie; im Viewport erscheint Extrusion entlang Z (WebGL).",
   },
   { id: "preview", title: "Vorschau", hint: "Überblick über Zuordnungen." },
 ] as const;
@@ -126,6 +131,8 @@ watch(
 
 watch(step, (s) => {
   if (s !== 1) store.setPendingBonePlacement(null);
+  // Meshing/Depth is easier to understand in perspective.
+  if (s === 3 && rigCameraViewKind.value === "2d") store.setRigCameraViewKind("2.5d");
 });
 
 function bindingBoneId(sliceId: string): string {
@@ -183,6 +190,19 @@ function syncMeshingFromRig() {
   }
 }
 
+/** Ein Projekt: Rig-Daten und `skinnedMeshes` sind identisch — vor dem Zurück in die Hauptansicht Meshes aus dem Rig schreiben. */
+function finishRigAndClose() {
+  const ok = store.dispatch({ type: "syncCharacterRigSkinnedMeshes" });
+  if (!ok) {
+    alert("Mesh-Sync abgelehnt (Validierung). Prüfe Bindungen und Teile mit Pixeln, dann erneut „Fertig“.");
+    return;
+  }
+  const meshes = project.value.skinnedMeshes ?? [];
+  const firstRig = meshes.find((m) => m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX));
+  if (firstRig) store.selectMeshOnly(firstRig.id);
+  close();
+}
+
 const rigGeneratedMeshCount = computed(
   () => project.value.skinnedMeshes?.filter((m) => m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)).length ?? 0,
 );
@@ -200,6 +220,17 @@ function openPartModal(sliceId: string) {
 
 function closePartModal() {
   spriteModalSliceId.value = null;
+}
+
+function openDepthTextureModal(sliceId: string, side: "front" | "back") {
+  depthTextureModalSliceId.value = sliceId;
+  depthTextureModalSide.value = side;
+  depthTextureModalOpen.value = true;
+}
+
+function closeDepthTextureModal() {
+  depthTextureModalOpen.value = false;
+  depthTextureModalSliceId.value = null;
 }
 
 function applyPartModal() {
@@ -573,10 +604,10 @@ async function onSheetFiles(e: Event) {
                   3D
                 </button>
               </div>
-              <span class="muted rig-camera-cap">Y-Stauchung · Modal zu = zurück 2D</span>
+              <span class="muted rig-camera-cap">WebGL · Ortho / Perspektive · Modal zu = 2D</span>
             </div>
             <div class="viewport-wrap">
-              <ViewportPanel />
+              <CharacterRigThreeViewport />
               <div class="viewport-foot">
                 <label class="rig-name-label"
                   >Name:
@@ -612,8 +643,8 @@ async function onSheetFiles(e: Event) {
                 <p class="muted roadmap-hint">
                   <strong>Length:</strong> Griff oder <strong>Shift+Gelenk</strong> ziehen, <strong>Esc</strong> =
                   Vorschau abbrechen, loslassen = speichern.
-                  <strong>Kette:</strong> an Spitze / folgen (rechts). <strong>Kamera</strong> 2D·2.5D·3D
-                  (Y-Stauchung).
+                  <strong>Kette:</strong> an Spitze / folgen (rechts). <strong>Kamera</strong> 2D (Ortho) · 2.5D / 3D
+                  (Perspektive, Tiefe = Extrusion).
                 </p>
               </div>
 
@@ -649,7 +680,8 @@ async function onSheetFiles(e: Event) {
                   <p class="muted meshing-copy">
                     Wie in Smack: zuerst <strong>Binden</strong> (Teil → Knochen), hier <strong>Tiefe</strong> einstellen,
                     dann <strong>Meshes erzeugen</strong>. Pro gebundenem Teil entsteht ein Quad (bei Tiefe &gt; 0 zwei
-                    Schichten entlang Y im Welt-Raum). Erscheint als blaues Mesh im Viewport; Runtime-Export enthält
+                    Schichten im 2D-Welt-Raum für Skinning). Im Character-Rig-WebGL-Viewport erscheint dieselbe Tiefe als
+                    <strong>Extrusion entlang Z</strong>. Blaues Mesh = Skinning-Vorschau; Runtime-Export enthält
                     <code>skins</code>.
                   </p>
                   <button type="button" class="primary meshing-btn" @click="syncMeshingFromRig">
@@ -663,6 +695,14 @@ async function onSheetFiles(e: Event) {
                 <p v-if="!slices.length" class="muted">Keine Teile — links Slots anlegen.</p>
                 <div v-for="s in slices" :key="s.id" class="depth-row">
                   <label class="depth-label">{{ s.name }}</label>
+                  <div class="depth-tools">
+                    <button type="button" class="mini depth-btn" @click="openDepthTextureModal(s.id, 'front')">
+                      Depth texture… (Front)
+                    </button>
+                    <button type="button" class="mini depth-btn" @click="openDepthTextureModal(s.id, 'back')">
+                      Depth texture… (Back)
+                    </button>
+                  </div>
                   <label class="mini"
                     >Vorne max
                     <input
@@ -823,7 +863,7 @@ async function onSheetFiles(e: Event) {
                 </label>
                 <p v-if="!selectedBone.parentId" class="muted bs-root-length-hint">
                   Wurzel: oft <strong>Length 0</strong> (nur Gelenk). Griff oder <strong>Shift+Gelenk</strong> ziehen;
-                  <strong>Esc</strong> bricht die Längen-Vorschau ab. Zug folgt der Knochenachse (auch 2.5D).
+                  <strong>Esc</strong> bricht die Längen-Vorschau ab. Zug folgt der Knochenachse (Bind-Pose-Ebene).
                 </p>
                 <label class="bs-lbl"
                   >Scale X
@@ -900,8 +940,10 @@ async function onSheetFiles(e: Event) {
         </div>
 
         <footer class="foot">
-          <span class="muted">Änderungen sofort im Projekt (Undo/Redo).</span>
-          <button type="button" class="primary" @click="close">Fertig</button>
+          <span class="muted">
+            Änderungen sofort im Projekt (Undo/Redo). „Fertig“ synchronisiert Rig-Meshes für die Hauptansicht.
+          </span>
+          <button type="button" class="primary" @click="finishRigAndClose">Fertig</button>
         </footer>
       </div>
     </div>
@@ -954,6 +996,13 @@ async function onSheetFiles(e: Event) {
       </div>
     </div>
   </Teleport>
+
+  <DepthTextureEditorModal
+    :open="depthTextureModalOpen"
+    :slice-id="depthTextureModalSliceId"
+    :side="depthTextureModalSide"
+    @close="closeDepthTextureModal"
+  />
 </template>
 
 <style scoped>
@@ -1615,7 +1664,7 @@ async function onSheetFiles(e: Event) {
 }
 .depth-row {
   display: grid;
-  grid-template-columns: 1fr repeat(3, auto);
+  grid-template-columns: 1fr auto repeat(3, auto);
   gap: 0.5rem;
   align-items: center;
   margin-bottom: 0.5rem;
@@ -1623,6 +1672,19 @@ async function onSheetFiles(e: Event) {
 }
 .depth-label {
   font-weight: 500;
+}
+.depth-tools {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+button.mini.depth-btn {
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  background: #1f2430;
+  border: 1px solid #3a4253;
+  color: #cbd5e1;
+  font-size: 0.74rem;
 }
 .mini {
   display: flex;

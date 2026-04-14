@@ -58,21 +58,12 @@ export const useEditorStore = defineStore("editor", () => {
   const pendingBonePlacementId = ref<string | null>(null);
 
   /** Neu angelegte Kind-Knochen: Bind X/Y an Parent-Spitze (wenn Parent `length` > 0), sonst klassisch (40,0). */
-  const placeNewBonesAtParentTip = ref(true);
+  const placeNewBonesAtParentTip = ref(false);
 
-  /** Nur im Character-Rig-Modal: leichte Y-Stauchung der Welt (Pseudo-Tiefe). Beim Schließen → 2D. */
+  /** Nur im Character-Rig-Modal: Kamera-Modus (2D = Ortho; 2.5D/3D = Perspektive). Beim Schließen → 2D. */
   const rigCameraViewKind = ref<RigCameraViewKind>("2d");
-
-  const rigCameraWorldYScale = computed(() => {
-    switch (rigCameraViewKind.value) {
-      case "2.5d":
-        return 0.88;
-      case "3d":
-        return 0.74;
-      default:
-        return 1;
-    }
-  });
+  /** Keine Welt-Y-Stauchung mehr (echtes 2.5D/3D über Kamera/Perspektive). */
+  const rigCameraWorldYScale = computed(() => 1);
 
   /** Viewport: ausgewählter Character-Rig-Slice (pixelgenau verschieben). */
   const selectedCharacterRigSliceId = ref<string | null>(null);

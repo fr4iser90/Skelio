@@ -1,7 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export function isTauriApp(): boolean {
-  return import.meta.env.TAURI_ENV_PLATFORM != null && import.meta.env.TAURI_ENV_PLATFORM !== "";
+  const envPlatform = import.meta.env.TAURI_ENV_PLATFORM;
+  if (envPlatform != null && envPlatform !== "") return true;
+  const w = window as unknown as {
+    __TAURI__?: unknown;
+    __TAURI_INTERNALS__?: unknown;
+  };
+  return Boolean(w.__TAURI__ || w.__TAURI_INTERNALS__);
 }
 
 /** Ordnerpfad erfragen (kein nativer Dialog — vermeidet GTK/Wayland-Builds; später erweiterbar). */

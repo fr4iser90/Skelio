@@ -239,6 +239,39 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
         issues.push({ path: "characterRig.sliceDepths", message: `duplicate depth entry for slice: ${d.sliceId}` });
       }
       depthSlice.add(d.sliceId);
+
+      // Optional depth textures (Smack-style heightmaps) must match slice size.
+      const s = rig.slices.find((x) => x.id === d.sliceId);
+      const checkTex = (label: "Front" | "Back", tex?: { mimeType: string; dataBase64: string; pixelWidth: number; pixelHeight: number }) => {
+        if (!tex) return;
+        const norm = normalizeReferenceImageMime(tex.mimeType);
+        if (!norm) {
+          issues.push({
+            path: `characterRig.sliceDepths.${d.sliceId}.depthTexture${label}`,
+            message: "unsupported depth texture type (use PNG, JPEG, or WebP)",
+          });
+        }
+        if (typeof tex.dataBase64 !== "string" || tex.dataBase64.length === 0) {
+          issues.push({
+            path: `characterRig.sliceDepths.${d.sliceId}.depthTexture${label}`,
+            message: "depth texture payload is empty",
+          });
+        }
+        if (!(tex.pixelWidth > 0) || !(tex.pixelHeight > 0)) {
+          issues.push({
+            path: `characterRig.sliceDepths.${d.sliceId}.depthTexture${label}`,
+            message: "depth texture dimensions invalid",
+          });
+        }
+        if (s && (tex.pixelWidth !== s.width || tex.pixelHeight !== s.height)) {
+          issues.push({
+            path: `characterRig.sliceDepths.${d.sliceId}`,
+            message: "depth texture size must match slice width/height",
+          });
+        }
+      };
+      checkTex("Front", (d as any).depthTextureFront);
+      checkTex("Back", (d as any).depthTextureBack);
     }
   }
 

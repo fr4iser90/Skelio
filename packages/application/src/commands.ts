@@ -109,6 +109,16 @@ export type Command =
       maxDepthBack: number;
       syncBackWithFront: boolean;
     }
+  | {
+      type: "setCharacterRigSliceDepthTexture";
+      sliceId: string;
+      side: "front" | "back";
+      mimeType: string;
+      dataBase64: string;
+      pixelWidth: number;
+      pixelHeight: number;
+    }
+  | { type: "clearCharacterRigSliceDepthTexture"; sliceId: string; side: "front" | "back" }
   /** Replaces auto-generated rig meshes (`rig_slice_*`) from bound slices + depths; keeps other meshes. */
   | { type: "syncCharacterRigSkinnedMeshes" }
   /** TX/TY keys at `t` in one step (single undo) — main-view bone drag animation. */
@@ -542,6 +552,47 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       syncBackWithFront: cmd.syncBackWithFront,
     });
     rig.sliceDepths = depths;
+    return p;
+  }
+
+  if (cmd.type === "setCharacterRigSliceDepthTexture") {
+    const rig = ensureCharacterRig(p);
+    const s = rig.slices.find((x) => x.id === cmd.sliceId);
+    if (!s) return project;
+    if (!(s.width > 0) || !(s.height > 0)) return project;
+    if (cmd.pixelWidth !== s.width || cmd.pixelHeight !== s.height) return project;
+
+    const existing = (rig.sliceDepths ?? []).find((d) => d.sliceId === cmd.sliceId);
+    const base = existing ?? {
+      sliceId: cmd.sliceId,
+      maxDepthFront: 0,
+      maxDepthBack: 0,
+      syncBackWithFront: true,
+    };
+    const patch = {
+      mimeType: cmd.mimeType,
+      dataBase64: cmd.dataBase64,
+      pixelWidth: cmd.pixelWidth,
+      pixelHeight: cmd.pixelHeight,
+    };
+    const next =
+      cmd.side === "front"
+        ? { ...base, depthTextureFront: patch }
+        : { ...base, depthTextureBack: patch };
+    rig.sliceDepths = [...(rig.sliceDepths ?? []).filter((d) => d.sliceId !== cmd.sliceId), next];
+    return p;
+  }
+
+  if (cmd.type === "clearCharacterRigSliceDepthTexture") {
+    const rig = p.characterRig;
+    if (!rig) return project;
+    const existing = (rig.sliceDepths ?? []).find((d) => d.sliceId === cmd.sliceId);
+    if (!existing) return project;
+    const next =
+      cmd.side === "front"
+        ? { ...existing, depthTextureFront: undefined }
+        : { ...existing, depthTextureBack: undefined };
+    rig.sliceDepths = [...(rig.sliceDepths ?? []).filter((d) => d.sliceId !== cmd.sliceId), next];
     return p;
   }
 

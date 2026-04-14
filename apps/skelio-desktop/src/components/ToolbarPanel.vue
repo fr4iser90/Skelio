@@ -7,12 +7,30 @@ import {
   REFERENCE_IMAGE_ACCEPT_ATTR,
   skinnedMeshFromObjText,
 } from "@skelio/domain";
+import { invoke } from "@tauri-apps/api/core";
 import { ref } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 import { isTauriApp } from "../tauriProjectFs.js";
 
 const store = useEditorStore();
 const tauri = isTauriApp();
+
+/** Kurzes Feedback nach Speichern / Ordner-Schreiben (kein stilles Download mehr). */
+const saveFeedback = ref<{ ok: boolean; text: string } | null>(null);
+let saveFeedbackTimer = 0;
+
+function showSaveFeedback(text: string, ok = true) {
+  saveFeedback.value = { ok, text };
+  window.clearTimeout(saveFeedbackTimer);
+  saveFeedbackTimer = window.setTimeout(() => {
+    saveFeedback.value = null;
+  }, 8000);
+}
+
+function dismissSaveFeedback() {
+  saveFeedback.value = null;
+  window.clearTimeout(saveFeedbackTimer);
+}
 const fileInput = ref<HTMLInputElement | null>(null);
 const refImageInput = ref<HTMLInputElement | null>(null);
 const objMeshInput = ref<HTMLInputElement | null>(null);
@@ -96,6 +114,11 @@ async function onOpenProjectFolder() {
 async function onSaveProjectFolder() {
   try {
     await store.saveProjectToFolder();
+    const root = store.projectRootPath;
+    const file = store.projectManifestFileName;
+    showSaveFeedback(
+      root ? `Ordner gespeichert: ${root}/${file}` : `Projekt geschrieben (${file}).`,
+    );
   } catch (err) {
     alert(String(err));
   }
@@ -104,6 +127,11 @@ async function onSaveProjectFolder() {
 async function onSaveProjectFolderAs() {
   try {
     await store.saveProjectToFolderAs();
+    const root = store.projectRootPath;
+    const file = store.projectManifestFileName;
+    showSaveFeedback(
+      root ? `Ordner gewählt und gespeichert: ${root}/${file}` : `Projekt geschrieben (${file}).`,
+    );
   } catch (err) {
     alert(String(err));
   }
@@ -141,12 +169,51 @@ function onObjMeshFile(e: Event) {
   r.readAsText(f);
 }
 
-function download(name: string, body: string) {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([body], { type: "application/json" }));
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(a.href);
+async function saveEditorProjectToFile() {
+  const suggestedName = `${store.project.meta.name || "project"}.skelio.json`;
+  const body = store.saveEditorJson();
+  // Kein Web-Fallback: Speichern muss deterministisch über den nativen Dialog laufen.
+  try {
+    const path = await invoke<string | null>("save_text_file_with_dialog", {
+      defaultName: suggestedName,
+      contents: body,
+    });
+    if (path == null || path === "") {
+      showSaveFeedback("Speichern abgebrochen.", false);
+      return;
+    }
+    showSaveFeedback(`Editor-Projekt gespeichert: ${path}`);
+    return;
+  } catch (e) {
+    showSaveFeedback(
+      `Speichern nicht möglich: ${String(e)}. (Desktop-App benötigt nativen Dialog; unter Linux: zenity/kdialog).`,
+      false,
+    );
+    return;
+  }
+}
+
+async function saveRuntimeExportToFile() {
+  const suggestedName = `${store.project.meta.name || "export"}-runtime.json`;
+  const body = store.saveRuntimeJson();
+  try {
+    const path = await invoke<string | null>("save_text_file_with_dialog", {
+      defaultName: suggestedName,
+      contents: body,
+    });
+    if (path == null || path === "") {
+      showSaveFeedback("Export abgebrochen.", false);
+      return;
+    }
+    showSaveFeedback(`Runtime-Export gespeichert: ${path}`);
+    return;
+  } catch (e) {
+    showSaveFeedback(
+      `Export nicht möglich: ${String(e)}. (Desktop-App benötigt nativen Dialog; unter Linux: zenity/kdialog).`,
+      false,
+    );
+    return;
+  }
 }
 </script>
 
@@ -202,13 +269,25 @@ function download(name: string, body: string) {
     >
       Meshes löschen
     </button>
-    <button type="button" @click="download(`${store.project.meta.name || 'project'}.skelio.json`, store.saveEditorJson())">
-      Speichern (Editor)
+    <button
+      type="button"
+      title="Desktop-App: nativer „Speichern unter“-Dialog. Browser: Dateiauswahl (Chrome) oder Download."
+      @click="saveEditorProjectToFile"
+    >
+      Speichern…
     </button>
-    <button type="button" @click="download(`${store.project.meta.name || 'export'}-runtime.json`, store.saveRuntimeJson())">
+    <button
+      type="button"
+      title="Runtime-JSON exportieren (Dateiauswahl oder Download)"
+      @click="saveRuntimeExportToFile"
+    >
       Export Runtime
     </button>
     <span v-if="store.projectRootPath" class="path" :title="store.projectRootPath">{{ store.projectManifestFileName }} @ …{{ store.projectRootPath.slice(-24) }}</span>
+    <div v-if="saveFeedback" class="save-feedback" :class="{ err: !saveFeedback.ok }" role="status">
+      <span class="save-feedback-text">{{ saveFeedback.text }}</span>
+      <button type="button" class="save-feedback-close" title="Schließen" @click="dismissSaveFeedback">×</button>
+    </div>
     <span class="sp" />
     <button type="button" @click="store.undo()">Undo</button>
     <button type="button" @click="store.redo()">Redo</button>
@@ -268,5 +347,42 @@ button.ghost {
 }
 .chk input {
   cursor: pointer;
+}
+.save-feedback {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  max-width: min(36vw, 22rem);
+  padding: 0.35rem 0.45rem 0.35rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: #d1fae5;
+  background: rgba(6, 78, 59, 0.45);
+  border: 1px solid #34d399;
+}
+.save-feedback.err {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.35);
+  border-color: #f87171;
+}
+.save-feedback-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.save-feedback-close {
+  flex-shrink: 0;
+  padding: 0 0.35rem;
+  line-height: 1.2;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.85;
+  font-size: 1rem;
+}
+.save-feedback-close:hover {
+  opacity: 1;
 }
 </style>

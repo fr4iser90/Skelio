@@ -105,3 +105,67 @@ export async function buildEmbeddedBackFromFront(
   return imageDataToPngEmbedded(front.data);
 }
 
+/**
+ * Heuristische Depth-Heightmap aus Sprite-RGBA (heller + deckender → höher).
+ * Näherung an „Regenerate“-Workflows wie Smack Studio — kein ML.
+ */
+export function proceduralDepthFromAlbedoImageData(src: ImageData): ImageData {
+  const w = src.width;
+  const h = src.height;
+  const s = src.data;
+  const out = new ImageData(w, h);
+  const d = out.data;
+  for (let i = 0; i < s.length; i += 4) {
+    const a = s[i + 3]! / 255;
+    const r = s[i]!;
+    const g = s[i + 1]!;
+    const b = s[i + 2]!;
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    let v = 0;
+    if (a > 0.04) {
+      v = Math.round(55 + (0.45 * lum + 0.55 * a) * 200);
+      v = Math.max(0, Math.min(255, v));
+    }
+    d[i] = v;
+    d[i + 1] = v;
+    d[i + 2] = v;
+    d[i + 3] = 255;
+  }
+  return out;
+}
+
+/** Back-Layer-Pixel für Depth, falls vorhanden; sonst `null` (Caller nutzt Front). */
+export async function rasterizeSliceBackToImageData(
+  project: EditorProject,
+  sliceId: string,
+): Promise<{ w: number; h: number; data: ImageData } | null> {
+  const rig = project.characterRig;
+  const s = rig?.slices?.find((x) => x.id === sliceId);
+  if (!s || s.width <= 0 || s.height <= 0) return null;
+  if (!s.embeddedBack?.dataBase64 || !s.embeddedBack.mimeType) return null;
+  const img = await loadImage(`data:${s.embeddedBack.mimeType};base64,${s.embeddedBack.dataBase64}`);
+  const c = document.createElement("canvas");
+  c.width = s.width;
+  c.height = s.height;
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0, s.width, s.height);
+  return { w: s.width, h: s.height, data: ctx.getImageData(0, 0, s.width, s.height) };
+}
+
+/** PNG-Payload für `setCharacterRigSliceDepthTexture` aus aktuellem Sprite (Front- oder Back-Pixel). */
+export async function generateRegeneratedDepthTexturePayload(
+  project: EditorProject,
+  sliceId: string,
+  side: "front" | "back",
+): Promise<CharacterRigSliceEmbeddedImage | null> {
+  const src =
+    side === "back"
+      ? (await rasterizeSliceBackToImageData(project, sliceId)) ??
+        (await rasterizeSliceToImageData(project, sliceId))
+      : await rasterizeSliceToImageData(project, sliceId);
+  if (!src) return null;
+  const depth = proceduralDepthFromAlbedoImageData(src.data);
+  return imageDataToPngEmbedded(depth);
+}
+

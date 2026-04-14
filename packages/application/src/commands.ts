@@ -3,6 +3,7 @@ import {
   childBindTranslationAtParentTip,
   createDemoSkinnedMesh,
   createId,
+  ensureMinimalSliceDepthOnMeshSync,
   normalizeReferenceImageMime,
   RIG_SLICE_MESH_ID_PREFIX,
   sanitizeInfluenceRow,
@@ -104,6 +105,8 @@ export type Command =
     }
   | { type: "renameCharacterRigSlice"; sliceId: string; name: string }
   | { type: "removeCharacterRigSlice"; sliceId: string }
+  /** `insertBeforeSliceId === null` = ans Ende der Liste (zuletzt gezeichnet = weiter vorne). */
+  | { type: "reorderCharacterRigSlice"; sliceId: string; insertBeforeSliceId: string | null }
   | { type: "setCharacterRigBinding"; sliceId: string; boneId: string }
   | { type: "clearCharacterRigBinding"; sliceId: string }
   | {
@@ -539,6 +542,28 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     return p;
   }
 
+  if (cmd.type === "reorderCharacterRigSlice") {
+    const rig = p.characterRig;
+    if (!rig?.slices?.length) return project;
+    const arr = [...rig.slices];
+    const from = arr.findIndex((x) => x.id === cmd.sliceId);
+    if (from < 0) return project;
+    if (cmd.insertBeforeSliceId !== null) {
+      const tid = cmd.insertBeforeSliceId;
+      if (tid === cmd.sliceId) return project;
+      if (!arr.some((x) => x.id === tid)) return project;
+    }
+    const [item] = arr.splice(from, 1);
+    let insertAt = arr.length;
+    if (cmd.insertBeforeSliceId !== null) {
+      insertAt = arr.findIndex((x) => x.id === cmd.insertBeforeSliceId);
+      if (insertAt < 0) insertAt = arr.length;
+    }
+    arr.splice(insertAt, 0, item);
+    rig.slices = arr;
+    return p;
+  }
+
   if (cmd.type === "setCharacterRigBinding") {
     const rig = ensureCharacterRig(p);
     if (!rig.slices.some((s) => s.id === cmd.sliceId)) return project;
@@ -662,6 +687,9 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
 
   if (cmd.type === "syncCharacterRigSkinnedMeshes") {
     if (!characterRigBindingsComplete(p)) return project;
+    /** Sonst bleiben Meshes / 3D-Vorschau papierflach (maxDepth 0). */
+    const depthSeeded = ensureMinimalSliceDepthOnMeshSync(p);
+    if (depthSeeded.characterRig) p.characterRig = depthSeeded.characterRig;
     const boneIds = new Set(p.bones.map((b) => b.id));
     const built = skinnedMeshesFromCharacterRig(p);
     for (const m of built) {

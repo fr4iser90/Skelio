@@ -10,8 +10,9 @@ import {
   type CharacterRigSpriteSlice,
 } from "@skelio/domain";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, toRaw, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
+import { generateRegeneratedDepthTexturePayload } from "../slicePixelToolkit.js";
 import CharacterRigThreeViewport from "./CharacterRigThreeViewport.vue";
 import SpriteSliceEditPanel from "./SpriteSliceEditPanel.vue";
 import DepthTextureEditorModal from "./DepthTextureEditorModal.vue";
@@ -42,6 +43,21 @@ const depthTextureModalSide = ref<"front" | "back">("front");
 /** Kurz-Feedback nach „Meshes aus Rig erzeugen“. */
 const meshSyncFeedback = ref("");
 
+/** Smack-ähnliche Default-Extrusion (Max depth). */
+const DEFAULT_SLICE_MAX_DEPTH = 8;
+
+const depthRegenBusy = ref<"front" | "back" | null>(null);
+
+/** HTML5-DnD: Sprite-Zeichenreihenfolge (Listen-Reihenfolge). */
+const sliceDragSourceId = ref<string | null>(null);
+const sliceDropHighlightId = ref<string | "end" | null>(null);
+
+const selectedSliceFor3d = computed(() => {
+  const id = selectedCharacterRigSliceId.value;
+  if (!id) return null;
+  return slices.value.find((s) => s.id === id) ?? null;
+});
+
 const partModalSlice = computed(() => {
   const id = spriteModalSliceId.value;
   if (!id) return null;
@@ -61,22 +77,22 @@ const steps = [
   {
     id: "sprites",
     title: "Sprites",
-    hint: "Links: + Neu = neuer Teil (Slot). Rechts: Sprite-Sheet hinzufügen, Sheet anklicken, Bereich wählen → in gewählten Slot. Mitte: anordnen.",
+    hint: "Links: + Neu = neuer Teil. Griff (⋮⋮) = Reihenfolge ziehen — unten in der Liste zuletzt gezeichnet (weiter vorne). Sheets rechts, Mitte anordnen.",
   },
   {
     id: "bones",
     title: "Knochen",
-    hint: "Links: Hierarchie, + Neu = Kind des gewählten Knochens. Neuen Knochen im Viewport klicken zum Platzieren, Punkt ziehen zum Verschieben. Detaillierte Werte im Inspector (Hauptfenster).",
+    hint: "Hierarchie, Platzieren/Ziehen im Viewport. Rechts: 2D-Bindpose + 3D-Bindpose (Z / Depth offset) für vor/hinter im Rig. Length per Shift+Gelenk.",
   },
   {
     id: "bind",
     title: "Binden",
-    hint: "Teil → Knochen zuordnen. Wenn alles gebunden ist: Rig-Meshes erzeugen (3D-Geometrie + Skinning) — Button unten. Danach Schritt „3D Settings“ für Tiefe & Depth-Texturen.",
+    hint: "Teil → Knochen, Rig-Meshes erzeugen. Max depth / Depth-Maps / Regenerate im Schritt „3D Settings“ (Smack-Workflow).",
   },
   {
     id: "depth",
     title: "3D Settings",
-    hint: "Nur Tiefe & Depth-Texturen pro Teil (links Sprite wählen). Rig-Meshes kommen aus dem Schritt „Binden“. Kamera 3D zum Drehen.",
+    hint: "Gewähltes Teil: Front/Back mit Max depth, Map-Thumbnails, Bearbeiten & Regenerate. Viewport zeigt nur dieses Teil. Knochen-Tiefe: Schritt „Knochen“.",
   },
   { id: "preview", title: "Vorschau", hint: "Überblick — nur nach vollständigem Binden erreichbar." },
 ] as const;
@@ -160,10 +176,41 @@ watch(
 
 watch(step, (s) => {
   if (s !== 1) store.setPendingBonePlacement(null);
+  if (s === 3 && characterRigModalOpen.value) {
+    const sid = selectedCharacterRigSliceId.value;
+    const valid =
+      sid && slices.value.some((x) => x.id === sid && x.width > 0 && x.height > 0);
+    if (!valid) {
+      const first = slices.value.find((x) => x.width > 0 && x.height > 0);
+      if (first) store.selectCharacterRigSlice(first.id);
+    }
+  }
 });
 
 function bindingBoneId(sliceId: string): string {
   return bindings.value.find((b) => b.sliceId === sliceId)?.boneId ?? "";
+}
+
+function onSpriteRailRowClick(sliceId: string) {
+  if (step.value === 3) {
+    const bid = bindingBoneId(sliceId);
+    if (bid) store.selectBone(bid);
+  }
+  store.selectCharacterRigSlice(sliceId);
+}
+
+function rigModalBindBone3d(field: "z" | "depthOffset" | "tilt" | "spin"): number {
+  const b = selectedBone.value;
+  if (!b?.bindBone3d) return 0;
+  return b.bindBone3d[field];
+}
+
+function patchSelectedBindBone3d(field: "z" | "depthOffset" | "tilt" | "spin", ev: Event) {
+  const id = selectedBoneId.value;
+  if (!id) return;
+  const n = Number((ev.target as HTMLInputElement).value);
+  if (Number.isNaN(n)) return;
+  store.dispatch({ type: "setBindBone3d", boneId: id, partial: { [field]: n } });
 }
 
 function depthFor(sliceId: string) {
@@ -200,6 +247,49 @@ function setBinding(sliceId: string, boneId: string) {
   else store.dispatch({ type: "setCharacterRigBinding", sliceId, boneId });
 }
 
+function onSliceGripDragStart(sliceId: string, e: DragEvent) {
+  sliceDragSourceId.value = sliceId;
+  e.dataTransfer?.setData("application/x-skelio-slice-id", sliceId);
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+}
+
+function onSliceRowDragOver(sliceId: string, e: DragEvent) {
+  if (!sliceDragSourceId.value || sliceDragSourceId.value === sliceId) return;
+  e.preventDefault();
+  sliceDropHighlightId.value = sliceId;
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+}
+
+function onSliceTailDragOver(e: DragEvent) {
+  if (!sliceDragSourceId.value) return;
+  e.preventDefault();
+  sliceDropHighlightId.value = "end";
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+}
+
+function onSliceRowDrop(sliceId: string, e: DragEvent) {
+  e.preventDefault();
+  const src = sliceDragSourceId.value ?? e.dataTransfer?.getData("application/x-skelio-slice-id") ?? null;
+  sliceDropHighlightId.value = null;
+  sliceDragSourceId.value = null;
+  if (!src || src === sliceId) return;
+  store.dispatch({ type: "reorderCharacterRigSlice", sliceId: src, insertBeforeSliceId: sliceId });
+}
+
+function onSliceDropAppendEnd(e: DragEvent) {
+  e.preventDefault();
+  const src = sliceDragSourceId.value ?? e.dataTransfer?.getData("application/x-skelio-slice-id") ?? null;
+  sliceDropHighlightId.value = null;
+  sliceDragSourceId.value = null;
+  if (!src) return;
+  store.dispatch({ type: "reorderCharacterRigSlice", sliceId: src, insertBeforeSliceId: null });
+}
+
+function onSliceRailDragEnd() {
+  sliceDragSourceId.value = null;
+  sliceDropHighlightId.value = null;
+}
+
 function setDepth(sliceId: string, front: number, back: number, sync: boolean) {
   store.dispatch({
     type: "setCharacterRigSliceDepth",
@@ -208,6 +298,62 @@ function setDepth(sliceId: string, front: number, back: number, sync: boolean) {
     maxDepthBack: back,
     syncBackWithFront: sync,
   });
+}
+
+function depthTextureThumbDataUrl(sliceId: string, side: "front" | "back"): string {
+  const d = rig.value?.sliceDepths?.find((x) => x.sliceId === sliceId) as
+    | {
+        depthTextureFront?: { mimeType: string; dataBase64: string };
+        depthTextureBack?: { mimeType: string; dataBase64: string };
+      }
+    | undefined;
+  const t = side === "front" ? d?.depthTextureFront : d?.depthTextureBack;
+  if (!t?.mimeType || !t?.dataBase64) return "";
+  return `data:${t.mimeType};base64,${t.dataBase64}`;
+}
+
+async function regenerateDepthTexture(side: "front" | "back") {
+  const id = selectedCharacterRigSliceId.value;
+  if (!id) return;
+  depthRegenBusy.value = side;
+  try {
+    const payload = await generateRegeneratedDepthTexturePayload(toRaw(project.value), id, side);
+    if (!payload?.dataBase64) {
+      alert("Keine Sprite-Pixel für diesen Teil — zuerst Front-Art setzen (Sheet oder eingebettet).");
+      return;
+    }
+    const ok = store.dispatch({
+      type: "setCharacterRigSliceDepthTexture",
+      sliceId: id,
+      side,
+      mimeType: payload.mimeType,
+      dataBase64: payload.dataBase64,
+      pixelWidth: payload.pixelWidth,
+      pixelHeight: payload.pixelHeight,
+    });
+    if (!ok) alert("Depth-Map konnte nicht gespeichert werden (Validierung).");
+  } finally {
+    depthRegenBusy.value = null;
+  }
+}
+
+function setDefaultDepthFront() {
+  const id = selectedCharacterRigSliceId.value;
+  if (!id) return;
+  const d = depthFor(id);
+  const sync = d.syncBackWithFront;
+  setDepth(id, DEFAULT_SLICE_MAX_DEPTH, sync ? DEFAULT_SLICE_MAX_DEPTH : d.maxDepthBack, sync);
+}
+
+function setDefaultDepthBack() {
+  const id = selectedCharacterRigSliceId.value;
+  if (!id) return;
+  const d = depthFor(id);
+  if (d.syncBackWithFront) {
+    setDepth(id, DEFAULT_SLICE_MAX_DEPTH, DEFAULT_SLICE_MAX_DEPTH, true);
+  } else {
+    setDepth(id, d.maxDepthFront, DEFAULT_SLICE_MAX_DEPTH, false);
+  }
 }
 
 function syncMeshingFromRig() {
@@ -229,8 +375,8 @@ function syncMeshingFromRig() {
   step.value = 3;
   meshSyncFeedback.value =
     n === countBefore && n > 0
-      ? `Aktualisiert: ${n} Rig-Mesh(es). Schritt „3D Settings“ — Tiefe & Depth.`
-      : `Fertig: ${n} Rig-Mesh(es). Weiter bei „3D Settings“ (Tiefe).`;
+      ? `Aktualisiert: ${n} Rig-Mesh(es). Schritt „3D Settings“ — Depth-Maps & Vorschau.`
+      : `Fertig: ${n} Rig-Mesh(es). Weiter bei „3D Settings“ (Depth-Maps).`;
 }
 
 /** Ein Projekt: Rig-Daten und `skinnedMeshes` sind identisch — vor dem Zurück in die Hauptansicht Meshes aus dem Rig schreiben. */
@@ -509,10 +655,15 @@ async function onSheetFiles(e: Event) {
         <div class="body">
           <section v-if="step !== 1" class="sprite-rail" aria-label="Sprites und Ansicht">
             <div class="rail-title">Sprites</div>
+            <p class="muted rail-order-hint">
+              Reihenfolge = Zeichen-Reihenfolge: weiter unten = weiter vorne. Griff ⋮⋮ ziehen, unten ablegen =
+              ganz vorne.
+            </p>
             <div class="rail-table-wrap">
               <table v-if="slices.length" class="rail-table">
                 <thead>
                   <tr>
+                    <th class="rail-th-drag" title="Ziehen zum Sortieren" aria-label="Sortieren" />
                     <th>Sprite</th>
                     <th>View</th>
                     <th>Seite</th>
@@ -524,9 +675,25 @@ async function onSheetFiles(e: Event) {
                     v-for="s in slices"
                     :key="s.id"
                     class="rail-row"
-                    :class="{ active: selectedCharacterRigSliceId === s.id }"
-                    @click="store.selectCharacterRigSlice(s.id)"
+                    :class="{
+                      active: selectedCharacterRigSliceId === s.id,
+                      'rail-drop-target': sliceDropHighlightId === s.id,
+                    }"
+                    @click="onSpriteRailRowClick(s.id)"
+                    @dragover="onSliceRowDragOver(s.id, $event)"
+                    @drop="onSliceRowDrop(s.id, $event)"
+                    @dragend="onSliceRailDragEnd"
                   >
+                    <td class="rail-drag" @click.stop>
+                      <span
+                        class="rail-drag-grip"
+                        draggable="true"
+                        title="Teil in der Liste verschieben (Zeichen-Reihenfolge)"
+                        aria-label="Teil verschieben"
+                        @dragstart="onSliceGripDragStart(s.id, $event)"
+                        @click.stop
+                        >⋮⋮</span>
+                    </td>
                     <td class="rail-name">
                       <input
                         class="rail-input rail-name-input"
@@ -577,6 +744,15 @@ async function onSheetFiles(e: Event) {
                         …
                       </button>
                     </td>
+                  </tr>
+                  <tr
+                    class="rail-drop-end"
+                    :class="{ 'rail-drop-target': sliceDropHighlightId === 'end' }"
+                    @dragover="onSliceTailDragOver($event)"
+                    @drop="onSliceDropAppendEnd"
+                    @dragend="onSliceRailDragEnd"
+                  >
+                    <td colspan="5" class="rail-drop-end-cell">Ans Ende ziehen → ganz vorne zeichnen</td>
                   </tr>
                 </tbody>
               </table>
@@ -711,6 +887,10 @@ async function onSheetFiles(e: Event) {
                   <strong>Kette:</strong> an Spitze / folgen (rechts). Viewport: <strong>WebGL</strong> (oben 2D / 2.5D / 3D
                   wählen).
                 </p>
+                <p class="muted roadmap-hint">
+                  <strong>Vor / hinter im Rig:</strong> rechts bei <strong>3D-Bindpose</strong> (Bind Z, Depth offset) —
+                  nicht in „3D Settings“.
+                </p>
               </div>
 
               <div v-show="step === 2" class="panel">
@@ -750,8 +930,9 @@ async function onSheetFiles(e: Event) {
                 <div v-if="slices.length" class="meshing-block meshing-on-bind">
                   <h4 class="meshing-title">Rig-Meshes erzeugen (3D-Geometrie)</h4>
                   <p class="muted meshing-copy">
-                    Erzeugt pro gebundenem Teil die <code>rig_slice_…</code>-Meshes (Quad/Extrusion für Skinning).
-                    Läuft lokal. Danach Wechsel zu <strong>3D Settings</strong> (Tiefe).
+                    Erzeugt pro gebundenem Teil die <code>rig_slice_…</code>-Meshes. Ohne eingestellte Tiefe setzt der
+                    Sync automatisch eine kleine Standard-Extrusion (nicht papierflach). Danach
+                    <strong>3D Settings</strong> verfeinern (Maps, Max depth).
                   </p>
                   <button
                     type="button"
@@ -768,71 +949,154 @@ async function onSheetFiles(e: Event) {
                 </div>
               </div>
 
-              <div v-show="step === 3" class="panel">
+              <div v-show="step === 3" class="panel panel-3d-smack">
                 <p v-if="meshSyncFeedback" class="mesh-sync-feedback" role="status">{{ meshSyncFeedback }}</p>
                 <p v-if="!slices.length" class="muted">Keine Teile — links Slots anlegen.</p>
-                <p v-else class="muted depth-intro">
-                  <strong>3D Settings:</strong> links ein Sprite wählen — im Viewport (Kamera <strong>3D</strong>) siehst du
-                  das Teil. Hier nur <strong>Tiefe</strong> und <strong>Depth-Texturen</strong>; Rig-Meshes erzeugst du im
-                  Schritt <strong>Binden</strong>.
-                </p>
-                <div v-for="s in slices" :key="s.id" class="depth-row">
-                  <label class="depth-label">{{ s.name }}</label>
-                  <div class="depth-tools">
-                    <button type="button" class="mini depth-btn" @click="openDepthTextureModal(s.id, 'front')">
-                      Depth texture… (Front)
-                    </button>
-                    <button type="button" class="mini depth-btn" @click="openDepthTextureModal(s.id, 'back')">
-                      Depth texture… (Back)
-                    </button>
-                  </div>
-                  <label class="mini"
-                    >Vorne max
-                    <input
-                      type="number"
-                      step="0.1"
-                      :value="depthFor(s.id).maxDepthFront"
-                      @change="
-                        setDepth(
-                          s.id,
-                          Number(($event.target as HTMLInputElement).value),
-                          depthFor(s.id).maxDepthBack,
-                          depthFor(s.id).syncBackWithFront,
-                        )
-                      "
-                  /></label>
-                  <label class="mini"
-                    >Hinten max
-                    <input
-                      type="number"
-                      step="0.1"
-                      :disabled="depthFor(s.id).syncBackWithFront"
-                      :value="depthFor(s.id).maxDepthBack"
-                      @change="
-                        setDepth(
-                          s.id,
-                          depthFor(s.id).maxDepthFront,
-                          Number(($event.target as HTMLInputElement).value),
-                          depthFor(s.id).syncBackWithFront,
-                        )
-                      "
-                  /></label>
-                  <label class="mini chk"
-                    ><input
-                      type="checkbox"
-                      :checked="depthFor(s.id).syncBackWithFront"
-                      @change="
-                        setDepth(
-                          s.id,
-                          depthFor(s.id).maxDepthFront,
-                          depthFor(s.id).maxDepthBack,
-                          ($event.target as HTMLInputElement).checked,
-                        )
-                      "
-                    />
-                    Hinten = vorne</label
+                <template v-else>
+                  <p class="muted depth-intro">
+                    Wie Smack Studio: <strong>ein Teil</strong> (links wählen) — Viewport zeigt nur dieses Teil.
+                    <strong>Max depth</strong> = Mesh-Extrusion; <strong>Map neu</strong> = heuristische Graustufen-Map
+                    aus dem Sprite. Knochen vor/hinter: Schritt <strong>Knochen</strong>.
+                  </p>
+                  <p v-if="!selectedSliceFor3d" class="muted smack-pick-hint">
+                    Wähle links ein Teil mit Pixeln.
+                  </p>
+                  <p
+                    v-else-if="selectedSliceFor3d.width <= 0 || selectedSliceFor3d.height <= 0"
+                    class="muted smack-pick-hint"
                   >
-                </div>
+                    Dieser Slot hat noch keine Pixel — zuerst Sprite zuweisen.
+                  </p>
+                  <template v-else>
+                    <h3 class="smack-part-title">{{ selectedSliceFor3d.name }}</h3>
+                    <div class="smack-depth-columns">
+                      <section class="smack-depth-col" aria-labelledby="smack-front-h">
+                        <h4 id="smack-front-h" class="smack-col-title">Front</h4>
+                        <label class="smack-depth-num"
+                          >Max depth
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            class="smack-num-inp"
+                            :value="depthFor(selectedSliceFor3d.id).maxDepthFront"
+                            @change="
+                              setDepth(
+                                selectedSliceFor3d.id,
+                                Number(($event.target as HTMLInputElement).value),
+                                depthFor(selectedSliceFor3d.id).maxDepthBack,
+                                depthFor(selectedSliceFor3d.id).syncBackWithFront,
+                              )
+                            "
+                        /></label>
+                        <button
+                          type="button"
+                          class="smack-thumb-btn"
+                          :title="'Depth-Map bearbeiten (Front)'"
+                          @click="openDepthTextureModal(selectedSliceFor3d.id, 'front')"
+                        >
+                          <img
+                            v-if="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'front')"
+                            class="smack-depth-thumb"
+                            :src="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'front')"
+                            alt=""
+                          />
+                          <span v-else class="smack-thumb-ph">Keine Map — klicken zum Malen</span>
+                        </button>
+                        <div class="smack-col-actions">
+                          <button
+                            type="button"
+                            class="mini smack-action"
+                            @click="openDepthTextureModal(selectedSliceFor3d.id, 'front')"
+                          >
+                            Bearbeiten…
+                          </button>
+                          <button
+                            type="button"
+                            class="mini smack-action"
+                            :disabled="depthRegenBusy !== null"
+                            @click="regenerateDepthTexture('front')"
+                          >
+                            {{ depthRegenBusy === 'front' ? '…' : 'Map neu' }}
+                          </button>
+                        </div>
+                        <button type="button" class="smack-default-btn" @click="setDefaultDepthFront">
+                          Standard-Tiefe
+                        </button>
+                      </section>
+                      <section class="smack-depth-col" aria-labelledby="smack-back-h">
+                        <h4 id="smack-back-h" class="smack-col-title">Back</h4>
+                        <label class="smack-depth-num"
+                          >Max depth
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            class="smack-num-inp"
+                            :disabled="depthFor(selectedSliceFor3d.id).syncBackWithFront"
+                            :value="depthFor(selectedSliceFor3d.id).maxDepthBack"
+                            @change="
+                              setDepth(
+                                selectedSliceFor3d.id,
+                                depthFor(selectedSliceFor3d.id).maxDepthFront,
+                                Number(($event.target as HTMLInputElement).value),
+                                depthFor(selectedSliceFor3d.id).syncBackWithFront,
+                              )
+                            "
+                        /></label>
+                        <label class="smack-sync-row">
+                          <input
+                            type="checkbox"
+                            :checked="depthFor(selectedSliceFor3d.id).syncBackWithFront"
+                            @change="
+                              setDepth(
+                                selectedSliceFor3d.id,
+                                depthFor(selectedSliceFor3d.id).maxDepthFront,
+                                depthFor(selectedSliceFor3d.id).maxDepthBack,
+                                ($event.target as HTMLInputElement).checked,
+                              )
+                            "
+                          />
+                          Sync front
+                        </label>
+                        <button
+                          type="button"
+                          class="smack-thumb-btn"
+                          :title="'Depth-Map bearbeiten (Back)'"
+                          @click="openDepthTextureModal(selectedSliceFor3d.id, 'back')"
+                        >
+                          <img
+                            v-if="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'back')"
+                            class="smack-depth-thumb"
+                            :src="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'back')"
+                            alt=""
+                          />
+                          <span v-else class="smack-thumb-ph">Keine Map — klicken zum Malen</span>
+                        </button>
+                        <div class="smack-col-actions">
+                          <button
+                            type="button"
+                            class="mini smack-action"
+                            @click="openDepthTextureModal(selectedSliceFor3d.id, 'back')"
+                          >
+                            Bearbeiten…
+                          </button>
+                          <button
+                            type="button"
+                            class="mini smack-action"
+                            :disabled="depthRegenBusy !== null"
+                            @click="regenerateDepthTexture('back')"
+                          >
+                            {{ depthRegenBusy === 'back' ? '…' : 'Map neu' }}
+                          </button>
+                        </div>
+                        <button type="button" class="smack-default-btn" @click="setDefaultDepthBack">
+                          Standard-Tiefe
+                        </button>
+                      </section>
+                    </div>
+                  </template>
+                </template>
               </div>
 
               <div v-show="step === 4" class="panel">
@@ -890,8 +1154,8 @@ async function onSheetFiles(e: Event) {
               </h3>
               <p v-if="!selectedBone" class="muted bone-settings-sub">Kein Knochen gewählt</p>
               <p class="muted bone-settings-note">
-                Skelio: <strong>2D-Bindpose</strong> plus <strong>Length</strong> (lokales +X). Gleiche Kernfelder wie
-                im Inspector.
+                <strong>2D-Bindpose</strong>, <strong>Length</strong> und <strong>3D-Bindpose</strong> (Z / Depth offset
+                / Tilt / Spin) — wie im Inspector; vor/hinter im Rig hier einstellen.
               </p>
               <template v-if="selectedBone">
                 <label class="bs-lbl"
@@ -966,6 +1230,51 @@ async function onSheetFiles(e: Event) {
                     step="0.05"
                     :value="selectedBone.bindPose.sy"
                     @change="patchSelectedBoneBind('sy', $event)"
+                  />
+                </label>
+                <h4 class="bs-subtitle">3D-Bindpose (vor / hinter)</h4>
+                <p class="muted bs-3d-note">
+                  Bind Z und Depth offset steuern die <strong>Tiefe im Skelett</strong> (welcher Knochen näher an der
+                  Kamera liegt). Tilt / Spin drehen den Knochen im Raum. Details: <code>docs/adr/0011-editor-bone-3d-bind-pose.md</code>.
+                </p>
+                <label class="bs-lbl"
+                  >Bind Z
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.1"
+                    :value="rigModalBindBone3d('z')"
+                    @change="patchSelectedBindBone3d('z', $event)"
+                  />
+                </label>
+                <label class="bs-lbl"
+                  >Depth offset
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.1"
+                    :value="rigModalBindBone3d('depthOffset')"
+                    @change="patchSelectedBindBone3d('depthOffset', $event)"
+                  />
+                </label>
+                <label class="bs-lbl"
+                  >Tilt (rad)
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.01"
+                    :value="rigModalBindBone3d('tilt')"
+                    @change="patchSelectedBindBone3d('tilt', $event)"
+                  />
+                </label>
+                <label class="bs-lbl"
+                  >Spin (rad)
+                  <input
+                    class="bs-inp bs-num"
+                    type="number"
+                    step="0.01"
+                    :value="rigModalBindBone3d('spin')"
+                    @change="patchSelectedBindBone3d('spin', $event)"
                   />
                 </label>
                 <div v-if="selectedBone.parentId" class="bs-hybrid">
@@ -1175,6 +1484,11 @@ async function onSheetFiles(e: Event) {
   letter-spacing: 0.05em;
   color: #9ca3af;
 }
+.rail-order-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
 .rail-table-wrap {
   flex: 1;
   min-height: 0;
@@ -1206,6 +1520,50 @@ async function onSheetFiles(e: Event) {
 .rail-row.active {
   outline: 1px solid #4f6ab8;
   background: #2a3150;
+}
+.rail-row.rail-drop-target {
+  outline: 1px dashed #93c5fd;
+  background: #1e2a3d;
+}
+.rail-th-drag {
+  width: 1.5rem;
+  padding: 0.15rem !important;
+}
+.rail-drag {
+  width: 1.5rem;
+  text-align: center;
+  vertical-align: middle;
+  padding: 0.1rem !important;
+}
+.rail-drag-grip {
+  display: inline-block;
+  cursor: grab;
+  user-select: none;
+  color: #9ca3af;
+  font-size: 0.65rem;
+  line-height: 1;
+  letter-spacing: -0.08em;
+  opacity: 0.75;
+}
+.rail-drag-grip:hover {
+  opacity: 1;
+  color: #e5e7eb;
+}
+.rail-drag-grip:active {
+  cursor: grabbing;
+}
+.rail-drop-end .rail-drop-end-cell {
+  padding: 0.2rem 0.35rem;
+  font-size: 0.65rem;
+  color: #6b7280;
+  text-align: center;
+  border-style: dashed;
+  background: #1f2024;
+}
+.rail-drop-end.rail-drop-target .rail-drop-end-cell {
+  color: #93c5fd;
+  border-color: #60a5fa;
+  background: #1a2433;
 }
 .rail-th-tools {
   width: 1.75rem;
@@ -1349,6 +1707,19 @@ async function onSheetFiles(e: Event) {
   margin: 0 0 0.35rem;
   font-size: 0.68rem;
   line-height: 1.35;
+}
+.bs-subtitle {
+  margin: 0.55rem 0 0.2rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #c7d2fe;
+  letter-spacing: 0.02em;
+}
+.bs-3d-note {
+  margin: 0 0 0.45rem;
+  font-size: 0.65rem;
+  line-height: 1.4;
+  color: #6b7280;
 }
 .bs-lbl {
   display: flex;
@@ -1782,6 +2153,119 @@ async function onSheetFiles(e: Event) {
   margin: 0 0 0.65rem;
   font-size: 0.82rem;
   line-height: 1.45;
+}
+.panel-3d-smack {
+  min-height: 0;
+}
+.smack-pick-hint {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.82rem;
+}
+.smack-part-title {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+.smack-depth-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .smack-depth-columns {
+    grid-template-columns: 1fr;
+  }
+}
+.smack-depth-col {
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #3b3f48;
+  background: rgba(22, 24, 30, 0.92);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.smack-col-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.smack-depth-num {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+.smack-num-inp {
+  max-width: 6rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #18191c;
+  color: #e5e7eb;
+}
+.smack-thumb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  padding: 0.35rem;
+  border-radius: 6px;
+  border: 1px solid #4b5563;
+  background: #0f1012;
+  cursor: pointer;
+}
+.smack-thumb-btn:hover {
+  border-color: #6366f1;
+}
+.smack-depth-thumb {
+  max-width: 100%;
+  max-height: 120px;
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+.smack-thumb-ph {
+  font-size: 0.72rem;
+  color: #6b7280;
+  text-align: center;
+  padding: 0.5rem;
+}
+.smack-col-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.smack-action {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.smack-default-btn {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.74rem;
+  border-radius: 4px;
+  border: 1px solid #555;
+  background: #25262b;
+  color: #d1d5db;
+  cursor: pointer;
+}
+.smack-default-btn:hover {
+  border-color: #818cf8;
+}
+.smack-sync-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  color: #9ca3af;
+  cursor: pointer;
 }
 .meshing-title {
   margin: 0 0 0.35rem;

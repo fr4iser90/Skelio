@@ -51,6 +51,9 @@ const {
 /** Schritt „Binden“: Knochen zuerst treffen, Slices nur auswählen (kein Ziehen — Zuordnung in der Tabelle). */
 const rigModalBindStep = computed(() => characterRigModalStep.value === 2);
 
+/** Schritt „3D Settings“: nur Depth-Vorschau; kein Teil-Verschieben; Klick = Knochen; Shift+Ziehen = Mesh-Extrusion. */
+const rigModalDepthStep = computed(() => characterRigModalStep.value === 3);
+
 const containerRef = ref<HTMLDivElement | null>(null);
 const raycaster = new THREE.Raycaster();
 const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -100,6 +103,17 @@ const boneLengthDrag = ref<{
   pointerId: number;
 } | null>(null);
 
+/** Live-Extrusion während Shift-Ziehen (ein `setCharacterRigSliceDepth` bei pointerup). */
+const depthAdjustDrag = ref<{
+  sliceId: string;
+  startClientY: number;
+  startFront: number;
+  startBack: number;
+  syncBackWithFront: boolean;
+  liveFront: number;
+  liveBack: number;
+} | null>(null);
+
 const rigModalBoneStep = computed(() => characterRigModalStep.value === 1);
 const zoomLabel = ref("100%");
 
@@ -114,6 +128,9 @@ const depthLoadPromises = new Map<DepthKey, Promise<void>>();
 const viewportHintText = computed(() => {
   if (rigModalBindStep.value) {
     return "Binden: Knochen anklicken (Hierarchie) · Teil anklicken = Zeile in der Tabelle · keine Teile ziehen — Zuordnung im Dropdown „Knochen“.";
+  }
+  if (rigModalDepthStep.value) {
+    return "3D Settings: nur gewähltes Teil · Max depth / Map rechts · Shift+Ziehen = Extrusion · Klick = Knochen · Vor/hinter: Schritt „Knochen“.";
   }
   if (weightBrushEnabled.value) {
     return "Pinsel: gewählter Knochen · Ziehen (ein Undo pro Strich)";
@@ -149,6 +166,10 @@ function effectiveSliceCenter(s: CharacterRigSpriteSlice): { cx: number; cy: num
 }
 
 function depthForSlice(sliceId: string) {
+  const adj = depthAdjustDrag.value;
+  if (adj && adj.sliceId === sliceId) {
+    return { df: Math.max(0, adj.liveFront), db: Math.max(0, adj.liveBack) };
+  }
   const d = project.value.characterRig?.sliceDepths?.find((x) => x.sliceId === sliceId);
   const df = Math.max(0, d?.maxDepthFront ?? 0);
   const dbRaw = d?.syncBackWithFront ? df : Math.max(0, d?.maxDepthBack ?? 0);
@@ -350,6 +371,20 @@ function hitTestRigSlice(wx: number, wy: number): string | null {
   return null;
 }
 
+/** Schritt 3: nur das aktuell gewählte Teil ist sichtbar — Hit-Test entsprechend. */
+function hitTestRigSliceFor3dSettings(wx: number, wy: number): string | null {
+  if (!rigModalDepthStep.value) return hitTestRigSlice(wx, wy);
+  const id = selectedCharacterRigSliceId.value;
+  if (!id) return null;
+  const s = project.value.characterRig?.slices?.find((x) => x.id === id);
+  if (!s || s.width <= 0 || s.height <= 0) return null;
+  const { cx, cy } = effectiveSliceCenter(s);
+  const hw = s.width / 2;
+  const hh = s.height / 2;
+  if (wx >= cx - hw && wx <= cx + hw && wy >= cy - hh && wy <= cy + hh) return s.id;
+  return null;
+}
+
 function tryPlacePendingBoneAt(wx: number, wy: number): boolean {
   const id = pendingBonePlacementId.value;
   if (!id) return false;
@@ -389,13 +424,6 @@ function releaseBoneLengthPointerCapture(pointerId: number, el: HTMLElement | nu
       /* ignore */
     }
   }
-}
-
-function meshForRender(mesh: SkinnedMesh): SkinnedMesh {
-  if (brushStroke.value && brushStroke.value.meshId === mesh.id) {
-    return { ...mesh, influences: brushStroke.value.working };
-  }
-  return mesh;
 }
 
 function targetBrushMeshId(): string | null {
@@ -584,14 +612,18 @@ function rebuildSliceMeshes() {
   if (!rig?.slices?.length) return;
 
   const activeSliceId = selectedCharacterRigSliceId.value;
+  /** Schritt 3: wie Smack — nur das gewählte Teil rendern (keine abgedunkelten anderen). */
+  const onlySelectedSlice3d =
+    rigModalDepthStep.value && activeSliceId !== null;
 
   for (const s of rig.slices) {
     if (s.width <= 0 || s.height <= 0) continue;
+    if (onlySelectedSlice3d && s.id !== activeSliceId) continue;
     const { cx, cy } = effectiveSliceCenter(s);
     const { df, db } = depthForSlice(s.id);
     const { tex, texBack } = getSliceAlbedoTextures(s, rig);
     const depthTotal = df + db;
-    const alpha = activeSliceId === null ? 1 : s.id === activeSliceId ? 1 : 0.44;
+    const alpha = onlySelectedSlice3d ? 1 : activeSliceId === null ? 1 : s.id === activeSliceId ? 1 : 0.44;
 
     if (depthTotal > 1e-3 && tex) {
       // Smack-style: if a depth texture exists, show displaced surfaces (preview only).
@@ -1069,6 +1101,68 @@ function onPointerDown(e: PointerEvent) {
     return;
   }
 
+  /** 3D Settings: kein Teil-Verschieben; Klick = Knochen + Teil-Fokus; Shift+Ziehen = Mesh-Extrusion. */
+  if (rigModalDepthStep.value && e.button === 0) {
+    const hitBone = hitTestBone(wx, wy, 22);
+    const hitSlice = hitTestRigSliceFor3dSettings(wx, wy);
+    const rig = project.value.characterRig;
+    const bindings = rig?.bindings ?? [];
+
+    if (e.shiftKey && hitSlice) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (controls) controls.enabled = false;
+      const bind = bindings.find((b) => b.sliceId === hitSlice);
+      if (bind) store.selectBone(bind.boneId);
+      store.selectCharacterRigSlice(hitSlice);
+      store.clearMeshVertexSelection();
+      const sd = rig?.sliceDepths?.find((x) => x.sliceId === hitSlice);
+      const sf = Math.max(0, sd?.maxDepthFront ?? 0);
+      const sSync = sd?.syncBackWithFront ?? true;
+      const sbRaw = Math.max(0, sd?.maxDepthBack ?? 0);
+      const sb = sSync ? sf : sbRaw;
+      depthAdjustDrag.value = {
+        sliceId: hitSlice,
+        startClientY: e.clientY,
+        startFront: sf,
+        startBack: sb,
+        syncBackWithFront: sSync,
+        liveFront: sf,
+        liveBack: sb,
+      };
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    if (hitBone) {
+      e.preventDefault();
+      e.stopPropagation();
+      store.selectBone(hitBone);
+      const bind = bindings.find((b) => b.boneId === hitBone);
+      store.selectCharacterRigSlice(bind?.sliceId ?? null);
+      store.clearMeshVertexSelection();
+      return;
+    }
+
+    if (hitSlice) {
+      e.preventDefault();
+      e.stopPropagation();
+      const bind = bindings.find((b) => b.sliceId === hitSlice);
+      if (bind) store.selectBone(bind.boneId);
+      store.selectCharacterRigSlice(hitSlice);
+      store.clearMeshVertexSelection();
+      return;
+    }
+
+    store.selectCharacterRigSlice(null);
+    rigSlicePreview.value = null;
+    return;
+  }
+
   const hitSlice = hitTestRigSlice(wx, wy);
   if (hitSlice && e.button === 0) {
     e.preventDefault();
@@ -1097,6 +1191,23 @@ function onPointerDown(e: PointerEvent) {
 function onPointerMove(e: PointerEvent) {
   const el = canvasEl;
   if (!el) return;
+
+  if (depthAdjustDrag.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    const d = depthAdjustDrag.value;
+    const dy = d.startClientY - e.clientY;
+    const sens = 0.085;
+    const nf = Math.max(0, d.startFront + dy * sens);
+    if (d.syncBackWithFront) {
+      depthAdjustDrag.value = { ...d, liveFront: nf, liveBack: nf };
+    } else {
+      const nb = Math.max(0, d.startBack + dy * sens);
+      depthAdjustDrag.value = { ...d, liveFront: nf, liveBack: nb };
+    }
+    if (renderer) rebuildSliceMeshes();
+    return;
+  }
 
   if (boneLengthDrag.value) {
     e.preventDefault();
@@ -1158,6 +1269,31 @@ function onPointerMove(e: PointerEvent) {
 function onPointerUp(e: PointerEvent) {
   const el = canvasEl;
   if (controls) controls.enabled = true;
+
+  if (depthAdjustDrag.value) {
+    const d = depthAdjustDrag.value;
+    depthAdjustDrag.value = null;
+    if (el?.hasPointerCapture(e.pointerId)) {
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+    const changed =
+      Math.abs(d.liveFront - d.startFront) > 1e-5 ||
+      (!d.syncBackWithFront && Math.abs(d.liveBack - d.startBack) > 1e-5);
+    if (changed) {
+      store.dispatch({
+        type: "setCharacterRigSliceDepth",
+        sliceId: d.sliceId,
+        maxDepthFront: d.liveFront,
+        maxDepthBack: d.syncBackWithFront ? d.liveFront : d.liveBack,
+        syncBackWithFront: d.syncBackWithFront,
+      });
+    }
+    return;
+  }
 
   if (boneLengthDrag.value) {
     const d = boneLengthDrag.value;
@@ -1245,7 +1381,7 @@ watch(
   { deep: true },
 );
 
-watch([selectedCharacterRigSliceId, rigSlicePreview], () => {
+watch([selectedCharacterRigSliceId, rigSlicePreview, depthAdjustDrag, characterRigModalStep], () => {
   if (renderer) rebuildSliceMeshes();
 });
 

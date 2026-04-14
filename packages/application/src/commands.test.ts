@@ -134,6 +134,54 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
+  it("reorderCharacterRigSlice moves slice before another or to end", () => {
+    let p = createDefaultEditorProject();
+    p = applyCommand(p, {
+      type: "setCharacterRigSpriteSheet",
+      fileName: "s.png",
+      mimeType: "image/png",
+      dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      pixelWidth: 1,
+      pixelHeight: 1,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "A",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      worldCx: 0,
+      worldCy: 0,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "B",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      worldCx: 0,
+      worldCy: 0,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "C",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      worldCx: 0,
+      worldCy: 0,
+    });
+    const [idA, , idC] = p.characterRig!.slices.map((s) => s.id);
+    p = applyCommand(p, { type: "reorderCharacterRigSlice", sliceId: idC, insertBeforeSliceId: idA });
+    expect(p.characterRig!.slices.map((s) => s.name).join(",")).toBe("C,A,B");
+    p = applyCommand(p, { type: "reorderCharacterRigSlice", sliceId: idA, insertBeforeSliceId: null });
+    expect(p.characterRig!.slices.map((s) => s.name).join(",")).toBe("C,B,A");
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
   it("syncCharacterRigSkinnedMeshes does nothing when bindings are incomplete", () => {
     let p = createDefaultEditorProject();
     const root = p.bones[0]!.id;
@@ -197,7 +245,9 @@ describe("applyCommand", () => {
     p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
     expect(p.skinnedMeshes?.length).toBe(1);
     expect(p.skinnedMeshes![0]!.id.startsWith("rig_slice_")).toBe(true);
-    expect(p.skinnedMeshes![0]!.vertices.length).toBe(4);
+    expect(p.skinnedMeshes![0]!.vertices.length).toBe(8);
+    const depth = p.characterRig!.sliceDepths.find((d) => d.sliceId === sid);
+    expect(depth?.maxDepthFront).toBeGreaterThan(0);
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 

@@ -84,6 +84,10 @@ export {
   rigSliceSkinnedMeshId,
   skinnedMeshesFromCharacterRig,
 } from "./editor/characterRigMesh.js";
+export {
+  DEFAULT_RIG_SLICE_DEPTH_ON_MESH_SYNC,
+  ensureMinimalSliceDepthOnMeshSync,
+} from "./editor/characterRigDepthSeed.js";
 export { meshDisplayNameFromFileName, skinnedMeshFromObjText } from "./editor/objImport.js";
 export {
   editorProjectToRuntime,

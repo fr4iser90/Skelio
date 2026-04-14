@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createDefaultEditorProject,
   createId,
+  editorProjectToRuntime,
   meshDisplayNameFromFileName,
   skinnedMeshFromObjText,
   validateEditorProject,
@@ -58,6 +59,32 @@ describe("applyCommand", () => {
     });
     expect(p.characterRig?.slices[0]?.viewName).toBe("Walk");
     expect(p.characterRig?.slices[0]?.side).toBe("back");
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("setCharacterRigSliceLayerPixels sets embeddedBack; clearCharacterRigSliceEmbeddedBack", () => {
+    const tinyPng =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    let p = createDefaultEditorProject();
+    p = applyCommand(p, {
+      type: "addCharacterRigImportedSprite",
+      name: "a",
+      mimeType: "image/png",
+      dataBase64: tinyPng,
+      pixelWidth: 1,
+      pixelHeight: 1,
+    });
+    const sid = p.characterRig!.slices[0]!.id;
+    p = applyCommand(p, {
+      type: "setCharacterRigSliceLayerPixels",
+      sliceId: sid,
+      layer: "back",
+      image: { mimeType: "image/png", dataBase64: tinyPng, pixelWidth: 1, pixelHeight: 1 },
+    });
+    expect(p.characterRig?.slices[0]?.embeddedBack?.pixelWidth).toBe(1);
+    expect(validateEditorProject(p)).toHaveLength(0);
+    p = applyCommand(p, { type: "clearCharacterRigSliceEmbeddedBack", sliceId: sid });
+    expect(p.characterRig?.slices[0]?.embeddedBack).toBeUndefined();
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
@@ -191,6 +218,28 @@ describe("applyCommand", () => {
     expect(tx.some((k) => Math.abs(k.t - 0.25) < 1e-9 && k.v === 12)).toBe(true);
     expect(ty.some((k) => Math.abs(k.t - 0.25) < 1e-9 && k.v === -7)).toBe(true);
     expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("setBindBone3d merges; tz keyframe validates; runtime export strips tz/tilt/spin", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, {
+      type: "setBindBone3d",
+      boneId: root,
+      partial: { z: 2, depthOffset: 0.5, tilt: 0, spin: 0 },
+    });
+    expect(p.bones[0]!.bindBone3d?.z).toBe(2);
+    expect(p.bones[0]!.bindBone3d?.depthOffset).toBe(0.5);
+    p = applyCommand(p, { type: "addKeyframe", boneId: root, property: "tz", t: 0, v: 3 });
+    p = applyCommand(p, { type: "addKeyframe", boneId: root, property: "tilt", t: 0, v: 0.1 });
+    expect(validateEditorProject(p)).toHaveLength(0);
+    const rt = editorProjectToRuntime(p);
+    const tracks = rt.animations[0]?.tracks ?? [];
+    const allCh = tracks.flatMap((t) => t.channels);
+    const props = allCh.map((c) => c.property as string);
+    expect(props).not.toContain("tz");
+    expect(props).not.toContain("tilt");
+    expect(props).not.toContain("spin");
   });
 
   it("ignores IK commands for unknown chain id", () => {

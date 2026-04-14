@@ -62,20 +62,27 @@ function mapSkinnedMesh(m: SkinnedMesh): RuntimeSkinnedMesh {
   };
 }
 
+/** Runtime 1.1.0 kennt nur 2D-Kanäle; Editor-Kanäle tz/tilt/spin werden gestrippt (ADR 0011). */
+const RUNTIME_CHANNEL_PROPS = new Set(["tx", "ty", "rot", "sx", "sy"]);
+
 function mapClip(clip: AnimationClip, bones: Bone[]): RuntimeExport["animations"][0] {
   const length = clipDurationSeconds(clip, bones);
   return {
     id: clip.id,
     name: clip.name,
     length,
-    tracks: clip.tracks.map((tr) => ({
-      boneId: tr.boneId,
-      channels: tr.channels.map((ch) => ({
-        property: ch.property,
-        interpolation: ch.interpolation,
-        keys: ch.keys.map((k) => ({ t: k.t, v: k.v })),
-      })),
-    })),
+    tracks: clip.tracks
+      .map((tr) => ({
+        boneId: tr.boneId,
+        channels: tr.channels
+          .filter((ch) => RUNTIME_CHANNEL_PROPS.has(ch.property))
+          .map((ch) => ({
+            property: ch.property as "tx" | "ty" | "rot" | "sx" | "sy",
+            interpolation: ch.interpolation,
+            keys: ch.keys.map((k) => ({ t: k.t, v: k.v })),
+          })),
+      }))
+      .filter((tr) => tr.channels.length > 0),
   };
 }
 

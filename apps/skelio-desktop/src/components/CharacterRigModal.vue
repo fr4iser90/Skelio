@@ -12,7 +12,8 @@ import {
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
-import ViewportPanel from "./ViewportPanel.vue";
+import CharacterRigThreeViewport from "./CharacterRigThreeViewport.vue";
+import SpriteSliceEditPanel from "./SpriteSliceEditPanel.vue";
 import DepthTextureEditorModal from "./DepthTextureEditorModal.vue";
 
 const store = useEditorStore();
@@ -24,6 +25,7 @@ const {
   selectedBone,
   sheetSliceModalOpen,
   placeNewBonesAtParentTip,
+  rigCameraViewKind,
 } = storeToRefs(store);
 
 const step = ref(0);
@@ -37,6 +39,8 @@ const partEditSide = ref<"front" | "back">("front");
 const depthTextureModalOpen = ref(false);
 const depthTextureModalSliceId = ref<string | null>(null);
 const depthTextureModalSide = ref<"front" | "back">("front");
+/** Kurz-Feedback nach „Meshes aus Rig erzeugen“. */
+const meshSyncFeedback = ref("");
 
 const partModalSlice = computed(() => {
   const id = spriteModalSliceId.value;
@@ -71,8 +75,8 @@ const steps = [
   },
   {
     id: "depth",
-    title: "3D / Meshing",
-    hint: "Tiefe pro Teil, Meshes erzeugen — nur nach vollständigem Binden (alle Teile mit Pixeln → Knochen).",
+    title: "3D Settings / Meshing",
+    hint: "Tiefe pro Teil (3D Settings), Meshes erzeugen — nur nach vollständigem Binden (alle Teile mit Pixeln → Knochen).",
   },
   { id: "preview", title: "Vorschau", hint: "Überblick — nur nach vollständigem Binden erreichbar." },
 ] as const;
@@ -612,12 +616,41 @@ async function onSheetFiles(e: Event) {
           <div class="main-col">
             <div class="rig-viewport-cap" role="status">
               <span class="rig-camera-label">Viewport</span>
+              <div class="rig-camera-modes" aria-label="Kamera-Modus (Smack-ähnlich)">
+                <button
+                  type="button"
+                  class="cam-btn"
+                  :class="{ active: rigCameraViewKind === '2d' }"
+                  title="Orthografisch von vorne"
+                  @click="store.setRigCameraViewKind('2d')"
+                >
+                  2D
+                </button>
+                <button
+                  type="button"
+                  class="cam-btn"
+                  :class="{ active: rigCameraViewKind === '2.5d' }"
+                  title="Perspektive, eingeschränkte Neigung"
+                  @click="store.setRigCameraViewKind('2.5d')"
+                >
+                  2.5D
+                </button>
+                <button
+                  type="button"
+                  class="cam-btn"
+                  :class="{ active: rigCameraViewKind === '3d' }"
+                  title="Volle Orbit-Kamera, Tiefe als Extrusion"
+                  @click="store.setRigCameraViewKind('3d')"
+                >
+                  3D
+                </button>
+              </div>
               <span class="muted rig-camera-cap"
-                >2D · Canvas (wie Haupteditor) · Sprite-Sheet-Zuschnitt wie zuvor korrekt</span
+                >WebGL · Teile/Knochen wie Hauptlogik · nach Meshing Tiefe im 3D-Modus sichtbar</span
               >
             </div>
             <div class="viewport-wrap">
-              <ViewportPanel />
+              <CharacterRigThreeViewport />
               <div class="viewport-foot">
                 <label class="rig-name-label"
                   >Name:
@@ -637,12 +670,10 @@ async function onSheetFiles(e: Event) {
                 <p class="muted">
                   Links neue <strong>Teile</strong> anlegen, rechts <strong>Sprite-Sheets</strong> laden, Sheet
                   anklicken, im Modal Bereich wählen (Klick oder Rahmen). Gewählten Teil zuvor in der linken Liste
-                  anklicken. Teile im Viewport ziehen.
+                  anklicken. <strong>Move:</strong> Teil im Viewport ziehen. <strong>Brush / Fill / Eraser:</strong> unten
+                  — Front- oder Back-Layer bearbeiten; Operationen kopieren/spiegeln wie in Smack.
                 </p>
-                <p class="muted future-note">
-                  Der Bereich unter dem Viewport ist für spätere Werkzeuge gedacht — z. B. einen Pixel-Editor pro Teil
-                  (Retusche, Masken) oder ähnliche Schritte, sobald das ansteht.
-                </p>
+                <SpriteSliceEditPanel />
               </div>
 
               <div v-show="step === 1" class="panel">
@@ -653,7 +684,8 @@ async function onSheetFiles(e: Event) {
                 <p class="muted roadmap-hint">
                   <strong>Length:</strong> Griff oder <strong>Shift+Gelenk</strong> ziehen, <strong>Esc</strong> =
                   Vorschau abbrechen, loslassen = speichern.
-                  <strong>Kette:</strong> an Spitze / folgen (rechts). Viewport: <strong>2D-Canvas</strong> (Pan/Zoom/Dreh).
+                  <strong>Kette:</strong> an Spitze / folgen (rechts). Viewport: <strong>WebGL</strong> (oben 2D / 2.5D / 3D
+                  wählen).
                 </p>
               </div>
 
@@ -661,6 +693,11 @@ async function onSheetFiles(e: Event) {
                 <p v-if="!rigBindingsComplete && slices.length" class="bind-gate-warn" role="status">
                   Sobald <strong>jedes</strong> Teil mit Pixeln einen Knochen hat, werden <strong>3D / Meshing</strong> und
                   <strong>Vorschau</strong> freigeschaltet.
+                </p>
+                <p v-if="slices.length" class="muted bind-hint">
+                  Im Viewport: zuerst <strong>Knochen</strong> anklicken (liegt über den großen Sprite-Flächen) · Teil
+                  anklicken wählt die Zeile · Zuordnung hier im Dropdown — Teile sind in diesem Schritt
+                  <strong>nicht</strong> zum Verschieben.
                 </p>
                 <p v-if="!slices.length" class="muted">Zuerst links Sprites (+ Neu) anlegen und ggf. Pixel aus Sheets zuweisen.</p>
                 <table v-else class="bind-table">
@@ -689,13 +726,12 @@ async function onSheetFiles(e: Event) {
 
               <div v-show="step === 3" class="panel">
                 <div class="meshing-block">
-                  <h4 class="meshing-title">Meshing</h4>
+                  <h4 class="meshing-title">3D Settings · Meshing</h4>
                   <p class="muted meshing-copy">
-                    Wie in Smack: zuerst <strong>Binden</strong> (Teil → Knochen), hier <strong>Tiefe</strong> einstellen,
-                    dann <strong>Meshes erzeugen</strong>. Pro gebundenem Teil entsteht ein Quad (bei Tiefe &gt; 0 zwei
-                    Schichten im 2D-Welt-Raum für Skinning). Tiefe steuert später die extrudierte Darstellung; im Canvas-Viewport
-                    siehst du die <strong>2D-Projektion</strong>. Blaues Mesh = Skinning-Vorschau; Runtime-Export enthält
-                    <code>skins</code>.
+                    Wie in Smack: zuerst <strong>Binden</strong> (Teil → Knochen), hier <strong>3D Settings</strong> (Tiefe,
+                    Depth-Texturen), dann <strong>Meshes erzeugen</strong>. Pro gebundenem Teil entsteht ein Quad (bei
+                    Tiefe &gt; 0 Extrusion). Nach dem Button wechselt die Kamera auf <strong>3D</strong>, damit du sofort
+                    Feedback siehst. Blaues Mesh = Skinning-Vorschau; Runtime-Export enthält <code>skins</code>.
                   </p>
                   <button
                     type="button"
@@ -705,6 +741,7 @@ async function onSheetFiles(e: Event) {
                   >
                     Meshes aus Rig erzeugen / aktualisieren
                   </button>
+                  <p v-if="meshSyncFeedback" class="mesh-sync-feedback" role="status">{{ meshSyncFeedback }}</p>
                   <p class="muted meshing-count">
                     Rig-Meshes im Projekt: <strong>{{ rigGeneratedMeshCount }}</strong>
                     <span v-if="rigGeneratedMeshCount > 0">(IDs <code>rig_slice_…</code>)</span>
@@ -1402,6 +1439,30 @@ async function onSheetFiles(e: Event) {
   letter-spacing: 0.06em;
   color: #9ca3af;
 }
+.rig-camera-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+.cam-btn {
+  padding: 0.22rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid #4b5563;
+  background: #27272f;
+  color: #d1d5db;
+  cursor: pointer;
+}
+.cam-btn:hover {
+  background: #32323c;
+}
+.cam-btn.active {
+  background: #2563eb;
+  border-color: #3b82f6;
+  color: #fff;
+}
 .rig-camera-cap {
   font-size: 0.65rem;
   flex: 1 1 140px;
@@ -1676,6 +1737,16 @@ async function onSheetFiles(e: Event) {
 }
 .meshing-btn {
   margin-bottom: 0.5rem;
+}
+.mesh-sync-feedback {
+  margin: 0 0 0.5rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #a7f3d0;
+  background: rgba(6, 78, 59, 0.35);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 6px;
 }
 .meshing-count {
   margin: 0;

@@ -30,6 +30,13 @@ export function normalizeEditorProjectInPlace(project: EditorProject): void {
     if (b.followParentTip && b.parentId === null) {
       delete b.followParentTip;
     }
+    if (b.bindBone3d) {
+      const d = b.bindBone3d;
+      const ok = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+      if (!ok(d.z) || !ok(d.depthOffset) || !ok(d.tilt) || !ok(d.spin)) {
+        delete b.bindBone3d;
+      }
+    }
   }
   const rig = project.characterRig;
   if (!rig) return;
@@ -62,6 +69,19 @@ export function normalizeEditorProjectInPlace(project: EditorProject): void {
     if (typeof s.worldCy !== "number" || !Number.isFinite(s.worldCy)) s.worldCy = i * 14;
     if (typeof s.viewName !== "string" || s.viewName.length === 0) s.viewName = "Default";
     if (s.side !== "front" && s.side !== "back") s.side = "front";
+    const eb = s.embeddedBack;
+    if (eb) {
+      const w = s.width;
+      const h = s.height;
+      const bad =
+        typeof eb.dataBase64 !== "string" ||
+        eb.dataBase64.length === 0 ||
+        !(eb.pixelWidth > 0) ||
+        !(eb.pixelHeight > 0) ||
+        eb.pixelWidth !== w ||
+        eb.pixelHeight !== h;
+      if (bad) delete s.embeddedBack;
+    }
     i++;
   }
 

@@ -12,6 +12,7 @@ import {
   worldBindOrigins,
   worldPoseBoneMatrices,
   worldPoseOriginsWithIk,
+  RIG_SLICE_MESH_ID_PREFIX,
   type CharacterRigSpriteSlice,
   type SkinInfluence,
   type SkinnedMesh,
@@ -78,6 +79,11 @@ const rigModalBoneStep = computed(
   () => characterRigModalOpen.value && characterRigModalStep.value === 1,
 );
 
+/** Nach „Meshes aus Rig“: Teile folgen dem Skinning — keine freien Slice-Züge mehr in der Hauptansicht. */
+const mainViewSliceDragEnabled = computed(
+  () => !(project.value.skinnedMeshes ?? []).some((m) => m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)),
+);
+
 const viewportHintText = computed(() => {
   if (weightBrushEnabled.value) {
     return "Pinsel: gewählter Knochen · Ziehen im Viewport (ein Undo pro Strich)";
@@ -95,6 +101,9 @@ const viewportHintText = computed(() => {
     return "Knochen: Spitze/Shift+Gelenk ziehen (Richtung + Länge) · Loslassen = übernehmen · Esc = abbrechen · Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
   }
   if ((project.value.characterRig?.slices?.length ?? 0) > 0) {
+    if (!mainViewSliceDragEnabled.value) {
+      return "Rig-Meshes aktiv: Knochen ziehen (Keys) — keine freien Slices. Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
+    }
     return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Slices mit Links ziehen";
   }
   return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Y unten · Vertex für Gewichte";
@@ -801,7 +810,8 @@ function onCanvasPointerDown(e: PointerEvent) {
   }
 
   if (e.button === 0 && !characterRigModalOpen.value) {
-    const hitPose = hitTestBoneAtPose(wx, wy, 20);
+    const boneHitR = mainViewSliceDragEnabled.value ? 20 : 34;
+    const hitPose = hitTestBoneAtPose(wx, wy, boneHitR);
     if (hitPose) {
       e.preventDefault();
       store.selectBone(hitPose);
@@ -816,7 +826,7 @@ function onCanvasPointerDown(e: PointerEvent) {
     }
   }
 
-  const hitSlice = hitTestRigSlice(wx, wy);
+  const hitSlice = mainViewSliceDragEnabled.value ? hitTestRigSlice(wx, wy) : null;
   if (hitSlice) {
     e.preventDefault();
     const slices = project.value.characterRig?.slices;

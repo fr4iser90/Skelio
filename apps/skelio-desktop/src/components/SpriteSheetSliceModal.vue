@@ -19,6 +19,10 @@ const sheet = computed(() =>
   project.value.characterRig?.spriteSheets?.find((s) => s.id === sheetSliceModalSheetId.value),
 );
 
+const activeSlice = computed(() =>
+  project.value.characterRig?.slices?.find((s) => s.id === selectedCharacterRigSliceId.value) ?? null,
+);
+
 watch([sheetSliceModalOpen, sheet], async () => {
   sheetImage.value = null;
   previewRect.value = null;
@@ -26,6 +30,7 @@ watch([sheetSliceModalOpen, sheet], async () => {
   dragMoved.value = false;
   suppressNextClick.value = false;
   if (!sheetSliceModalOpen.value || !sheet.value) return;
+  mode.value = "click";
   const sh = sheet.value;
   const img = new Image();
   await new Promise<void>((resolve, reject) => {
@@ -176,6 +181,13 @@ function accept() {
     alert("Zuerst einen Bereich wählen (Klick = zusammenhängend, oder Rahmen ziehen).");
     return;
   }
+  const sl = project.value.characterRig?.slices?.find((s) => s.id === sid);
+  if (sl?.embedded?.dataBase64) {
+    const okReplace = window.confirm(
+      `„${sl.name}“ hat bereits ein eingebettetes Bild (z. B. Import). Eine Sheet-Zuweisung ersetzt es durch den Ausschnitt (${r.w}×${r.h} px). Fortfahren?`,
+    );
+    if (!okReplace) return;
+  }
   const ok = store.dispatch({
     type: "assignCharacterRigSliceFromSheetRegion",
     sliceId: sid,
@@ -210,7 +222,11 @@ function close() {
           <button type="button" class="close-x" title="Schließen" @click="close">×</button>
         </header>
         <p class="sub">
-          Gewählter Sprite links: <strong>{{ selectedCharacterRigSliceId ? "ja" : "nein — Zeile anklicken" }}</strong>
+          <strong>Aktiver Slot:</strong>
+          {{ activeSlice ? activeSlice.name : "—" }}
+          <span v-if="activeSlice?.embedded?.dataBase64" class="embed-warn"
+            >(hat eingebettetes Bild — Sheet ersetzt es)</span
+          >
         </p>
         <div class="modes">
           <label
@@ -229,6 +245,9 @@ function close() {
             @mouseleave="onCanvasMouseUp"
           />
         </div>
+        <p v-if="previewRect && previewRect.w > 0" class="rect-info">
+          Ausschnitt: {{ previewRect.x }}, {{ previewRect.y }} · {{ previewRect.w }}×{{ previewRect.h }} px
+        </p>
         <footer class="foot">
           <button type="button" class="ghost" @click="close">Abbrechen</button>
           <button type="button" class="primary" @click="accept">Übernehmen</button>
@@ -283,6 +302,16 @@ function close() {
   padding: 0.4rem 0.75rem;
   font-size: 0.82rem;
   color: #9ca3af;
+}
+.embed-warn {
+  color: #fcd34d;
+  font-weight: 500;
+}
+.rect-info {
+  margin: 0;
+  padding: 0.25rem 0.75rem 0.5rem;
+  font-size: 0.78rem;
+  color: #a5b4fc;
 }
 .modes {
   display: flex;

@@ -8,6 +8,17 @@ export type Transform2D = {
   sy: number;
 };
 
+/**
+ * Optional 3D bind (editor; see docs/adr/0011-editor-bone-3d-bind-pose.md).
+ * `z` + `depthOffset` sum to the local Z translation before rotations.
+ */
+export type BoneBind3d = {
+  z: number;
+  depthOffset: number;
+  tilt: number;
+  spin: number;
+};
+
 export type Bone = {
   id: string;
   parentId: string | null;
@@ -17,11 +28,13 @@ export type Bone = {
   length: number;
   /** Editor-only: keep bind X/Y at parent tip when parent bind/length changes. */
   followParentTip?: boolean;
+  /** Editor-only: Z / tilt / spin (radians). Omitted = all zero. */
+  bindBone3d?: BoneBind3d;
 };
 
 export type Keyframe = { t: number; v: number };
 
-export type ChannelProperty = "tx" | "ty" | "rot";
+export type ChannelProperty = "tx" | "ty" | "tz" | "rot" | "tilt" | "spin";
 
 export type Channel = {
   property: ChannelProperty;
@@ -115,7 +128,10 @@ export type CharacterRigSpriteSlice = {
   side?: "front" | "back";
   /** Which sheet the rect refers to (when not embedded). */
   sheetId?: string;
+  /** Inline pixels for this part (front). Mutually exclusive with `sheetId` when set. */
   embedded?: CharacterRigSliceEmbeddedImage;
+  /** Optional back-side pixels (same dimensions as slice width/height). Editor / 3D back face. */
+  embeddedBack?: CharacterRigSliceEmbeddedImage;
 };
 
 /** Maps a slice to a bone (Smack-style bind step). */

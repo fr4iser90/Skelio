@@ -1,6 +1,8 @@
 import { normalizeReferenceImageMime } from "./referenceImage.js";
 import { validateSkinnedMesh } from "./skinning.js";
-import type { EditorProject } from "./types.js";
+import type { ChannelProperty, EditorProject } from "./types.js";
+
+const VALID_EDITOR_CHANNEL_PROPERTIES: ChannelProperty[] = ["tx", "ty", "tz", "rot", "tilt", "spin"];
 
 export type ValidationIssue = { path: string; message: string };
 
@@ -32,6 +34,15 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
         path: `bones.${b.id}.followParentTip`,
         message: "followParentTip requires a parent bone",
       });
+    }
+    if (b.bindBone3d) {
+      const d = b.bindBone3d;
+      for (const key of ["z", "depthOffset", "tilt", "spin"] as const) {
+        const v = d[key];
+        if (typeof v !== "number" || !Number.isFinite(v)) {
+          issues.push({ path: `bones.${b.id}.bindBone3d.${key}`, message: "must be a finite number" });
+        }
+      }
     }
   }
 
@@ -103,6 +114,12 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
         issues.push({ path: `clips.${clip.id}.tracks`, message: `unknown boneId in track: ${tr.boneId}` });
       }
       for (const ch of tr.channels) {
+        if (!VALID_EDITOR_CHANNEL_PROPERTIES.includes(ch.property)) {
+          issues.push({
+            path: `clips.${clip.id}.tracks`,
+            message: `unknown channel property: ${ch.property}`,
+          });
+        }
         for (let i = 1; i < ch.keys.length; i++) {
           if (ch.keys[i]!.t <= ch.keys[i - 1]!.t) {
             issues.push({
@@ -192,6 +209,34 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
           issues.push({
             path: `characterRig.slices.${s.id}`,
             message: "slice size must match embedded image dimensions",
+          });
+        }
+      }
+      if (s.embeddedBack) {
+        const em = s.embeddedBack;
+        const norm = normalizeReferenceImageMime(em.mimeType);
+        if (!norm) {
+          issues.push({
+            path: `characterRig.slices.${s.id}.embeddedBack`,
+            message: "unsupported embeddedBack image type (use PNG, JPEG, or WebP)",
+          });
+        }
+        if (typeof em.dataBase64 !== "string" || em.dataBase64.length === 0) {
+          issues.push({
+            path: `characterRig.slices.${s.id}.embeddedBack`,
+            message: "embeddedBack image payload is empty",
+          });
+        }
+        if (!(em.pixelWidth > 0) || !(em.pixelHeight > 0)) {
+          issues.push({
+            path: `characterRig.slices.${s.id}.embeddedBack`,
+            message: "embeddedBack dimensions invalid",
+          });
+        }
+        if (em.pixelWidth !== s.width || em.pixelHeight !== s.height) {
+          issues.push({
+            path: `characterRig.slices.${s.id}`,
+            message: "slice size must match embeddedBack image dimensions",
           });
         }
       }

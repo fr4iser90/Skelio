@@ -25,5 +25,6 @@ Siehe [0000-template.md](0000-template.md).
 | [0008](0008-runtime-json-camelcase.md) | Runtime-JSON: camelCase | angenommen |
 | [0009](0009-mesh-skinning-roadmap.md) | Mesh-Skinning: Zielbild & Integrationspfad | angenommen |
 | [0010](0010-inverse-kinematics-roadmap.md) | Inverse Kinematics (IK): Zielbild & Integrationspfad | angenommen |
+| [0011](0011-editor-bone-3d-bind-pose.md) | Editor: Knochen 3D (Z, Tilt, Spin) — Smack-näher | angenommen |
 
 Neue ADRs: Kopie von `0000-template.md`, Nummer +1, PR verlinken.

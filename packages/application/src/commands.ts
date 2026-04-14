@@ -9,8 +9,10 @@ import {
   skinnedMeshesFromCharacterRig,
   validateSkinnedMesh,
   type Bone,
+  type BoneBind3d,
   type ChannelProperty,
   type CharacterRigConfig,
+  type CharacterRigSliceEmbeddedImage,
   type EditorProject,
   type Keyframe,
   type SkinInfluence,
@@ -22,6 +24,7 @@ export type Command =
   | { type: "removeBone"; boneId: string }
   | { type: "renameBone"; boneId: string; name: string }
   | { type: "setBindPose"; boneId: string; partial: Partial<{ x: number; y: number; rotation: number; sx: number; sy: number }> }
+  | { type: "setBindBone3d"; boneId: string; partial: Partial<BoneBind3d> }
   | { type: "setBoneLength"; boneId: string; length: number }
   | { type: "setBoneLengthAndBindRotation"; boneId: string; length: number; rotation: number }
   | { type: "snapBoneToParentTip"; boneId: string }
@@ -122,6 +125,17 @@ export type Command =
   | { type: "clearCharacterRigSliceDepthTexture"; sliceId: string; side: "front" | "back" }
   /** Replaces auto-generated rig meshes (`rig_slice_*`) from bound slices + depths; keeps other meshes. */
   | { type: "syncCharacterRigSkinnedMeshes" }
+  /** Inline pixels for front or back; dimensions must match slice width/height. */
+  | {
+      type: "setCharacterRigSliceLayerPixels";
+      sliceId: string;
+      layer: "front" | "back";
+      image: CharacterRigSliceEmbeddedImage;
+    }
+  /** Remove optional back-side pixels. */
+  | { type: "clearCharacterRigSliceEmbeddedBack"; sliceId: string }
+  /** Bake sheet rect into embedded front (drops sheet reference). */
+  | { type: "promoteCharacterRigSliceToEmbedded"; sliceId: string; image: CharacterRigSliceEmbeddedImage }
   /** TX/TY keys at `t` in one step (single undo) — main-view bone drag animation. */
   | { type: "setBoneTranslationKeysAtTime"; boneId: string; t: number; x: number; y: number };
 
@@ -597,6 +611,55 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     return p;
   }
 
+  if (cmd.type === "setCharacterRigSliceLayerPixels") {
+    const rig = ensureCharacterRig(p);
+    const s = rig.slices.find((x) => x.id === cmd.sliceId);
+    if (!s) return project;
+    if (!(s.width > 0) || !(s.height > 0)) return project;
+    const img = cmd.image;
+    if (img.pixelWidth !== s.width || img.pixelHeight !== s.height) return project;
+    const norm = normalizeReferenceImageMime(img.mimeType);
+    if (!norm || typeof img.dataBase64 !== "string" || img.dataBase64.length === 0) return project;
+    const payload: CharacterRigSliceEmbeddedImage = { ...img, mimeType: norm };
+    if (cmd.layer === "front") {
+      s.embedded = payload;
+      if (s.sheetId) {
+        delete s.sheetId;
+        s.x = 0;
+        s.y = 0;
+      }
+    } else {
+      s.embeddedBack = payload;
+    }
+    return p;
+  }
+
+  if (cmd.type === "clearCharacterRigSliceEmbeddedBack") {
+    const rig = p.characterRig;
+    if (!rig) return project;
+    const s = rig.slices.find((x) => x.id === cmd.sliceId);
+    if (!s) return project;
+    delete s.embeddedBack;
+    return p;
+  }
+
+  if (cmd.type === "promoteCharacterRigSliceToEmbedded") {
+    const rig = ensureCharacterRig(p);
+    const s = rig.slices.find((x) => x.id === cmd.sliceId);
+    if (!s) return project;
+    if (s.embedded) return project;
+    if (!s.sheetId) return project;
+    const img = cmd.image;
+    if (img.pixelWidth !== s.width || img.pixelHeight !== s.height) return project;
+    const norm = normalizeReferenceImageMime(img.mimeType);
+    if (!norm || typeof img.dataBase64 !== "string" || img.dataBase64.length === 0) return project;
+    s.embedded = { ...img, mimeType: norm };
+    delete s.sheetId;
+    s.x = 0;
+    s.y = 0;
+    return p;
+  }
+
   if (cmd.type === "syncCharacterRigSkinnedMeshes") {
     if (!characterRigBindingsComplete(p)) return project;
     const boneIds = new Set(p.bones.map((b) => b.id));
@@ -659,6 +722,14 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       Object.assign(b.bindPose, cmd.partial);
       syncDirectChildrenFollowParentTip(p, b.id);
     }
+    return p;
+  }
+
+  if (cmd.type === "setBindBone3d") {
+    const b = p.bones.find((x) => x.id === cmd.boneId);
+    if (!b) return p;
+    const base: BoneBind3d = { z: 0, depthOffset: 0, tilt: 0, spin: 0 };
+    b.bindBone3d = { ...base, ...b.bindBone3d, ...cmd.partial };
     return p;
   }
 

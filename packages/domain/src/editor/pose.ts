@@ -1,62 +1,14 @@
-import { apply, fromTransform, invert, multiply, type Mat2D } from "./mat2d.js";
+import { apply, invert, type Mat2D } from "./mat2d.js";
+import {
+  worldBindBoneMatrices2D,
+  worldBindBoneMatrices2DOverridingBindPose,
+  worldPoseBoneMatrices2D,
+} from "./bone3dPose.js";
 import type { AnimationClip, Bone, EditorProject, Transform2D } from "./types.js";
 
-function sampleChannel(
-  keys: { t: number; v: number }[],
-  t: number,
-  fallback: number,
-): number {
-  if (keys.length === 0) return fallback;
-  if (t <= keys[0]!.t) return keys[0]!.v;
-  if (t >= keys[keys.length - 1]!.t) return keys[keys.length - 1]!.v;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const k0 = keys[i]!;
-    const k1 = keys[i + 1]!;
-    if (t >= k0.t && t <= k1.t) {
-      const u = (t - k0.t) / (k1.t - k0.t || 1e-9);
-      return k0.v + u * (k1.v - k0.v);
-    }
-  }
-  return fallback;
-}
-
-function localTransformAtTime(bone: Bone, clip: AnimationClip | undefined, time: number): Transform2D {
-  const tr = clip?.tracks.find((x) => x.boneId === bone.id);
-  const bp = bone.bindPose;
-  if (!tr) return { ...bp };
-  let x = bp.x;
-  let y = bp.y;
-  let rot = bp.rotation;
-  for (const ch of tr.channels) {
-    if (ch.property === "tx") x = sampleChannel(ch.keys, time, bp.x);
-    if (ch.property === "ty") y = sampleChannel(ch.keys, time, bp.y);
-    if (ch.property === "rot") rot = sampleChannel(ch.keys, time, bp.rotation);
-  }
-  return { x, y, rotation: rot, sx: bp.sx, sy: bp.sy };
-}
-
-function worldMatricesFromLocals(project: EditorProject, getLocal: (b: Bone) => Transform2D): Map<string, Mat2D> {
-  const byId = new Map(project.bones.map((b) => [b.id, b] as const));
-  const world = new Map<string, Mat2D>();
-
-  const visit = (id: string, parentWorld: Mat2D | null) => {
-    const b = byId.get(id)!;
-    const local = fromTransform(getLocal(b));
-    const w = parentWorld === null ? local : multiply(parentWorld, local);
-    world.set(id, w);
-    for (const c of project.bones) {
-      if (c.parentId === id) visit(c.id, w);
-    }
-  };
-
-  const roots = project.bones.filter((b) => b.parentId === null);
-  for (const r of roots) visit(r.id, null);
-  return world;
-}
-
-/** World bone matrices in bind pose (no animation). */
+/** World bone matrices in bind pose (no animation). 2D-Projektion aus 4×4-Kette (ADR 0011). */
 export function worldBindBoneMatrices(project: EditorProject): Map<string, Mat2D> {
-  return worldMatricesFromLocals(project, (b) => b.bindPose);
+  return worldBindBoneMatrices2D(project);
 }
 
 /** Like {@link worldBindBoneMatrices}, but one bone uses `bindPoseOverride` for FK (descendants follow). */
@@ -65,13 +17,12 @@ export function worldBindBoneMatricesOverridingBindPose(
   boneId: string,
   bindPoseOverride: Transform2D,
 ): Map<string, Mat2D> {
-  return worldMatricesFromLocals(project, (b) => (b.id === boneId ? bindPoseOverride : b.bindPose));
+  return worldBindBoneMatrices2DOverridingBindPose(project, boneId, bindPoseOverride);
 }
 
 /** World bone matrices at animation time `time` (active clip). */
 export function worldPoseBoneMatrices(project: EditorProject, time: number): Map<string, Mat2D> {
-  const clip = project.clips.find((c) => c.id === project.activeClipId);
-  return worldMatricesFromLocals(project, (b) => localTransformAtTime(b, clip, time));
+  return worldPoseBoneMatrices2D(project, time);
 }
 
 /** World bind-pose origins (bone tail at origin of child space = 0,0 in local). */

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { normalizeInfluenceRow } from "@skelio/domain";
+import { getLocalBoneState, normalizeInfluenceRow } from "@skelio/domain";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useEditorStore } from "../stores/editor.js";
@@ -47,6 +47,36 @@ function patchBind(field: "x" | "y" | "rotation" | "sx" | "sy", ev: Event) {
   const n = Number((ev.target as HTMLInputElement).value);
   if (Number.isNaN(n)) return;
   store.dispatch({ type: "setBindPose", boneId: id, partial: { [field]: n } });
+}
+
+function patchBind3d(field: "z" | "depthOffset" | "tilt" | "spin", ev: Event) {
+  const id = selectedBone.value?.id;
+  if (!id) return;
+  const n = Number((ev.target as HTMLInputElement).value);
+  if (Number.isNaN(n)) return;
+  store.dispatch({ type: "setBindBone3d", boneId: id, partial: { [field]: n } });
+}
+
+function bind3d(field: "z" | "depthOffset" | "tilt" | "spin"): number {
+  const b = selectedBone.value;
+  if (!b?.bindBone3d) return 0;
+  return b.bindBone3d[field];
+}
+
+/** Keyframe am Playhead: aktuellen Wert (inkl. Interpolation) schreiben. */
+function keyframeChannel(prop: "tz" | "tilt" | "spin") {
+  const b = selectedBone.value;
+  if (!b) return;
+  const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
+  const s = getLocalBoneState(b, clip, currentTime.value);
+  const v = prop === "tz" ? s.z : prop === "tilt" ? s.tilt : s.spin;
+  store.dispatch({
+    type: "addKeyframe",
+    boneId: b.id,
+    property: prop,
+    t: currentTime.value,
+    v,
+  });
 }
 
 function patchBoneLength(ev: Event) {
@@ -175,6 +205,22 @@ function removeIkChain(chainId: string) {
       <label class="lbl">Length <input class="inp sm" type="number" step="0.5" min="0" :value="selectedBone.length" @change="patchBoneLength($event)" /></label>
       <label class="lbl">Scale X <input class="inp sm" type="number" step="0.05" :value="selectedBone.bindPose.sx" @change="patchBind('sx', $event)" /></label>
       <label class="lbl">Scale Y <input class="inp sm" type="number" step="0.05" :value="selectedBone.bindPose.sy" @change="patchBind('sy', $event)" /></label>
+
+      <h4 class="sub-title">3D (Editor, Bind)</h4>
+      <p class="muted small">
+        Z / Depth offset / Tilt / Spin (Bogenmaß). Siehe docs/adr/0011-editor-bone-3d-bind-pose.md. Runtime-Export 1.1.0
+        strippt tz/tilt/spin noch.
+      </p>
+      <label class="lbl">Bind Z <input class="inp sm" type="number" step="0.1" :value="bind3d('z')" @change="patchBind3d('z', $event)" /></label>
+      <label class="lbl">Depth offset <input class="inp sm" type="number" step="0.1" :value="bind3d('depthOffset')" @change="patchBind3d('depthOffset', $event)" /></label>
+      <label class="lbl">Tilt (rad) <input class="inp sm" type="number" step="0.01" :value="bind3d('tilt')" @change="patchBind3d('tilt', $event)" /></label>
+      <label class="lbl">Spin (rad) <input class="inp sm" type="number" step="0.01" :value="bind3d('spin')" @change="patchBind3d('spin', $event)" /></label>
+      <div class="btnrow">
+        <button type="button" class="mini" title="Keyframe tz an aktueller Zeit" @click="keyframeChannel('tz')">Key TZ</button>
+        <button type="button" class="mini" title="Keyframe tilt an aktueller Zeit" @click="keyframeChannel('tilt')">Key tilt</button>
+        <button type="button" class="mini" title="Keyframe spin an aktueller Zeit" @click="keyframeChannel('spin')">Key spin</button>
+      </div>
+
       <label class="rowchk">
         <input
           type="checkbox"
@@ -257,6 +303,12 @@ function removeIkChain(chainId: string) {
 <style scoped>
 .panel {
   padding: 0.55rem 0.65rem 0.75rem;
+}
+.sub-title {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #9ca3af;
 }
 .panel-title {
   margin: 0.85rem 0 0.4rem;

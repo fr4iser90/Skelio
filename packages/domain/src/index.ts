@@ -6,6 +6,7 @@ export {
 export type {
   AnimationClip,
   Bone,
+  BoneBind3d,
   Channel,
   ChannelProperty,
   CharacterRigBinding,
@@ -60,6 +61,15 @@ export {
   boneLengthAndBindRotationFromWorldTip,
   childBindTranslationAtParentTip,
 } from "./editor/pose.js";
+export {
+  getBindLocalBoneState,
+  getLocalBoneState,
+  localMat4FromState,
+  mat4ToMat2dProjection,
+  worldBindBoneMatrices4,
+  worldPoseBoneMatrices4,
+} from "./editor/bone3dPose.js";
+export { mat4Identity, mat4Multiply, mat4Translate, mat4RotateZ, mat4RotateX, mat4RotateY } from "./editor/mat4.js";
 export {
   fabrik2dThreeJoints,
   segmentLengthsFromBindOrigins,

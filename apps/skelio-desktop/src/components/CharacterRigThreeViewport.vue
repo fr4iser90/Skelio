@@ -14,6 +14,8 @@ import {
   worldPoseBoneMatrices,
   worldPoseOriginsWithIk,
   BONE_LENGTH_HIT_MIN_LOCAL,
+  type CharacterRigConfig,
+  type CharacterRigSpriteSheetEntry,
   type CharacterRigSpriteSlice,
   type SkinInfluence,
   type SkinnedMesh,
@@ -45,6 +47,9 @@ const {
   pendingBonePlacementId,
   rigCameraViewKind,
 } = storeToRefs(store);
+
+/** Schritt „Binden“: Knochen zuerst treffen, Slices nur auswählen (kein Ziehen — Zuordnung in der Tabelle). */
+const rigModalBindStep = computed(() => characterRigModalStep.value === 2);
 
 const containerRef = ref<HTMLDivElement | null>(null);
 const raycaster = new THREE.Raycaster();
@@ -107,6 +112,9 @@ const depthDataCache = new Map<DepthKey, { w: number; h: number; data: Uint8Clam
 const depthLoadPromises = new Map<DepthKey, Promise<void>>();
 
 const viewportHintText = computed(() => {
+  if (rigModalBindStep.value) {
+    return "Binden: Knochen anklicken (Hierarchie) · Teil anklicken = Zeile in der Tabelle · keine Teile ziehen — Zuordnung im Dropdown „Knochen“.";
+  }
   if (weightBrushEnabled.value) {
     return "Pinsel: gewählter Knochen · Ziehen (ein Undo pro Strich)";
   }
@@ -431,11 +439,136 @@ function getOrLoadTexture(key: string, dataUrl: string): THREE.Texture {
   let t = textureCache.get(key);
   if (t) return t;
   const loader = new THREE.TextureLoader();
-  t = loader.load(dataUrl);
+  t = loader.load(dataUrl, () => {
+    // Basis-Sheet lädt asynchron: erst danach sind drawImage/Canvas-Crop und natürliche Maße korrekt.
+    if (key.startsWith("sh:")) {
+      const sheetId = key.slice(3);
+      disposeTextureCachePrefix(`shcanvas:${sheetId}:`);
+      disposeTextureCachePrefix(`shcrop:${sheetId}:`);
+      rebuildSliceMeshes();
+      rebuildReferenceImage();
+    }
+  });
   t.colorSpace = THREE.SRGBColorSpace;
   t.flipY = false;
   textureCache.set(key, t);
   return t;
+}
+
+/** Muss in Cache-Keys — sonst bleibt nach Rect-Änderung ein alter Crop sichtbar. */
+function sheetRegionCacheSuffix(s: CharacterRigSpriteSlice): string {
+  return `${s.x}:${s.y}:${s.width}:${s.height}`;
+}
+
+function disposeTextureCachePrefix(prefix: string) {
+  for (const k of [...textureCache.keys()]) {
+    if (k.startsWith(prefix)) {
+      textureCache.get(k)?.dispose();
+      textureCache.delete(k);
+    }
+  }
+}
+
+/**
+ * UV und Canvas-Crop müssen dieselbe Pixelbasis wie das decodierte Sheet nutzen (wie Modal / 2D-Viewport).
+ * Wenn nur `pixelWidth`/`pixelHeight` in den Daten stehen, aber vom echten Bild abweichen, war der UV-Fallback falsch.
+ */
+function sheetPixelSize(sh: CharacterRigSpriteSheetEntry, baseTex: THREE.Texture): { w: number; h: number } {
+  const img = baseTex.image as HTMLImageElement | undefined;
+  const nw = Math.max(0, img?.naturalWidth ?? 0);
+  const nh = Math.max(0, img?.naturalHeight ?? 0);
+  if (nw > 0 && nh > 0) return { w: nw, h: nh };
+  const w =
+    sh.pixelWidth && sh.pixelWidth > 0 ? sh.pixelWidth : Math.max(1, img?.naturalWidth ?? img?.width ?? 1);
+  const h =
+    sh.pixelHeight && sh.pixelHeight > 0 ? sh.pixelHeight : Math.max(1, img?.naturalHeight ?? img?.height ?? 1);
+  return { w, h };
+}
+
+/** Atlas-UV-Fallback, falls Sheet-Bild noch nicht decodiert (kurz falsch, bis <img> load). */
+function makeSheetUvFallbackTexture(
+  sh: CharacterRigSpriteSheetEntry,
+  s: CharacterRigSpriteSlice,
+  baseTex: THREE.Texture,
+): THREE.Texture {
+  const cropKey = `shcrop:${s.sheetId}:${s.id}:${sheetRegionCacheSuffix(s)}`;
+  let cropped = textureCache.get(cropKey);
+  if (cropped) return cropped;
+  cropped = baseTex.clone();
+  cropped.colorSpace = THREE.SRGBColorSpace;
+  cropped.flipY = false;
+  const { w, h } = sheetPixelSize(sh, baseTex);
+  cropped.wrapS = THREE.ClampToEdgeWrapping;
+  cropped.wrapT = THREE.ClampToEdgeWrapping;
+  cropped.repeat.set(s.width / w, s.height / h);
+  cropped.offset.set(s.x / w, 1 - (s.y + s.height) / h);
+  cropped.needsUpdate = true;
+  textureCache.set(cropKey, cropped);
+  return cropped;
+}
+
+/**
+ * Wie Canvas-2D-Viewport: Rect aus Sheet ausstanzen.
+ * CanvasTexture (nicht DataURL + TextureLoader): synchron, flipY wie Three erwartet — sonst oft vertikal gespiegelt
+ * (Kopf/Beine vertauscht auf hohen Sheets).
+ */
+function textureFromSheetCanvasCrop(s: CharacterRigSpriteSlice, baseTex: THREE.Texture): THREE.Texture | undefined {
+  const cropKey = `shcanvas:${s.sheetId}:${s.id}:${sheetRegionCacheSuffix(s)}`;
+  const cached = textureCache.get(cropKey);
+  if (cached) return cached;
+
+  const img = baseTex.image as HTMLImageElement | undefined;
+  if (!img || !img.complete || img.naturalWidth <= 0) return undefined;
+
+  try {
+    const c = document.createElement("canvas");
+    c.width = s.width;
+    c.height = s.height;
+    const ctx = c.getContext("2d");
+    if (!ctx) return undefined;
+    ctx.drawImage(img, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    textureCache.set(cropKey, tex);
+    return tex;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Atlas: Sheet-Rect wie im 2D-Viewport; Canvas-Crop bevorzugt, UV nur als Fallback. */
+function getSliceAlbedoTextures(
+  s: CharacterRigSpriteSlice,
+  rig: CharacterRigConfig,
+): { tex?: THREE.Texture; texBack?: THREE.Texture } {
+  let tex: THREE.Texture | undefined;
+  let texBack: THREE.Texture | undefined;
+  if (s.embedded?.dataBase64) {
+    tex = getOrLoadTexture(
+      `emb:${s.id}:front`,
+      `data:${s.embedded.mimeType};base64,${s.embedded.dataBase64}`,
+    );
+  } else if (s.sheetId) {
+    const sh = rig.spriteSheets?.find((x) => x.id === s.sheetId);
+    if (sh?.dataBase64) {
+      const dataUrl = `data:${sh.mimeType};base64,${sh.dataBase64}`;
+      const baseTex = getOrLoadTexture(`sh:${s.sheetId}`, dataUrl);
+      tex = textureFromSheetCanvasCrop(s, baseTex) ?? makeSheetUvFallbackTexture(sh, s, baseTex);
+    }
+  }
+  if (s.embeddedBack?.dataBase64) {
+    texBack = getOrLoadTexture(
+      `emb:${s.id}:back`,
+      `data:${s.embeddedBack.mimeType};base64,${s.embeddedBack.dataBase64}`,
+    );
+  } else if (tex) {
+    texBack = tex;
+  }
+  return { tex, texBack };
 }
 
 function rebuildSliceMeshes() {
@@ -449,15 +582,7 @@ function rebuildSliceMeshes() {
     if (s.width <= 0 || s.height <= 0) continue;
     const { cx, cy } = effectiveSliceCenter(s);
     const { df, db } = depthForSlice(s.id);
-    let tex: THREE.Texture | undefined;
-    if (s.embedded?.dataBase64) {
-      tex = getOrLoadTexture(`emb:${s.id}`, `data:${s.embedded.mimeType};base64,${s.embedded.dataBase64}`);
-    } else if (s.sheetId) {
-      const sh = rig.spriteSheets?.find((x) => x.id === s.sheetId);
-      if (sh?.dataBase64) {
-        tex = getOrLoadTexture(`sh:${s.sheetId}`, `data:${sh.mimeType};base64,${sh.dataBase64}`);
-      }
-    }
+    const { tex, texBack } = getSliceAlbedoTextures(s, rig);
     const depthTotal = df + db;
     const alpha = activeSliceId === null ? 1 : s.id === activeSliceId ? 1 : 0.44;
 
@@ -531,7 +656,13 @@ function rebuildSliceMeshes() {
         roughness: 0.6,
         side: THREE.DoubleSide,
       });
-      const backMat = frontMat.clone();
+      const backMat = new THREE.MeshStandardMaterial({
+        map: texBack ?? tex,
+        transparent: true,
+        alphaTest: 0.02,
+        roughness: 0.6,
+        side: THREE.DoubleSide,
+      });
       const mats: THREE.Material[] = [sideMat, sideMat, sideMat, sideMat, frontMat, backMat];
       const mesh = new THREE.Mesh(geo, mats);
       mesh.position.set(cx, -cy, (db - df) / 2);
@@ -930,6 +1061,30 @@ function onPointerDown(e: PointerEvent) {
     store.selectCharacterRigSlice(null);
     rigSlicePreview.value = null;
     store.clearMeshVertexSelection();
+    return;
+  }
+
+  /** Bind-Schritt: nicht die großen Sprite-Rects fangen — Knochen zuerst, Slice nur selektieren. */
+  if (rigModalBindStep.value && e.button === 0) {
+    const hitBindBone = hitTestBone(wx, wy, 22);
+    if (hitBindBone) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (controls) controls.enabled = false;
+      store.selectBone(hitBindBone);
+      return;
+    }
+    const hitBindSlice = hitTestRigSlice(wx, wy);
+    if (hitBindSlice) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (controls) controls.enabled = false;
+      store.selectCharacterRigSlice(hitBindSlice);
+      store.clearMeshVertexSelection();
+      return;
+    }
+    store.selectCharacterRigSlice(null);
+    rigSlicePreview.value = null;
     return;
   }
 

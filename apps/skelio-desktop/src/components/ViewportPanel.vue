@@ -516,32 +516,6 @@ function draw() {
   const bindM = worldBindBoneMatrices(project.value);
   const poseM = worldPoseBoneMatrices(project.value, currentTime.value);
 
-  if (skinMeshes.length > 0) {
-    ctx.fillStyle = "rgba(100, 140, 220, 0.35)";
-    ctx.strokeStyle = "rgba(140, 170, 240, 0.55)";
-    ctx.lineWidth = 1;
-    for (const mesh of skinMeshes) {
-      const m = meshForRender(mesh);
-      const deformed = deformSkinnedMesh(m, bindM, poseM);
-      for (let t = 0; t + 2 < mesh.indices.length; t += 3) {
-        const i0 = mesh.indices[t]!;
-        const i1 = mesh.indices[t + 1]!;
-        const i2 = mesh.indices[t + 2]!;
-        const p0 = deformed[i0];
-        const p1 = deformed[i1];
-        const p2 = deformed[i2];
-        if (!p0 || !p1 || !p2) continue;
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y);
-        ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
-  }
-
   const lenDrag = boneLengthDrag.value;
   let boneM = rigModalBoneStep.value ? bindM : poseM;
   let boneO = rigModalBoneStep.value

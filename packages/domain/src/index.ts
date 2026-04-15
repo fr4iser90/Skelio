@@ -9,12 +9,16 @@ export type {
   BoneBind3d,
   Channel,
   ChannelProperty,
+  ControlChannel,
+  ControlChannelProperty,
+  ControlTrack,
   CharacterRigBinding,
   CharacterRigConfig,
   CharacterRigSliceDepth,
   CharacterRigSliceEmbeddedImage,
   CharacterRigSpriteSheetEntry,
   CharacterRigSpriteSlice,
+  EditorRig,
   EditorMeta,
   EditorProject,
   EditorReferenceImage,
@@ -73,6 +77,8 @@ export {
   worldBindBoneMatrices4,
   worldBindBoneMatrices4OverridingBindPose,
   worldPoseBoneMatrices4,
+  worldPoseBoneMatrices4WithRotOverrides,
+  worldPoseBoneMatrices2DWithRotOverrides,
 } from "./editor/bone3dPose.js";
 export {
   mat4Identity,
@@ -90,6 +96,18 @@ export {
   segmentLengthsFromBoneFields,
 } from "./editor/ik2d.js";
 export { worldPoseOriginsWithIk } from "./editor/ikPose.js";
+export { getTwoBoneIkChains, setTwoBoneIkChains } from "./editor/rig/accessors.js";
+export { sampleIkTargetOverride2d, sampleControlChannel } from "./editor/rig/controls.js";
+export {
+  solveTwoBoneChain2dAtTime,
+  getTwoBoneChainById,
+  twoBoneIkAbsoluteLocalRotsAtTime,
+  type SolvedTwoBoneChain2d,
+} from "./editor/rig/solveTwoBoneChain2d.js";
+export { evaluatePose } from "./editor/rig/evaluatePose.js";
+export type { PoseState, EvaluatePoseOptions } from "./editor/rig/types.js";
+export { solveTwoBoneIk2d } from "./editor/rig/ik2bone2d.js";
+export { bakeIkTwoBoneChainRotKeysAtTime, type BakeIkToFkRotKeys } from "./editor/rig/bakeIkToFk.js";
 export { deformSkinnedMesh, validateSkinnedMesh } from "./editor/skinning.js";
 export { createDemoSkinnedMesh } from "./editor/demoMesh.js";
 export {

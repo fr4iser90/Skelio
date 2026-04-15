@@ -1,0 +1,37 @@
+import { describe, expect, it } from "vitest";
+import { createDefaultEditorProject } from "./projectFactory.js";
+import { evaluatePose } from "./rig/evaluatePose.js";
+
+describe("evaluatePose", () => {
+  it("with applyIk false, solved matches FK", () => {
+    const p = createDefaultEditorProject();
+    const t = 0;
+    const ps = evaluatePose(p, t, { applyIk: false });
+    expect(ps.solvedWorld4ByBoneId.size).toBe(ps.fkWorld4ByBoneId.size);
+    for (const [id, fk] of ps.fkWorld4ByBoneId) {
+      const s = ps.solvedWorld4ByBoneId.get(id)!;
+      for (let i = 0; i < 16; i++) expect(s[i]).toBeCloseTo(fk[i]!, 10);
+    }
+    expect(ps.ikSolvedLocalRotByBoneId.size).toBe(0);
+  });
+
+  it("with IK chain, solved rotations differ from FK and origins update", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones.find((b) => b.parentId === null)!;
+    const mid = { id: "bone_mid", parentId: root.id, name: "mid", bindPose: { x: 70, y: 0, rotation: 0, sx: 1, sy: 1 }, length: 65 };
+    const tip = { id: "bone_tip", parentId: mid.id, name: "tip", bindPose: { x: 65, y: 0, rotation: 0, sx: 1, sy: 1 }, length: 0 };
+    p.bones.push(mid, tip);
+    root.length = 70;
+    p.ikTwoBoneChains = [
+      { id: "ik_demo", name: "demo", enabled: true, rootBoneId: root.id, midBoneId: mid.id, tipBoneId: tip.id, targetX: 130, targetY: 35 },
+    ];
+    const t = 0;
+    const ps = evaluatePose(p, t, { applyIk: true });
+    expect(ps.ikSolvedLocalRotByBoneId.size).toBeGreaterThan(0);
+    const fkMid = ps.fkWorld2dByBoneId.get(mid.id)!;
+    const sMid = ps.solvedWorld2dByBoneId.get(mid.id)!;
+    const diff = Math.abs(fkMid.a - sMid.a) + Math.abs(fkMid.b - sMid.b);
+    expect(diff).toBeGreaterThan(1e-6);
+    expect(ps.solvedOriginByBoneId.get(mid.id)!.x).toBeCloseTo(ps.solvedWorld2dByBoneId.get(mid.id)!.e, 5);
+  });
+});

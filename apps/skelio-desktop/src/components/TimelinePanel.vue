@@ -21,6 +21,34 @@ const duration = computed(() => {
 
 const canRemoveClip = computed(() => project.value.clips.length > 1);
 
+const enabledIkChain = computed(() => (project.value.ikTwoBoneChains ?? []).find((c) => c.enabled) ?? null);
+const canBakeIk = computed(() => !!enabledIkChain.value);
+const canAddIkControl = computed(() => {
+  const ch = enabledIkChain.value;
+  if (!ch) return false;
+  const existing = project.value.rig?.controls?.ikTargets2d?.some((c) => c.chainId === ch.id) ?? false;
+  return !existing;
+});
+
+function addIkControl() {
+  const ch = enabledIkChain.value;
+  if (!ch) return;
+  store.dispatch({ type: "ensureIkTargetControl", chainId: ch.id });
+}
+
+function bakeIkToFk() {
+  const ch = enabledIkChain.value;
+  if (!ch) return;
+  const clip = activeClip.value;
+  if (!clip) return;
+  const d = Math.max(0.001, duration.value);
+  const fps = Math.max(1, project.value.meta.fps || 60);
+  const step = 1 / fps;
+  const sampleTimes: number[] = [];
+  for (let t = 0; t <= d + 1e-9; t += step) sampleTimes.push(Math.min(d, t));
+  store.dispatch({ type: "bakeIkToFk", chainId: ch.id, sampleTimes });
+}
+
 function addKey(prop: "tx" | "ty" | "rot") {
   const b = selectedBone.value;
   if (!b) return;
@@ -197,6 +225,24 @@ function onImportClipFile(ev: Event) {
         @click="purgeTxTyRotKeysAtCurrentTime"
       >
         Keys @Zeit
+      </button>
+      <button
+        type="button"
+        class="tl-io-btn"
+        :disabled="!canBakeIk"
+        title="Backt den (aktivierten) 2‑Bone IK in FK-Rotations-Keys (rot) über die Clip-Dauer"
+        @click="bakeIkToFk"
+      >
+        Bake IK→FK
+      </button>
+      <button
+        type="button"
+        class="tl-io-btn"
+        :disabled="!canAddIkControl"
+        title="Erzeugt ein IK-Target-Control (Handle im Viewport) für die aktivierte IK-Chain"
+        @click="addIkControl"
+      >
+        + IK Control
       </button>
       <button type="button" class="tl-io-btn" @click="exportActiveClipJson">Export JSON</button>
       <button type="button" class="tl-io-btn" @click="triggerImportClip">Import JSON</button>

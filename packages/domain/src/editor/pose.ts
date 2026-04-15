@@ -286,5 +286,10 @@ export function clipDurationSeconds(clip: AnimationClip, _bones: Bone[]): number
       for (const k of ch.keys) maxT = Math.max(maxT, k.t);
     }
   }
+  for (const tr of clip.controlTracks ?? []) {
+    for (const ch of tr.channels) {
+      for (const k of ch.keys) maxT = Math.max(maxT, k.t);
+    }
+  }
   return Math.max(maxT, 1 / 60);
 }

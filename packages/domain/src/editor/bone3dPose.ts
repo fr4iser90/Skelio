@@ -1,11 +1,6 @@
 import type { Mat2D } from "./mat2d.js";
 import {
   mat4Multiply,
-  mat4RotateX,
-  mat4RotateY,
-  mat4RotateZ,
-  mat4Scale,
-  mat4Translate,
   transformPointMat4,
   type Mat4,
 } from "./mat4.js";
@@ -98,12 +93,44 @@ export function getBindLocalBoneState(
 
 /** T * Rz * Rx * Ry * S — siehe ADR 0011. */
 export function localMat4FromState(s: LocalBoneState): Mat4 {
-  const T = mat4Translate(s.x, s.y, s.z);
-  const RZ = mat4RotateZ(s.rot);
-  const RX = mat4RotateX(s.tilt);
-  const RY = mat4RotateY(s.spin);
-  const S = mat4Scale(s.sx, s.sy, 1);
-  return mat4Multiply(T, mat4Multiply(RZ, mat4Multiply(RX, mat4Multiply(RY, S))));
+  // Build `T * Rz * Rx * Ry * S` directly to avoid intermediate Mat4 allocations.
+  // Layout is column-major (OpenGL-style), matching `Mat4` and all mat4 ops in this repo.
+  const cz = Math.cos(s.rot);
+  const sz = Math.sin(s.rot);
+  const cx = Math.cos(s.tilt);
+  const sx = Math.sin(s.tilt);
+  const cy = Math.cos(s.spin);
+  const sy = Math.sin(s.spin);
+
+  // R = Rz * Rx * Ry.
+  // Then apply non-uniform scale on local X/Y axes: col0 *= sx, col1 *= sy, col2 unchanged (scale z=1).
+  const m = new Float64Array(16);
+
+  // Column 0 = R * (1,0,0) scaled by s.sx
+  m[0] = (cz * cy + sz * sx * sy) * s.sx;
+  m[1] = (sz * cy - cz * sx * sy) * s.sx;
+  m[2] = (cx * sy) * s.sx;
+  m[3] = 0;
+
+  // Column 1 = R * (0,1,0) scaled by s.sy
+  m[4] = (sz * cx) * s.sy;
+  m[5] = (cz * cx) * s.sy;
+  m[6] = (-sx) * s.sy;
+  m[7] = 0;
+
+  // Column 2 = R * (0,0,1)
+  m[8] = (-cz * sy + sz * sx * cy);
+  m[9] = (-sz * sy - cz * sx * cy);
+  m[10] = (cx * cy);
+  m[11] = 0;
+
+  // Column 3 = translation
+  m[12] = s.x;
+  m[13] = s.y;
+  m[14] = s.z;
+  m[15] = 1;
+
+  return m;
 }
 
 /** XY-Projektion der oberen 2×2 + Translation für bestehendes 2D-Skinning. */
@@ -123,21 +150,90 @@ function worldMat4sFromLocals(
   getLocal: (b: Bone) => LocalBoneState,
 ): Map<string, Mat4> {
   const byId = new Map(project.bones.map((b) => [b.id, b] as const));
+  const childrenByParentId = new Map<string, Bone[]>();
+  const roots: Bone[] = [];
+  for (const b of project.bones) {
+    if (b.parentId === null) {
+      roots.push(b);
+      continue;
+    }
+    const arr = childrenByParentId.get(b.parentId);
+    if (arr) arr.push(b);
+    else childrenByParentId.set(b.parentId, [b]);
+  }
   const world = new Map<string, Mat4>();
 
   const visit = (id: string, parentWorld: Mat4 | null) => {
-    const b = byId.get(id)!;
+    const b = byId.get(id);
+    if (!b) return;
     const local = localMat4FromState(getLocal(b));
     const w = parentWorld === null ? local : mat4Multiply(parentWorld, local);
     world.set(id, w);
-    for (const c of project.bones) {
-      if (c.parentId === id) visit(c.id, w);
-    }
+    const kids = childrenByParentId.get(id);
+    if (!kids) return;
+    for (const c of kids) visit(c.id, w);
   };
 
-  const roots = project.bones.filter((b) => b.parentId === null);
   for (const r of roots) visit(r.id, null);
   return world;
+}
+
+/**
+ * Internal perf helper: compute FK and solved world matrices in a single traversal.
+ * Not exported from the package root; used by `evaluatePose` to fuse loops.
+ */
+export function worldPoseBoneMatrices4FusedFkAndSolved(
+  project: EditorProject,
+  time: number,
+  rotOverrides: ReadonlyMap<string, number>,
+): { fkWorld4ByBoneId: Map<string, Mat4>; solvedWorld4ByBoneId: Map<string, Mat4> } {
+  const clip = project.clips.find((c) => c.id === project.activeClipId);
+
+  const childrenByParentId = new Map<string, Bone[]>();
+  const roots: Bone[] = [];
+  for (const b of project.bones) {
+    if (b.parentId === null) {
+      roots.push(b);
+      continue;
+    }
+    const arr = childrenByParentId.get(b.parentId);
+    if (arr) arr.push(b);
+    else childrenByParentId.set(b.parentId, [b]);
+  }
+
+  const fkWorld4ByBoneId = new Map<string, Mat4>();
+  const solvedWorld4ByBoneId = new Map<string, Mat4>();
+
+  // Iterative traversal avoids deep recursion on long chains.
+  const stack: { bone: Bone; parentFk: Mat4 | null; parentSolved: Mat4 | null }[] = [];
+  for (let i = roots.length - 1; i >= 0; i--) {
+    stack.push({ bone: roots[i]!, parentFk: null, parentSolved: null });
+  }
+
+  while (stack.length) {
+    const cur = stack.pop()!;
+    const b = cur.bone;
+
+    const sFk = getLocalBoneState(b, clip, time);
+    const localFk = localMat4FromState(sFk);
+    const worldFk = cur.parentFk === null ? localFk : mat4Multiply(cur.parentFk, localFk);
+    fkWorld4ByBoneId.set(b.id, worldFk);
+
+    const o = rotOverrides.get(b.id);
+    const localSolved = o === undefined ? localFk : localMat4FromState({ ...sFk, rot: o });
+    const worldSolved =
+      cur.parentSolved === null ? localSolved : mat4Multiply(cur.parentSolved, localSolved);
+    solvedWorld4ByBoneId.set(b.id, worldSolved);
+
+    const kids = childrenByParentId.get(b.id);
+    if (kids) {
+      for (let i = kids.length - 1; i >= 0; i--) {
+        stack.push({ bone: kids[i]!, parentFk: worldFk, parentSolved: worldSolved });
+      }
+    }
+  }
+
+  return { fkWorld4ByBoneId, solvedWorld4ByBoneId };
 }
 
 export function worldBindBoneMatrices4(project: EditorProject): Map<string, Mat4> {
@@ -155,6 +251,37 @@ export function worldBindBoneMatrices4OverridingBindPose(
 export function worldPoseBoneMatrices4(project: EditorProject, time: number): Map<string, Mat4> {
   const clip = project.clips.find((c) => c.id === project.activeClipId);
   return worldMat4sFromLocals(project, (b) => getLocalBoneState(b, clip, time));
+}
+
+/**
+ * Same as {@link worldPoseBoneMatrices4}, but overrides local Z rotation (radians) for specific bones.
+ * Used by IK / constraints to inject solved rotations without duplicating the 4×4 chain.
+ */
+export function worldPoseBoneMatrices4WithRotOverrides(
+  project: EditorProject,
+  time: number,
+  rotOverrides: ReadonlyMap<string, number>,
+): Map<string, Mat4> {
+  const clip = project.clips.find((c) => c.id === project.activeClipId);
+  return worldMat4sFromLocals(project, (b) => {
+    const s = getLocalBoneState(b, clip, time);
+    const o = rotOverrides.get(b.id);
+    if (o !== undefined) return { ...s, rot: o };
+    return s;
+  });
+}
+
+export function worldPoseBoneMatrices2DWithRotOverrides(
+  project: EditorProject,
+  time: number,
+  rotOverrides: ReadonlyMap<string, number>,
+): Map<string, Mat2D> {
+  const m4 = worldPoseBoneMatrices4WithRotOverrides(project, time, rotOverrides);
+  const out = new Map<string, Mat2D>();
+  for (const [id, m] of m4) {
+    out.set(id, mat4ToMat2dProjection(m));
+  }
+  return out;
 }
 
 export function worldPoseBoneMatrices2D(project: EditorProject, time: number): Map<string, Mat2D> {

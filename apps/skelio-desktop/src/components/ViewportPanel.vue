@@ -3,20 +3,20 @@ import {
   addBoneWeightDelta,
   boneLengthAndBindRotationFromWorldTip,
   deformSkinnedMesh,
+  evaluatePose,
   getLocalBoneState,
   localBindTranslationForWorldOrigin,
-  localTranslationForWorldJointAtPoseTime,
+  mat4Invert,
   mat4ToMat2dProjection,
   resolveCharacterRigSliceBoundBoneId,
   rigidCharacterRigSliceWorldPose,
+  transformPointMat4,
   worldBindBoneMatrices4,
   worldBindBoneMatrices4OverridingBindPose,
   BONE_LENGTH_HIT_MIN_LOCAL,
   worldBindBoneTipForLengthHit,
   worldBindOrigins,
-  worldPoseBoneMatrices,
-  worldPoseBoneMatrices4,
-  worldPoseOriginsWithIk,
+  sampleControlChannel,
   type CharacterRigConfig,
   type CharacterRigSpriteSlice,
   type Mat2D,
@@ -59,6 +59,12 @@ const rigWorldYCompress = computed(() =>
   characterRigModalOpen.value ? rigCameraWorldYScale.value : 1,
 );
 
+/**
+ * Cached solved pose for the current reactive frame (time/project).
+ * Keeps `evaluatePose` as SSoT, but avoids multiple recalcs per draw / event handler.
+ */
+const solvedPose = computed(() => evaluatePose(project.value, currentTime.value, { applyIk: true }));
+
 const canvas = ref<HTMLCanvasElement | null>(null);
 const referenceBitmap = shallowRef<HTMLImageElement | null>(null);
 /** Decoded sprite sheets by id (rect slices reference `sheetId`). */
@@ -80,6 +86,19 @@ const boneDrag = ref<{
   /** Rotate drag: angle around joint on pointer down. */
   rotGrab?: { a0: number; localRot0: number };
 } | null>(null);
+
+const ikControlDrag = ref<
+  | {
+      controlId: string;
+      kind: "target" | "pole";
+      pointerId: number;
+      start: { x: number; y: number; poleX?: number; poleY?: number };
+      preview: { x: number; y: number; poleX?: number; poleY?: number };
+    }
+  | null
+>(null);
+
+const selectedIkControlId = ref<string | null>(null);
 /**
  * Spitze ziehen: Live-Vorschau (Länge + Bind-Rotation zur Maus), Commit beim Loslassen (ein Undo).
  */
@@ -248,8 +267,9 @@ function distPointToSegmentSq(px: number, py: number, ax: number, ay: number, bx
  * Joints alone are tiny under full sprites; segment picking matches what you see as the grey bone line.
  */
 function hitTestBoneAnimator(wx: number, wy: number): string | null {
-  const origins = worldPoseOriginsWithIk(project.value, currentTime.value);
-  const mats = worldPoseBoneMatrices(project.value, currentTime.value);
+  const ps = solvedPose.value;
+  const origins = ps.solvedOriginByBoneId;
+  const mats = ps.solvedWorld2dByBoneId;
   const jointR2 = 48 * 48;
   const segMaxD2 = 40 * 40;
   let best: string | null = null;
@@ -473,12 +493,13 @@ function viewportBoneBindPoseAndDrawState(): {
   boneO: Map<string, { x: number; y: number }>;
 } {
   const bindM4 = worldBindBoneMatrices4(project.value);
-  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
+  const poseEval = solvedPose.value;
+  const poseM4 = poseEval.solvedWorld4ByBoneId;
   const lenDrag = boneLengthDrag.value;
   let boneM4 = rigModalBoneStep.value ? bindM4 : poseM4;
   let boneO = rigModalBoneStep.value
     ? worldBindOrigins(project.value)
-    : worldPoseOriginsWithIk(project.value, currentTime.value);
+    : poseEval.solvedOriginByBoneId;
   if (rigModalBoneStep.value && lenDrag) {
     const b = project.value.bones.find((x) => x.id === lenDrag.boneId);
     if (b) {
@@ -557,13 +578,13 @@ function bindingBoneIdForSlice(sliceId: string): string | null {
 }
 
 function animatorBoneDragGrab(boneId: string, pwx: number, pwy: number): { j0x: number; j0y: number; p0x: number; p0y: number } {
-  const j = worldPoseOriginsWithIk(project.value, currentTime.value).get(boneId);
+  const j = solvedPose.value.solvedOriginByBoneId.get(boneId);
   if (!j) return { j0x: pwx, j0y: pwy, p0x: pwx, p0y: pwy };
   return { j0x: j.x, j0y: j.y, p0x: pwx, p0y: pwy };
 }
 
 function angleAroundJoint(boneId: string, wx: number, wy: number): number {
-  const j = worldPoseOriginsWithIk(project.value, currentTime.value).get(boneId);
+  const j = solvedPose.value.solvedOriginByBoneId.get(boneId);
   const cx = j?.x ?? 0;
   const cy = j?.y ?? 0;
   return Math.atan2(wy - cy, wx - cx);
@@ -583,6 +604,57 @@ function hitTestBoundRigSliceForAnimator(wx: number, wy: number): { sliceId: str
   const boneId = bindingBoneIdForSlice(sid);
   if (!boneId) return null;
   return { sliceId: sid, boneId };
+}
+
+function activeClipForControls() {
+  return project.value.clips.find((c) => c.id === project.value.activeClipId);
+}
+
+function controlPoseNow(controlId: string, base: { x: number; y: number; poleX?: number; poleY?: number }) {
+  const clip = activeClipForControls();
+  const t = currentTime.value;
+  const x = sampleControlChannel(clip, controlId, "x", t, base.x);
+  const y = sampleControlChannel(clip, controlId, "y", t, base.y);
+  const poleX = base.poleX != null ? sampleControlChannel(clip, controlId, "poleX", t, base.poleX) : undefined;
+  const poleY = base.poleY != null ? sampleControlChannel(clip, controlId, "poleY", t, base.poleY) : undefined;
+  return { x, y, ...(poleX != null && poleY != null ? { poleX, poleY } : {}) };
+}
+
+function hitTestIkControl(wx: number, wy: number): { controlId: string; kind: "target" | "pole" } | null {
+  const ctls = project.value.rig?.controls?.ikTargets2d ?? [];
+  if (ctls.length === 0) return null;
+  const r = 14 / viewZoom.value;
+  const r2 = r * r;
+  for (const c of ctls) {
+    if (!c.enabled) continue;
+    const pose = controlPoseNow(c.id, { x: c.x, y: c.y, poleX: c.poleX, poleY: c.poleY });
+    const dx = pose.x - wx;
+    const dy = pose.y - wy;
+    if (dx * dx + dy * dy <= r2) return { controlId: c.id, kind: "target" };
+    if (pose.poleX != null && pose.poleY != null) {
+      const px = pose.poleX;
+      const py = pose.poleY;
+      const dpx = px - wx;
+      const dpy = py - wy;
+      if (dpx * dpx + dpy * dpy <= r2) return { controlId: c.id, kind: "pole" };
+    }
+  }
+  return null;
+}
+
+function keySelectedIkControlAtCurrentTime(): void {
+  const id = selectedIkControlId.value;
+  if (!id) return;
+  const ctl = project.value.rig?.controls?.ikTargets2d?.find((c) => c.id === id);
+  if (!ctl || !ctl.enabled) return;
+  const t = currentTime.value;
+  const pose = controlPoseNow(id, { x: ctl.x, y: ctl.y, poleX: ctl.poleX, poleY: ctl.poleY });
+  store.dispatch({ type: "addIkTargetControlKeyframe", controlId: id, property: "x", t, v: pose.x });
+  store.dispatch({ type: "addIkTargetControlKeyframe", controlId: id, property: "y", t, v: pose.y });
+  if (pose.poleX != null && pose.poleY != null) {
+    store.dispatch({ type: "addIkTargetControlKeyframe", controlId: id, property: "poleX", t, v: pose.poleX });
+    store.dispatch({ type: "addIkTargetControlKeyframe", controlId: id, property: "poleY", t, v: pose.poleY });
+  }
 }
 
 function draw() {
@@ -812,6 +884,49 @@ function draw() {
       }
     }
   }
+
+  // IK Controls (targets/poles) – editor-only handles.
+  const ctls = project.value.rig?.controls?.ikTargets2d ?? [];
+  if (ctls.length) {
+    const r = 10 / viewZoom.value;
+    for (const c2 of ctls) {
+      if (!c2.enabled) continue;
+      const drag = ikControlDrag.value && ikControlDrag.value.controlId === c2.id ? ikControlDrag.value.preview : null;
+      const base = { x: c2.x, y: c2.y, poleX: c2.poleX, poleY: c2.poleY };
+      const pose = drag ?? controlPoseNow(c2.id, base);
+      const isSel = selectedIkControlId.value === c2.id;
+      ctx.save();
+      ctx.lineWidth = (isSel ? 3 : 2) / viewZoom.value;
+      // line to pole if present
+      if (pose.poleX != null && pose.poleY != null) {
+        ctx.strokeStyle = "rgba(168, 85, 247, 0.7)";
+        ctx.beginPath();
+        ctx.moveTo(pose.x, pose.y);
+        ctx.lineTo(pose.poleX, pose.poleY);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(168, 85, 247, 0.25)";
+        ctx.strokeStyle = "rgba(168, 85, 247, 0.95)";
+        ctx.beginPath();
+        ctx.arc(pose.poleX, pose.poleY, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      // target handle
+      ctx.fillStyle = "rgba(34, 197, 94, 0.25)";
+      ctx.strokeStyle = "rgba(34, 197, 94, 0.95)";
+      ctx.beginPath();
+      ctx.arc(pose.x, pose.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (isSel) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.beginPath();
+        ctx.arc(pose.x, pose.y, (r + 4 / viewZoom.value), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
   ctx.restore();
 }
 
@@ -846,7 +961,7 @@ function applyBrushAt(wx: number, wy: number) {
   const mesh = project.value.skinnedMeshes?.find((m) => m.id === st.meshId);
   if (!mesh) return;
   const bindM4 = worldBindBoneMatrices4(project.value);
-  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
+  const poseM4 = solvedPose.value.solvedWorld4ByBoneId;
   const tmp: SkinnedMesh = { ...mesh, influences: st.working };
   const deformed = deformSkinnedMesh(tmp, bindM4, poseM4);
   const r = weightBrushRadius.value;
@@ -924,6 +1039,32 @@ function onCanvasPointerDown(e: PointerEvent) {
   }
 
   const { wx, wy } = worldFromClient(e, c);
+
+  if (e.button === 0) {
+    const hitCtl = hitTestIkControl(wx, wy);
+    if (hitCtl) {
+      const ctl = project.value.rig?.controls?.ikTargets2d?.find((cc) => cc.id === hitCtl.controlId);
+      if (ctl) {
+        e.preventDefault();
+        selectedIkControlId.value = ctl.id;
+        const start = controlPoseNow(ctl.id, { x: ctl.x, y: ctl.y, poleX: ctl.poleX, poleY: ctl.poleY });
+        ikControlDrag.value = {
+          controlId: ctl.id,
+          kind: hitCtl.kind,
+          pointerId: e.pointerId,
+          start,
+          preview: { ...start },
+        };
+        try {
+          c.setPointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+        draw();
+        return;
+      }
+    }
+  }
 
   if (rigModalBoneStep.value && e.button === 0) {
     if (pendingBonePlacementId.value) {
@@ -1039,7 +1180,7 @@ function onCanvasPointerDown(e: PointerEvent) {
     return;
   }
   const bindM4 = worldBindBoneMatrices4(project.value);
-  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
+  const poseM4 = solvedPose.value.solvedWorld4ByBoneId;
   const threshold2 = 20 * 20;
   let bestD2 = threshold2;
   let best: { meshId: string; vi: number } | null = null;
@@ -1102,6 +1243,19 @@ function onCanvasPointerMove(e: PointerEvent) {
     return;
   }
 
+  if (ikControlDrag.value) {
+    e.preventDefault();
+    const { wx, wy } = worldFromClient(e, c);
+    const d = ikControlDrag.value;
+    if (d.kind === "target") {
+      ikControlDrag.value = { ...d, preview: { ...d.preview, x: wx, y: wy } };
+    } else {
+      ikControlDrag.value = { ...d, preview: { ...d.preview, poleX: wx, poleY: wy } };
+    }
+    draw();
+    return;
+  }
+
   if (boneDrag.value) {
     e.preventDefault();
     const { wx, wy } = worldFromClient(e, c);
@@ -1116,13 +1270,18 @@ function onCanvasPointerMove(e: PointerEvent) {
         const g = boneDrag.value.animGrab;
         const twx = g ? g.j0x + (wx - g.p0x) : wx;
         const twy = g ? g.j0y + (wy - g.p0y) : wy;
-        const local = localTranslationForWorldJointAtPoseTime(
-          project.value,
-          boneDrag.value.boneId,
-          currentTime.value,
-          twx,
-          twy,
-        );
+        const bone = project.value.bones.find((b) => b.id === boneDrag.value!.boneId);
+        const local = (() => {
+          if (!bone) return null;
+          if (bone.parentId === null) return { x: twx, y: twy };
+          const ps = solvedPose.value;
+          const parentW4 = ps.solvedWorld4ByBoneId.get(bone.parentId);
+          if (!parentW4) return null;
+          const invP = mat4Invert(parentW4);
+          if (!invP) return null;
+          const p = transformPointMat4(invP, twx, twy, 0);
+          return { x: p.x, y: p.y };
+        })();
         if (local) {
           store.dispatch({
             type: "setBoneTranslationKeysAtTime",
@@ -1220,6 +1379,29 @@ function onCanvasPointerUp(e: PointerEvent) {
     return;
   }
 
+  if (ikControlDrag.value) {
+    const d = ikControlDrag.value;
+    ikControlDrag.value = null;
+    // Commit base values (not a keyframe yet; keying is a separate action).
+    store.dispatch({
+      type: "setIkTargetControlBase",
+      controlId: d.controlId,
+      x: d.preview.x,
+      y: d.preview.y,
+      poleX: d.preview.poleX,
+      poleY: d.preview.poleY,
+    });
+    if (c?.hasPointerCapture(e.pointerId)) {
+      try {
+        c.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+    draw();
+    return;
+  }
+
   if (rigSliceDrag.value && rigSlicePreview.value) {
     const p = rigSlicePreview.value;
     store.dispatch({
@@ -1252,6 +1434,7 @@ function onCanvasPointerUp(e: PointerEvent) {
 onMounted(() => {
   window.addEventListener("keydown", onLengthDragEscapeKey, true);
   window.addEventListener("keydown", onAnimatorToolKeyDown, true);
+  window.addEventListener("keydown", onIkControlKeyDown, true);
   const c = canvas.value;
   if (!c) return;
   const ro = new ResizeObserver(() => {
@@ -1267,6 +1450,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("keydown", onLengthDragEscapeKey, true);
   window.removeEventListener("keydown", onAnimatorToolKeyDown, true);
+  window.removeEventListener("keydown", onIkControlKeyDown, true);
 });
 
 function onAnimatorToolKeyDown(e: KeyboardEvent) {
@@ -1279,6 +1463,17 @@ function onAnimatorToolKeyDown(e: KeyboardEvent) {
     animatorTool.value = "rotate";
     draw();
   }
+}
+
+function onIkControlKeyDown(e: KeyboardEvent) {
+  if (e.key !== "k" && e.key !== "K") return;
+  if (!selectedIkControlId.value) return;
+  // Avoid stealing keys while painting or during other drags.
+  if (weightBrushEnabled.value) return;
+  if (viewDrag.value || boneLengthDrag.value || boneDrag.value || rigSliceDrag.value) return;
+  e.preventDefault();
+  keySelectedIkControlAtCurrentTime();
+  draw();
 }
 
 watch(

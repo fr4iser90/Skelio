@@ -68,6 +68,12 @@ export function normalizeEditorProjectInPlace(project: EditorProject): void {
     }
   }
   migrateClipTransformsToBindRelative(project);
+  // Rig model migration: legacy IK chains -> project.rig.ik.twoBoneChains (keep legacy for compatibility).
+  if (project.ikTwoBoneChains?.length && !project.rig?.ik?.twoBoneChains?.length) {
+    if (!project.rig) project.rig = {};
+    if (!project.rig.ik) project.rig.ik = {};
+    project.rig.ik.twoBoneChains = structuredClone(project.ikTwoBoneChains);
+  }
   const rig = project.characterRig;
   if (!rig) return;
 

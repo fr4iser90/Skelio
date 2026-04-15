@@ -317,7 +317,8 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
     }
   }
 
-  for (const ch of project.ikTwoBoneChains ?? []) {
+  const twoBoneChains = project.rig?.ik?.twoBoneChains ?? project.ikTwoBoneChains ?? [];
+  for (const ch of twoBoneChains) {
     if (ikChainIds.has(ch.id)) {
       issues.push({ path: "ikTwoBoneChains", message: `duplicate IK chain id: ${ch.id}` });
     }

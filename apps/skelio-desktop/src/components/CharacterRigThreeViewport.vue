@@ -6,6 +6,7 @@ import {
   addBoneWeightDelta,
   boneLengthAndBindRotationFromWorldTip,
   deformSkinnedMesh,
+  evaluatePose,
   localBindTranslationForWorldOrigin,
   resolveCharacterRigSliceBoundBoneId,
   rigidCharacterRigSliceWorldPose,
@@ -14,9 +15,6 @@ import {
   worldBindBoneMatricesOverridingBindPose,
   worldBindBoneTipForLengthHit,
   worldBindOrigins,
-  worldPoseBoneMatrices,
-  worldPoseBoneMatrices4,
-  worldPoseOriginsWithIk,
   BONE_LENGTH_HIT_MIN_LOCAL,
   type CharacterRigConfig,
   type CharacterRigSpriteSheetEntry,
@@ -128,6 +126,12 @@ let resizeObserver: ResizeObserver | null = null;
 type DepthKey = `${string}:${"front" | "back"}`;
 const depthDataCache = new Map<DepthKey, { w: number; h: number; data: Uint8ClampedArray }>();
 const depthLoadPromises = new Map<DepthKey, Promise<void>>();
+
+/**
+ * Cached solved pose for current reactive frame/time.
+ * Keeps `evaluatePose` as SSoT, but avoids multiple recalcs per rebuild().
+ */
+const solvedPose = computed(() => evaluatePose(project.value, currentTime.value, { applyIk: true }));
 
 const viewportHintText = computed(() => {
   if (rigModalBindStep.value) {
@@ -446,7 +450,7 @@ function applyBrushAt(wx: number, wy: number) {
   const mesh = project.value.skinnedMeshes?.find((m) => m.id === st.meshId);
   if (!mesh) return;
   const bindM4 = worldBindBoneMatrices4(project.value);
-  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
+  const poseM4 = solvedPose.value.solvedWorld4ByBoneId;
   const tmp: SkinnedMesh = { ...mesh, influences: st.working };
   const deformed = deformSkinnedMesh(tmp, bindM4, poseM4);
   const r = weightBrushRadius.value;
@@ -615,11 +619,12 @@ function rebuildSliceMeshes() {
   const rig = project.value.characterRig;
   if (!rig?.slices?.length) return;
 
-  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
+  const poseEval = solvedPose.value;
+  const poseM4 = poseEval.solvedWorld4ByBoneId;
   const boneM4 = rigModalBoneStep.value ? worldBindBoneMatrices4(project.value) : poseM4;
   const jointDisplayByBoneId = rigModalBoneStep.value
     ? new Map([...worldBindOrigins(project.value)].map(([id, o]) => [id, { x: o.x, y: o.y }] as const))
-    : worldPoseOriginsWithIk(project.value, currentTime.value);
+    : poseEval.solvedOriginByBoneId;
 
   const activeSliceId = selectedCharacterRigSliceId.value;
   /** Schritt 3: nur das gewählte Teil rendern (keine abgedunkelten anderen). */
@@ -762,10 +767,9 @@ function rebuildBones() {
   clearGroup(boneJoints);
 
   const lenDrag = boneLengthDrag.value;
-  let boneM = rigModalBoneStep.value ? worldBindBoneMatrices(project.value) : worldPoseBoneMatrices(project.value, currentTime.value);
-  let boneO = rigModalBoneStep.value
-    ? worldBindOrigins(project.value)
-    : worldPoseOriginsWithIk(project.value, currentTime.value);
+  const poseEval = solvedPose.value;
+  let boneM = rigModalBoneStep.value ? worldBindBoneMatrices(project.value) : poseEval.solvedWorld2dByBoneId;
+  let boneO = rigModalBoneStep.value ? worldBindOrigins(project.value) : poseEval.solvedOriginByBoneId;
 
   if (rigModalBoneStep.value && lenDrag) {
     const b = project.value.bones.find((x) => x.id === lenDrag.boneId);

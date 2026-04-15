@@ -47,10 +47,25 @@ export type Track = {
   channels: Channel[];
 };
 
+export type ControlChannelProperty = "x" | "y" | "poleX" | "poleY";
+
+export type ControlChannel = {
+  property: ControlChannelProperty;
+  interpolation: "linear" | "hold";
+  keys: Keyframe[];
+};
+
+export type ControlTrack = {
+  controlId: string;
+  channels: ControlChannel[];
+};
+
 export type AnimationClip = {
   id: string;
   name: string;
   tracks: Track[];
+  /** Optional editor-only control tracks (IK targets, pole targets, etc). */
+  controlTracks?: ControlTrack[];
 };
 
 export type EditorMeta = {
@@ -77,6 +92,37 @@ export type IkTwoBoneChain = {
   tipBoneId: string;
   targetX: number;
   targetY: number;
+  /** Optional pole target (world) for stable elbow/knee direction. */
+  poleX?: number;
+  poleY?: number;
+  /** Allow reaching beyond max length by stretching. */
+  allowStretch?: boolean;
+};
+
+/**
+ * Rig controls / solvers are editor-only and evaluated by the rig pipeline.
+ * This is the forward-compatible home for IK/FK/constraints without leaking into runtime export.
+ */
+export type EditorRig = {
+  ik?: {
+    twoBoneChains?: IkTwoBoneChain[];
+  };
+  controls?: {
+    /**
+     * Optional target overrides for IK chains (world). If omitted, chains use their own targetX/Y.
+     * Next step: allow animating controls as first-class tracks.
+     */
+    ikTargets2d?: {
+      id: string;
+      name: string;
+      enabled: boolean;
+      chainId: string;
+      x: number;
+      y: number;
+      poleX?: number;
+      poleY?: number;
+    }[];
+  };
 };
 
 /** Embedded reference art (viewport); not part of runtime export. */
@@ -217,8 +263,13 @@ export type EditorProject = {
   referenceImage?: EditorReferenceImage | null;
   /** Skinned triangle meshes (editor + viewport; runtime export optional later). */
   skinnedMeshes?: SkinnedMesh[];
-  /** Optional IK chains (editor / viewport spike; not in runtime export). */
+  /**
+   * Optional IK chains (legacy; editor-only). New code should use `rig.ik.twoBoneChains`.
+   * `normalizeEditorProjectInPlace` keeps `rig` hydrated from this for backwards compatibility.
+   */
   ikTwoBoneChains?: IkTwoBoneChain[];
+  /** Editor-only rig graph / controls (not in runtime export). */
+  rig?: EditorRig;
   /** Optional Character rig (sheet, slices, bindings). */
   characterRig?: CharacterRigConfig;
 };

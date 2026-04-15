@@ -3,6 +3,7 @@ import {
   childBindTranslationAtParentTip,
   createDemoSkinnedMesh,
   createId,
+  bakeIkTwoBoneChainRotKeysAtTime,
   ensureMinimalSliceDepthOnMeshSync,
   mat4Invert,
   normalizeReferenceImageMime,
@@ -55,6 +56,11 @@ export type Command =
   | { type: "setIkChainTarget"; chainId: string; targetX: number; targetY: number }
   | { type: "setIkChainEnabled"; chainId: string; enabled: boolean }
   | { type: "removeIkChain"; chainId: string }
+  | { type: "bakeIkToFk"; chainId: string; sampleTimes: number[] }
+  | { type: "ensureIkTargetControl"; chainId: string }
+  | { type: "setIkTargetControlEnabled"; controlId: string; enabled: boolean }
+  | { type: "setIkTargetControlBase"; controlId: string; x: number; y: number; poleX?: number; poleY?: number }
+  | { type: "addIkTargetControlKeyframe"; controlId: string; property: "x" | "y" | "poleX" | "poleY"; t: number; v: number }
   | {
       type: "setCharacterRigSpriteSheet";
       fileName: string;
@@ -336,6 +342,93 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     if (!p.ikTwoBoneChains) return p;
     p.ikTwoBoneChains = p.ikTwoBoneChains.filter((c) => c.id !== cmd.chainId);
     if (p.ikTwoBoneChains.length === 0) delete p.ikTwoBoneChains;
+    return p;
+  }
+
+  if (cmd.type === "bakeIkToFk") {
+    const clip = activeClip(p);
+    const times = (cmd.sampleTimes ?? []).filter((t) => Number.isFinite(t) && t >= 0);
+    if (times.length === 0) return p;
+
+    for (const t of times) {
+      const baked = bakeIkTwoBoneChainRotKeysAtTime(p, t, cmd.chainId);
+      if (!baked) continue;
+
+      const writeRot = (boneId: string, v: number) => {
+        let tr = clip.tracks.find((tt) => tt.boneId === boneId);
+        if (!tr) {
+          tr = { boneId, channels: [] };
+          clip.tracks.push(tr);
+        }
+        let ch = tr.channels.find((cc) => cc.property === "rot");
+        if (!ch) {
+          ch = { property: "rot", interpolation: "linear", keys: [] };
+          tr.channels.push(ch);
+        }
+        ch.keys = insertSorted(ch.keys, { t, v });
+      };
+
+      writeRot(baked.rootBoneId, baked.keys.rootRotOffsetFromBind);
+      writeRot(baked.midBoneId, baked.keys.midRotOffsetFromBind);
+    }
+    return p;
+  }
+
+  if (cmd.type === "ensureIkTargetControl") {
+    const chain = (p.rig?.ik?.twoBoneChains ?? p.ikTwoBoneChains ?? []).find((c) => c.id === cmd.chainId);
+    if (!chain) return p;
+    if (!p.rig) p.rig = {};
+    if (!p.rig.controls) p.rig.controls = {};
+    if (!p.rig.controls.ikTargets2d) p.rig.controls.ikTargets2d = [];
+    const existing = p.rig.controls.ikTargets2d.find((c) => c.chainId === chain.id);
+    if (existing) return p;
+    p.rig.controls.ikTargets2d.push({
+      id: createId("ctl"),
+      name: `${chain.name}_target`,
+      enabled: true,
+      chainId: chain.id,
+      x: chain.targetX,
+      y: chain.targetY,
+      ...(typeof chain.poleX === "number" && typeof chain.poleY === "number" ? { poleX: chain.poleX, poleY: chain.poleY } : {}),
+    });
+    return p;
+  }
+
+  if (cmd.type === "setIkTargetControlEnabled") {
+    const ctl = p.rig?.controls?.ikTargets2d?.find((c) => c.id === cmd.controlId);
+    if (!ctl) return p;
+    ctl.enabled = cmd.enabled;
+    return p;
+  }
+
+  if (cmd.type === "setIkTargetControlBase") {
+    const ctl = p.rig?.controls?.ikTargets2d?.find((c) => c.id === cmd.controlId);
+    if (!ctl) return p;
+    ctl.x = cmd.x;
+    ctl.y = cmd.y;
+    if (typeof cmd.poleX === "number" && typeof cmd.poleY === "number") {
+      ctl.poleX = cmd.poleX;
+      ctl.poleY = cmd.poleY;
+    }
+    return p;
+  }
+
+  if (cmd.type === "addIkTargetControlKeyframe") {
+    const clip = activeClip(p);
+    if (!Number.isFinite(cmd.t) || cmd.t < 0) return p;
+    if (!Number.isFinite(cmd.v)) return p;
+    if (!clip.controlTracks) clip.controlTracks = [];
+    let tr = clip.controlTracks.find((t) => t.controlId === cmd.controlId);
+    if (!tr) {
+      tr = { controlId: cmd.controlId, channels: [] };
+      clip.controlTracks.push(tr);
+    }
+    let ch = tr.channels.find((c) => c.property === cmd.property);
+    if (!ch) {
+      ch = { property: cmd.property, interpolation: "linear", keys: [] };
+      tr.channels.push(ch);
+    }
+    ch.keys = insertSorted(ch.keys, { t: cmd.t, v: cmd.v });
     return p;
   }
 

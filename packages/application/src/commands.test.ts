@@ -59,6 +59,42 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
+  it("bakes IK chain to FK rot keys", () => {
+    let p = createDefaultEditorProject();
+    p = applyCommand(p, { type: "addDemoIkChain" });
+    const chainId = p.ikTwoBoneChains![0]!.id;
+    p = applyCommand(p, { type: "bakeIkToFk", chainId, sampleTimes: [0] });
+    const clip = p.clips.find((c) => c.id === p.activeClipId)!;
+    const rootId = p.ikTwoBoneChains![0]!.rootBoneId;
+    const midId = p.ikTwoBoneChains![0]!.midBoneId;
+    const rootRotKeys =
+      clip.tracks.find((t) => t.boneId === rootId)?.channels.find((c) => c.property === "rot")?.keys ?? [];
+    const midRotKeys =
+      clip.tracks.find((t) => t.boneId === midId)?.channels.find((c) => c.property === "rot")?.keys ?? [];
+    expect(rootRotKeys.length).toBe(1);
+    expect(midRotKeys.length).toBe(1);
+    expect(Number.isFinite(rootRotKeys[0]!.v)).toBe(true);
+    expect(Number.isFinite(midRotKeys[0]!.v)).toBe(true);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("creates IK target control and keys it", () => {
+    let p = createDefaultEditorProject();
+    p = applyCommand(p, { type: "addDemoIkChain" });
+    const chainId = p.ikTwoBoneChains![0]!.id;
+    p = applyCommand(p, { type: "ensureIkTargetControl", chainId });
+    const ctl = p.rig?.controls?.ikTargets2d?.find((c) => c.chainId === chainId);
+    expect(ctl).toBeTruthy();
+    const t = 0.5;
+    p = applyCommand(p, { type: "addIkTargetControlKeyframe", controlId: ctl!.id, property: "x", t, v: 200 });
+    const clip = p.clips.find((c) => c.id === p.activeClipId)!;
+    const keys =
+      clip.controlTracks?.find((tr) => tr.controlId === ctl!.id)?.channels.find((ch) => ch.property === "x")?.keys ?? [];
+    expect(keys).toHaveLength(1);
+    expect(keys[0]!.v).toBe(200);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
   it("patches character rig slice meta and validates", () => {
     const tinyPng =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

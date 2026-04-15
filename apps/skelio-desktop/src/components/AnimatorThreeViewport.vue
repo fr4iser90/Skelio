@@ -6,10 +6,9 @@
  * Note: This is a preview renderer; interaction (dragging bones to write keys) stays in the canvas animator.
  */
 import {
+  evaluatePose,
   resolveCharacterRigSliceBoundBoneId,
   rigidCharacterRigSliceWorldPose,
-  worldPoseBoneMatrices4,
-  worldPoseOriginsWithIk,
   BONE_LENGTH_HIT_MIN_LOCAL,
   type CharacterRigConfig,
   type CharacterRigSpriteSheetEntry,
@@ -18,7 +17,7 @@ import {
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useEditorStore, type RigCameraViewKind } from "../stores/editor.js";
 
 const store = useEditorStore();
@@ -57,6 +56,8 @@ const matJoint = new THREE.MeshBasicMaterial({ color: 0xc9d0df });
 const matJointSel = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
 
 // (hasRig was used for earlier UI gating; keep rendering functions unconditional.)
+
+const solvedPose = computed(() => evaluatePose(project.value, currentTime.value, { applyIk: true }));
 
 function activeCamera(): THREE.Camera {
   return rigCameraViewKind.value === "2d" && orthoCamera ? orthoCamera : perspCamera!;
@@ -245,8 +246,9 @@ function rebuildSliceMeshes() {
   const rig = project.value.characterRig;
   if (!rig?.slices?.length) return;
 
-  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
-  const jointDisplayByBoneId = worldPoseOriginsWithIk(project.value, currentTime.value);
+  const poseEval = solvedPose.value;
+  const poseM4 = poseEval.solvedWorld4ByBoneId;
+  const jointDisplayByBoneId = poseEval.solvedOriginByBoneId;
 
   const activeSliceId = selectedCharacterRigSliceId.value;
   for (const s of rig.slices) {
@@ -303,8 +305,9 @@ function rebuildBones() {
   clearGroup(boneLines);
   clearGroup(boneJoints);
 
-  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
-  const joint = worldPoseOriginsWithIk(project.value, currentTime.value);
+  const poseEval = solvedPose.value;
+  const poseM4 = poseEval.solvedWorld4ByBoneId;
+  const joint = poseEval.solvedOriginByBoneId;
   const sel = selectedBoneId.value;
 
   for (const b of project.value.bones) {

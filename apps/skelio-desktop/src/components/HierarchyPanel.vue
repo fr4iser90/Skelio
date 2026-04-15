@@ -4,11 +4,18 @@ import { computed } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 
 const store = useEditorStore();
-const { project, selectedBoneId, selectedMeshId, placeNewBonesAtParentTip, characterRigModalOpen } =
-  storeToRefs(store);
+const {
+  project,
+  selectedBoneId,
+  selectedMeshId,
+  placeNewBonesAtParentTip,
+  characterRigModalOpen,
+  characterRigModalStep,
+  quickRigMode,
+} = storeToRefs(store);
 
-/** Skeleton structure: add/remove bones only while Character Rig wizard is open. */
-const skeletonEditLocked = computed(() => !characterRigModalOpen.value);
+/** Skeleton structure: add/remove while Character Setup wizard or Quick Rig. */
+const skeletonEditLocked = computed(() => !(characterRigModalOpen.value || quickRigMode.value));
 
 const rows = computed(() => {
   const out: { id: string; name: string; depth: number }[] = [];
@@ -29,12 +36,26 @@ function select(id: string) {
 function addChild(parentId: string) {
   if (skeletonEditLocked.value) return;
   const n = project.value.bones.filter((x) => x.parentId === parentId).length + 1;
-  store.dispatch({
-    type: "addBone",
-    parentId,
-    name: `bone_${n}`,
-    placeAtParentTip: placeNewBonesAtParentTip.value,
-  });
+  const nBefore = project.value.bones.length;
+  if (
+    !store.dispatch({
+      type: "addBone",
+      parentId,
+      name: `bone_${n}`,
+      placeAtParentTip: placeNewBonesAtParentTip.value,
+    })
+  )
+    return;
+  const placePending =
+    quickRigMode.value || (characterRigModalOpen.value && characterRigModalStep.value === 1);
+  if (placePending) {
+    const nb = project.value.bones;
+    if (nb.length > nBefore) {
+      const newId = nb[nb.length - 1]!.id;
+      store.selectBone(newId);
+      store.setPendingBonePlacement(newId);
+    }
+  }
 }
 
 function remove(id: string) {
@@ -50,7 +71,14 @@ function selectMesh(id: string) {
 <template>
   <div class="panel">
     <h3 class="panel-title">Hierarchie</h3>
-    <label class="pref" :title="skeletonEditLocked ? 'Open Character Rig to edit skeleton options.' : undefined">
+    <label
+      class="pref"
+      :title="
+        skeletonEditLocked
+          ? 'Character Setup oder Quick Rig aktivieren — dann Knochen-Struktur bearbeiten.'
+          : undefined
+      "
+    >
       <input
         type="checkbox"
         :disabled="skeletonEditLocked"
@@ -67,7 +95,11 @@ function selectMesh(id: string) {
             type="button"
             class="mini"
             :disabled="skeletonEditLocked"
-            :title="skeletonEditLocked ? 'Open Character Rig to add bones.' : 'Kind'"
+            :title="
+              skeletonEditLocked
+                ? 'Character Setup oder Quick Rig — dann Knochen hinzufügen.'
+                : 'Kind'
+            "
             @click="addChild(row.id)"
           >
             +
@@ -77,7 +109,9 @@ function selectMesh(id: string) {
             type="button"
             class="mini danger"
             :disabled="skeletonEditLocked"
-            :title="skeletonEditLocked ? 'Open Character Rig to remove bones.' : undefined"
+            :title="
+              skeletonEditLocked ? 'Character Setup oder Quick Rig — dann Knochen entfernen.' : undefined
+            "
             @click="remove(row.id)"
           >
             ×

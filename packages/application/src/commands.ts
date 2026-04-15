@@ -193,7 +193,7 @@ function defaultBindPoseForNewChild(
     return { x: 40, y: 0, rotation: 0, sx: 1, sy: 1 };
   }
   const parent = p.bones.find((b) => b.id === parentId);
-  if (!parent || parent.length <= 1e-9) {
+  if (!parent) {
     return { x: 40, y: 0, rotation: 0, sx: 1, sy: 1 };
   }
   const tip = childBindTranslationAtParentTip(p, parentId);

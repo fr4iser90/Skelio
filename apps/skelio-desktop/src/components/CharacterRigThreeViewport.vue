@@ -27,6 +27,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useEditorStore, type RigCameraViewKind } from "../stores/editor.js";
+import { orbitControlsHandleWasd } from "../viewportWasd.js";
 
 type BrushStroke = {
   meshId: string;
@@ -58,7 +59,12 @@ const rigModalDepthStep = computed(() => characterRigModalStep.value === 3);
 
 const containerRef = ref<HTMLDivElement | null>(null);
 const raycaster = new THREE.Raycaster();
-const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+/**
+ * Knochen-Stäbe und Gelenke teilen dieselbe Z-Ebene wie {@link RIG_WORLD_PLANE_Z} (Maus-Raycast).
+ * Sonst liegen Gelenke perspektivisch „daneben“: Picking/Längen-Drag passen nicht zur Anzeige.
+ */
+const RIG_WORLD_PLANE_Z = 40;
+const rigWorldPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -RIG_WORLD_PLANE_Z);
 
 let renderer: THREE.WebGLRenderer | null = null;
 let scene: THREE.Scene | null = null;
@@ -102,6 +108,8 @@ const boneLengthDrag = ref<{
   startRotation: number;
   previewLength: number;
   previewRotation: number;
+  /** World joint at pointer-down; keeps length drag stable while preview rotation updates. */
+  jointWorldFix?: { x: number; y: number };
   pointerId: number;
 } | null>(null);
 
@@ -135,21 +143,21 @@ const solvedPose = computed(() => evaluatePose(project.value, currentTime.value,
 
 const viewportHintText = computed(() => {
   if (rigModalBindStep.value) {
-    return "Bind: click a bone (hierarchy) · click a part = table row · do not drag parts — assign bone in the dropdown.";
+    return "Character Setup wizard — Bind: click a bone (hierarchy) · click a part = table row · do not drag parts — assign bone in the dropdown.";
   }
   if (rigModalDepthStep.value) {
-    return "3D Settings: selected part only · max depth / maps on the right · Shift+drag = extrusion · click = bone · in front/behind: “Bones” step.";
+    return "Character Setup wizard — 3D Settings: selected part only · max depth / maps on the right · Shift+drag = extrusion · click = bone · in front/behind: “Bones” step.";
   }
   if (weightBrushEnabled.value) {
-    return "Weight brush: selected bone · paint (one undo per stroke).";
+    return "Character Setup wizard — Weight brush: selected bone · paint (one undo per stroke).";
   }
   if (rigCameraViewKind.value === "2d") {
-    return "2D: ortho from front · pan/zoom · middle mouse = pan · wheel = zoom.";
+    return "Character Setup wizard — 2D: ortho · WASD = pan · middle mouse = pan · wheel = zoom.";
   }
   if (rigCameraViewKind.value === "2.5d") {
-    return "2.5D: perspective · limited tilt · left = orbit · middle = pan.";
+    return "Character Setup wizard — 2.5D: perspective · WASD = pan · left = orbit · middle = pan.";
   }
-  return "3D: full orbit · parts with depth = extruded box · grid = ground.";
+  return "Character Setup wizard — 3D: full orbit · WASD = pan · parts with depth = extruded box · grid = ground.";
 });
 
 function activeCamera(): THREE.Camera {
@@ -163,7 +171,7 @@ function skelioWorldFromClient(clientX: number, clientY: number, el: HTMLElement
   const ndc = new THREE.Vector2(x, y);
   raycaster.setFromCamera(ndc, activeCamera());
   const pt = new THREE.Vector3();
-  if (!raycaster.ray.intersectPlane(planeZ, pt)) return null;
+  if (!raycaster.ray.intersectPlane(rigWorldPlane, pt)) return null;
   return { wx: pt.x, wy: -pt.y };
 }
 
@@ -254,6 +262,12 @@ function applyRigCameraMode(kind: RigCameraViewKind) {
     orthoCamera.updateProjectionMatrix();
     controls.object = orthoCamera;
     controls.enableRotate = false;
+    /** Sonst bleibt linke Maustaste auf „Rotate“ → interne Deltas + Damping wirken wie wildes Drehen trotz Ortho. */
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: THREE.MOUSE.PAN,
+    };
     controls.minPolarAngle = Math.PI / 2;
     controls.maxPolarAngle = Math.PI / 2;
     controls.minAzimuthAngle = 0;
@@ -282,6 +296,11 @@ function applyRigCameraMode(kind: RigCameraViewKind) {
     if (!Number.isFinite(dist) || dist < 80) {
       perspCamera.position.set(420, -180, 620);
     }
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: THREE.MOUSE.PAN,
+    };
   }
   controls.update();
   updateZoomLabel();
@@ -332,37 +351,137 @@ function lengthForBoneVisual(
   return L;
 }
 
-function hitTestBoneTip(wx: number, wy: number, radiusWorld: number): string | null {
-  const r2 = radiusWorld * radiusWorld;
-  let best: string | null = null;
-  let bestD = r2;
+/** Distance² from P to segment AB (for bone-shaft picking). */
+function distPointToSegmentSq(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const ab2 = abx * abx + aby * aby;
+  if (ab2 < 1e-12) return (px - ax) ** 2 + (py - ay) ** 2;
+  let t = ((px - ax) * abx + (py - ay) * aby) / ab2;
+  t = Math.max(0, Math.min(1, t));
+  const qx = ax + t * abx;
+  const qy = ay + t * aby;
+  return (px - qx) ** 2 + (py - qy) ** 2;
+}
+
+/** Steps from this bone up to root (1 = root). Deeper bones win pick ties at parent-tip = child-joint. */
+function boneDepthFromRoot(boneId: string): number {
+  let depth = 0;
+  let id: string | null = boneId;
+  const byId = new Map(project.value.bones.map((b) => [b.id, b] as const));
+  while (id) {
+    const b = byId.get(id);
+    if (!b) break;
+    depth++;
+    id = b.parentId;
+  }
+  return depth;
+}
+
+/**
+ * When two picks are almost equally close, break ties (parent tip vs child joint, overlapping shafts).
+ * Do **not** subtract a huge bias for the selected bone — that stole hits from nearer geometry (felt random).
+ */
+const PICK_TIE_EPS2 = 28 * 28;
+
+type RigBonePickCand = { boneId: string; kind: "joint" | "tip" | "shaft"; d2: number };
+
+function compareRigBonePickCands(a: RigBonePickCand, b: RigBonePickCand): number {
+  if (Math.abs(a.d2 - b.d2) > PICK_TIE_EPS2) {
+    return a.d2 - b.d2;
+  }
+  const da = boneDepthFromRoot(a.boneId);
+  const db = boneDepthFromRoot(b.boneId);
+  if (da !== db) return db - da;
+  const sel = selectedBoneId.value;
+  const la = sel === a.boneId && (a.kind === "tip" || a.kind === "shaft") ? 1 : 0;
+  const lb = sel === b.boneId && (b.kind === "tip" || b.kind === "shaft") ? 1 : 0;
+  if (la !== lb) return lb - la;
+  if (a.boneId === sel && b.boneId !== sel) return -1;
+  if (b.boneId === sel && a.boneId !== sel) return 1;
+  return a.d2 - b.d2;
+}
+
+/**
+ * Bones-Schritt: Gelenk (Verschieben) vs. Tip/Schaft (Länge/Winkel).
+ * - Parent-Spitze und Kind-Gelenk liegen auf derselben Weltposition: ohne Tiefe gewinnt oft der falsche Knochen.
+ * - Nur Tip-Kreis ist zu klein: Klicks auf den sichtbaren Stab (Schaft) starten jetzt auch Längen-Drag.
+ */
+function resolveRigBoneStepHit(
+  wx: number,
+  wy: number,
+): { type: "length"; boneId: string } | { type: "drag"; boneId: string } | null {
+  const origins = worldBindOrigins(project.value);
+  const mats = worldBindBoneMatrices(project.value);
+  const rJoint = 18;
+  const rTip = 28;
+  const rShaft = 30;
+  const r2j = rJoint * rJoint;
+  const r2t = rTip * rTip;
+  const r2s = rShaft * rShaft;
+  const sel = selectedBoneId.value;
+  const rigStep = rigModalBoneStep.value;
+
+  const cands: RigBonePickCand[] = [];
+
   for (const b of project.value.bones) {
+    const o = origins.get(b.id);
     const t = worldBindBoneTipForLengthHit(project.value, b.id);
-    if (!t) continue;
-    const d = (t.x - wx) ** 2 + (t.y - wy) ** 2;
-    if (d <= r2 && d < bestD) {
-      bestD = d;
-      best = b.id;
+    const M = mats.get(b.id);
+    if (!o || !t) continue;
+    const dJ = (o.x - wx) ** 2 + (o.y - wy) ** 2;
+    const dT = (t.x - wx) ** 2 + (t.y - wy) ** 2;
+    if (dJ <= r2j && dJ <= dT) {
+      cands.push({ boneId: b.id, kind: "joint", d2: dJ });
+      continue;
+    }
+    if (dT <= r2t) {
+      cands.push({ boneId: b.id, kind: "tip", d2: dT });
+      continue;
+    }
+    const Lvis = lengthForBoneVisual(b, sel, rigStep);
+    if (M && Lvis > 1e-6 && dJ > r2j) {
+      const dx = M.a;
+      const dy = M.b;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      const sx = o.x + ux * Lvis;
+      const sy = o.y + uy * Lvis;
+      const dSeg = distPointToSegmentSq(wx, wy, o.x, o.y, sx, sy);
+      if (dSeg <= r2s) {
+        cands.push({ boneId: b.id, kind: "shaft", d2: dSeg });
+      }
     }
   }
-  return best;
+  if (cands.length === 0) return null;
+  cands.sort(compareRigBonePickCands);
+  const best = cands[0]!;
+  if (best.kind === "joint") return { type: "drag", boneId: best.boneId };
+  return { type: "length", boneId: best.boneId };
 }
 
 function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null {
   const origins = worldBindOrigins(project.value);
   const r2 = radiusWorld * radiusWorld;
-  let best: string | null = null;
-  let bestD = r2;
+  const sel = selectedBoneId.value;
+  const hits: { id: string; d2: number }[] = [];
   for (const b of project.value.bones) {
     const o = origins.get(b.id);
     if (!o) continue;
     const d = (o.x - wx) ** 2 + (o.y - wy) ** 2;
-    if (d <= r2 && d < bestD) {
-      bestD = d;
-      best = b.id;
-    }
+    if (d <= r2) hits.push({ id: b.id, d2: d });
   }
-  return best;
+  hits.sort((a, b) => {
+    if (a.d2 !== b.d2) return a.d2 - b.d2;
+    const da = boneDepthFromRoot(a.id);
+    const db = boneDepthFromRoot(b.id);
+    if (da !== db) return db - da;
+    if (a.id === sel && b.id !== sel) return -1;
+    if (b.id === sel && a.id !== sel) return 1;
+    return 0;
+  });
+  return hits[0]?.id ?? null;
 }
 
 function hitTestRigSlice(wx: number, wy: number): string | null {
@@ -408,13 +527,17 @@ function beginBoneLengthDrag(boneId: string, wx: number, wy: number, e: PointerE
   const b = project.value.bones.find((x) => x.id === boneId);
   const startLen = b?.length ?? 0;
   const startRot = b?.bindPose.rotation ?? 0;
-  const tip = b ? boneLengthAndBindRotationFromWorldTip(project.value, boneId, wx, wy) : null;
+  const J0 = worldBindOrigins(project.value).get(boneId);
+  const tip = b
+    ? boneLengthAndBindRotationFromWorldTip(project.value, boneId, wx, wy, undefined, J0)
+    : null;
   boneLengthDrag.value = {
     boneId,
     startLength: startLen,
     startRotation: startRot,
     previewLength: tip?.length ?? startLen,
     previewRotation: tip?.rotation ?? startRot,
+    ...(J0 ? { jointWorldFix: { x: J0.x, y: J0.y } } : {}),
     pointerId: e.pointerId,
   };
   try {
@@ -614,6 +737,11 @@ function getSliceAlbedoTextures(
   return { tex, texBack };
 }
 
+/** Rail „Side“: im Setup nur die passende Fläche zeigen (Front- vs. Rückseiten-Teil). */
+function sliceFacing(s: { side?: "front" | "back" }): "front" | "back" {
+  return s.side === "back" ? "back" : "front";
+}
+
 function rebuildSliceMeshes() {
   clearGroup(sliceGroup);
   const rig = project.value.characterRig;
@@ -651,10 +779,26 @@ function rebuildSliceMeshes() {
     const rot = rigid?.rot ?? 0;
     const { df, db } = depthForSlice(s.id);
     const { tex, texBack } = getSliceAlbedoTextures(s, rig);
+    if (!tex) continue;
+    const albedoBackTex = texBack ?? tex;
     const depthTotal = df + db;
     const alpha = onlySelectedSlice3d ? 1 : activeSliceId === null ? 1 : s.id === activeSliceId ? 1 : 0.44;
+    const facing = sliceFacing(s);
 
-    if (depthTotal > 1e-3 && tex) {
+    const mkSliceMat = (map: THREE.Texture) => {
+      const m = new THREE.MeshStandardMaterial({
+        map,
+        transparent: true,
+        alphaTest: 0.02,
+        roughness: 0.6,
+        side: THREE.DoubleSide,
+      });
+      m.opacity = alpha;
+      m.transparent = alpha < 1;
+      return m;
+    };
+
+    if (depthTotal > 1e-3) {
       // If a depth texture exists, show displaced surfaces (preview only).
       const imgF = getDepthImageDataOrStartLoad(s.id, "front");
       const imgB = getDepthImageDataOrStartLoad(s.id, "back");
@@ -662,20 +806,9 @@ function rebuildSliceMeshes() {
 
       if (hasTex) {
         const seg = Math.max(12, Math.min(96, Math.floor(Math.max(s.width, s.height) / 6)));
-        const mkMat = () => {
-          const m = new THREE.MeshStandardMaterial({
-            map: tex,
-            transparent: true,
-            alphaTest: 0.02,
-            roughness: 0.6,
-            side: THREE.DoubleSide,
-          });
-          m.opacity = alpha;
-          m.transparent = alpha < 1;
-          return m;
-        };
+        let displacedAdded = 0;
 
-        if (imgF && df > 1e-6) {
+        if (facing !== "back" && imgF && df > 1e-6) {
           const geo = new THREE.PlaneGeometry(s.width, s.height, seg, seg);
           const pos = geo.getAttribute("position") as THREE.BufferAttribute;
           for (let i = 0; i < pos.count; i++) {
@@ -687,14 +820,15 @@ function rebuildSliceMeshes() {
           }
           pos.needsUpdate = true;
           geo.computeVertexNormals();
-          const mesh = new THREE.Mesh(geo, mkMat());
+          const mesh = new THREE.Mesh(geo, mkSliceMat(tex));
           mesh.position.set(px, -py, 0);
           mesh.rotation.z = -rot;
           mesh.renderOrder = 1;
           sliceGroup.add(mesh);
+          displacedAdded++;
         }
 
-        if (imgB && db > 1e-6) {
+        if (facing !== "front" && imgB && db > 1e-6) {
           const geo = new THREE.PlaneGeometry(s.width, s.height, seg, seg);
           const pos = geo.getAttribute("position") as THREE.BufferAttribute;
           for (let i = 0; i < pos.count; i++) {
@@ -707,46 +841,38 @@ function rebuildSliceMeshes() {
           }
           pos.needsUpdate = true;
           geo.computeVertexNormals();
-          const mesh = new THREE.Mesh(geo, mkMat());
+          const mesh = new THREE.Mesh(geo, mkSliceMat(albedoBackTex));
           mesh.position.set(px, -py, 0);
           mesh.rotation.z = -rot;
           mesh.renderOrder = 1;
           sliceGroup.add(mesh);
+          displacedAdded++;
         }
-        continue;
+        if (displacedAdded > 0) continue;
       }
 
-      // Fallback: simple box extrusion when no depth texture exists.
-      const geo = new THREE.BoxGeometry(s.width, s.height, depthTotal);
-      const sideMat = new THREE.MeshStandardMaterial({ color: 0x4a4d5c, roughness: 0.85 });
-      const frontMat = new THREE.MeshStandardMaterial({
-        map: tex,
+      // Extrusion ohne nutzbare Displacement-Maps, oder nur die andere Seite hat Maps: eine Albedo-Fläche.
+      const map = facing === "back" ? albedoBackTex : tex;
+      const geo = new THREE.PlaneGeometry(s.width, s.height);
+      const mat = new THREE.MeshStandardMaterial({
+        map,
         transparent: true,
         alphaTest: 0.02,
-        roughness: 0.6,
         side: THREE.DoubleSide,
+        roughness: 0.55,
       });
-      const backMat = new THREE.MeshStandardMaterial({
-        map: texBack ?? tex,
-        transparent: true,
-        alphaTest: 0.02,
-        roughness: 0.6,
-        side: THREE.DoubleSide,
-      });
-      const mats: THREE.Material[] = [sideMat, sideMat, sideMat, sideMat, frontMat, backMat];
-      const mesh = new THREE.Mesh(geo, mats);
+      mat.opacity = alpha;
+      mat.transparent = alpha < 1;
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(px, -py, (db - df) / 2);
       mesh.rotation.z = -rot;
       mesh.renderOrder = 1;
-      mats.forEach((m) => {
-        (m as THREE.MeshStandardMaterial).opacity = alpha;
-        (m as THREE.MeshStandardMaterial).transparent = alpha < 1;
-      });
       sliceGroup.add(mesh);
-    } else if (tex) {
+    } else {
+      const map = facing === "back" ? albedoBackTex : tex;
       const geo = new THREE.PlaneGeometry(s.width, s.height);
       const mat = new THREE.MeshStandardMaterial({
-        map: tex,
+        map,
         transparent: true,
         alphaTest: 0.02,
         side: THREE.DoubleSide,
@@ -832,7 +958,7 @@ function rebuildBones() {
     const r = sel ? 8.5 : 6.5;
     const geo = new THREE.SphereGeometry(r, 16, 12);
     const mesh = new THREE.Mesh(geo, sel ? matJointSel : matJoint);
-    mesh.position.set(o.x, -o.y, 55);
+    mesh.position.set(o.x, -o.y, RIG_WORLD_PLANE_Z);
     mesh.renderOrder = 4;
     boneJoints.add(mesh);
   }
@@ -872,7 +998,8 @@ function fullRebuild() {
 
 function animate() {
   animId = requestAnimationFrame(animate);
-  controls?.update();
+  /** Während Bone-/Length-Drag ist `controls.enabled === false`; trotzdem würde `update()` Damping anwenden → Kamera „spinnt“. */
+  if (controls?.enabled) controls.update();
   rebuildBones();
   rebuildSkinnedMeshPreview();
   if (renderer && scene) {
@@ -1081,21 +1208,20 @@ function onPointerDown(e: PointerEvent) {
         return;
       }
     }
-    const hitTip = hitTestBoneTip(wx, wy, 16);
-    if (hitTip) {
+    const rigHit = resolveRigBoneStepHit(wx, wy);
+    if (rigHit?.type === "length") {
       e.preventDefault();
       e.stopPropagation();
       if (controls) controls.enabled = false;
-      beginBoneLengthDrag(hitTip, wx, wy, e, el);
+      beginBoneLengthDrag(rigHit.boneId, wx, wy, e, el);
       return;
     }
-    const hitB = hitTestBone(wx, wy, 18);
-    if (hitB) {
+    if (rigHit?.type === "drag") {
       e.preventDefault();
       e.stopPropagation();
       if (controls) controls.enabled = false;
-      store.selectBone(hitB);
-      boneDrag.value = { boneId: hitB };
+      store.selectBone(rigHit.boneId);
+      boneDrag.value = { boneId: rigHit.boneId };
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
@@ -1258,7 +1384,14 @@ function onPointerMove(e: PointerEvent) {
     const b = project.value.bones.find((x) => x.id === d.boneId);
     if (b) {
       const previewBind = { ...b.bindPose, rotation: d.previewRotation };
-      const tip = boneLengthAndBindRotationFromWorldTip(project.value, d.boneId, w.wx, w.wy, previewBind);
+      const tip = boneLengthAndBindRotationFromWorldTip(
+        project.value,
+        d.boneId,
+        w.wx,
+        w.wy,
+        previewBind,
+        d.jointWorldFix,
+      );
       if (tip) {
         boneLengthDrag.value = {
           ...d,
@@ -1400,9 +1533,15 @@ function onLengthDragEscapeKey(e: KeyboardEvent) {
   releaseBoneLengthPointerCapture(d.pointerId, canvasEl);
 }
 
+function onWasdPanKeyDown(e: KeyboardEvent) {
+  if (!controls) return;
+  if (orbitControlsHandleWasd(controls, e)) e.preventDefault();
+}
+
 onMounted(() => {
   window.addEventListener("keydown", onLengthDragEscapeKey, true);
   initThree();
+  window.addEventListener("keydown", onWasdPanKeyDown, true);
 });
 
 watch(
@@ -1431,6 +1570,7 @@ watch(rigCameraViewKind, (k) => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onLengthDragEscapeKey, true);
+  window.removeEventListener("keydown", onWasdPanKeyDown, true);
   disposeAll();
 });
 </script>

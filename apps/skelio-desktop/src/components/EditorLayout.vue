@@ -60,8 +60,8 @@ function onKey(e: KeyboardEvent) {
       <aside class="side">
         <HierarchyPanel />
       </aside>
-      <div class="viewport-slot">
-        <ViewportPanel v-if="!characterRigModalOpen" />
+      <div class="viewport-slot" :class="{ 'viewport-slot--setup-wizard-open': characterRigModalOpen }">
+        <ViewportPanel />
       </div>
       <aside class="side right">
         <InspectorPanel />
@@ -97,6 +97,10 @@ function onKey(e: KeyboardEvent) {
   flex-direction: column;
   overflow: hidden;
   background: #0f1014;
+}
+/* Wizard overlay (Teleport, z-index 1000) blocks interaction; this avoids rare hit-target leaks. */
+.viewport-slot--setup-wizard-open {
+  pointer-events: none;
 }
 .side {
   border-right: 1px solid #2a2f3a;

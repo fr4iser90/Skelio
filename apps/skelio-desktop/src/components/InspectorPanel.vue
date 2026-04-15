@@ -18,10 +18,11 @@ const {
   weightBrushSubtract,
   placeNewBonesAtParentTip,
   characterRigModalOpen,
+  quickRigMode,
 } = storeToRefs(store);
 
-/** Bind pose / length / chain: edit in Character Rig wizard; main window = animation + weights + IK. */
-const bindPoseLocked = computed(() => !characterRigModalOpen.value);
+/** Bind pose / length / chain: Character Setup wizard or Quick Rig; sonst Keys + Gewichte + IK. */
+const bindPoseLocked = computed(() => !(characterRigModalOpen.value || quickRigMode.value));
 
 const poseRotationAtPlayhead = computed(() => {
   const b = selectedBone.value;
@@ -234,8 +235,8 @@ function removeIkChain(chainId: string) {
     <template v-if="selectedBone">
       <h3 class="panel-title">Knochen</h3>
       <p v-if="bindPoseLocked" class="bone-hint bone-hint-warn">
-        <strong>Skeleton / bind pose</strong> is edited in <strong>Character Rig</strong> (open the rig wizard). Here:
-        <strong>animation</strong> (keys, viewport drag on sprites/bones), weights, IK.
+        <strong>Skeleton / bind pose</strong>: Toolbar <strong>Character Setup…</strong> oder <strong>Quick Rig</strong>
+        aktivieren. Hier sonst <strong>Animation</strong> (Keys, Viewport-Ziehen), Gewichte, IK.
       </p>
       <p v-else class="bone-hint">
         <strong>Bind pose</strong> = rest skeleton. <strong>Animation</strong> uses keys at time

@@ -2,7 +2,8 @@
   "editorSchemaVersion": "1.0.0",
   "meta": {
     "name": "Untitled",
-    "fps": 60
+    "fps": 60,
+    "clipTransformsRelativeToBind": true
   },
   "bones": [
     {
@@ -34,7 +35,7 @@
     {
       "id": "bone_bzc4a3tys9",
       "parentId": "bone_o7rt2yd2s7",
-      "name": "bein li",
+      "name": "bein re",
       "bindPose": {
         "x": 0.2189465794373291,
         "y": 128.4323425060652,
@@ -47,7 +48,7 @@
     {
       "id": "bone_lyj3v2i9un",
       "parentId": "bone_o7rt2yd2s7",
-      "name": "bein re",
+      "name": "bein li",
       "bindPose": {
         "x": 32.5906269391445,
         "y": -88.65822825768956,
@@ -60,7 +61,7 @@
     {
       "id": "bone_od56wu2p0a",
       "parentId": "bone_o7rt2yd2s7",
-      "name": "Knochen 5",
+      "name": "arm re",
       "bindPose": {
         "x": 237.73138630760513,
         "y": 154.6826107874082,
@@ -73,7 +74,7 @@
     {
       "id": "bone_jq1rew3ug5",
       "parentId": "bone_o7rt2yd2s7",
-      "name": "arm re",
+      "name": "arm li",
       "bindPose": {
         "x": 226.96782794567974,
         "y": -161.25948465969617,
@@ -86,7 +87,7 @@
     {
       "id": "bone_2urpt0d440",
       "parentId": "bone_o7rt2yd2s7",
-      "name": "Knochen 7",
+      "name": "Kopf",
       "bindPose": {
         "x": 372.38139091365224,
         "y": 7.158546179842464,
@@ -101,7 +102,38 @@
     {
       "id": "clip_hii5y4oeuf",
       "name": "main",
-      "tracks": []
+      "tracks": [
+        {
+          "boneId": "bone_jq1rew3ug5",
+          "channels": [
+            {
+              "property": "rot",
+              "interpolation": "linear",
+              "keys": [
+                {
+                  "t": 0,
+                  "v": 0.011871467851101603
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "boneId": "bone_od56wu2p0a",
+          "channels": [
+            {
+              "property": "rot",
+              "interpolation": "linear",
+              "keys": [
+                {
+                  "t": 0,
+                  "v": -0.11397830898382022
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "activeClipId": "clip_hii5y4oeuf",
@@ -201,19 +233,31 @@
       },
       {
         "sliceId": "slice_ky7cm8wj01",
-        "boneId": "bone_bzc4a3tys9"
+        "boneId": "bone_lyj3v2i9un",
+        "localX": 181.5279691485935,
+        "localY": 49.04287127678025,
+        "localZ": 0
       },
       {
         "sliceId": "slice_oa7tvs6gim",
-        "boneId": "bone_lyj3v2i9un"
-      },
-      {
-        "sliceId": "slice_osm02nbf1d",
-        "boneId": "bone_od56wu2p0a"
+        "boneId": "bone_bzc4a3tys9",
+        "localX": 171.88674481262876,
+        "localY": 46.4832504694335,
+        "localZ": 0
       },
       {
         "sliceId": "slice_s1v58k93b",
-        "boneId": "bone_jq1rew3ug5"
+        "boneId": "bone_od56wu2p0a",
+        "localX": 185.5644723991253,
+        "localY": 30.52710188147273,
+        "localZ": 0
+      },
+      {
+        "sliceId": "slice_osm02nbf1d",
+        "boneId": "bone_jq1rew3ug5",
+        "localX": 98.35168888301865,
+        "localY": -2.9051949686069207,
+        "localZ": 0
       }
     ],
     "sliceDepths": [
@@ -310,49 +354,49 @@
       "influences": [
         [
           {
-            "boneId": "bone_bzc4a3tys9",
+            "boneId": "bone_lyj3v2i9un",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_bzc4a3tys9",
+            "boneId": "bone_lyj3v2i9un",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_bzc4a3tys9",
+            "boneId": "bone_lyj3v2i9un",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_bzc4a3tys9",
+            "boneId": "bone_lyj3v2i9un",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_bzc4a3tys9",
+            "boneId": "bone_lyj3v2i9un",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_bzc4a3tys9",
+            "boneId": "bone_lyj3v2i9un",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_bzc4a3tys9",
+            "boneId": "bone_lyj3v2i9un",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_bzc4a3tys9",
+            "boneId": "bone_lyj3v2i9un",
             "weight": 1
           }
         ]
@@ -412,49 +456,49 @@
       "influences": [
         [
           {
-            "boneId": "bone_lyj3v2i9un",
+            "boneId": "bone_bzc4a3tys9",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_lyj3v2i9un",
+            "boneId": "bone_bzc4a3tys9",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_lyj3v2i9un",
+            "boneId": "bone_bzc4a3tys9",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_lyj3v2i9un",
+            "boneId": "bone_bzc4a3tys9",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_lyj3v2i9un",
+            "boneId": "bone_bzc4a3tys9",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_lyj3v2i9un",
+            "boneId": "bone_bzc4a3tys9",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_lyj3v2i9un",
+            "boneId": "bone_bzc4a3tys9",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_lyj3v2i9un",
+            "boneId": "bone_bzc4a3tys9",
             "weight": 1
           }
         ]
@@ -514,49 +558,49 @@
       "influences": [
         [
           {
-            "boneId": "bone_od56wu2p0a",
+            "boneId": "bone_jq1rew3ug5",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_od56wu2p0a",
+            "boneId": "bone_jq1rew3ug5",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_od56wu2p0a",
+            "boneId": "bone_jq1rew3ug5",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_od56wu2p0a",
+            "boneId": "bone_jq1rew3ug5",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_od56wu2p0a",
+            "boneId": "bone_jq1rew3ug5",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_od56wu2p0a",
+            "boneId": "bone_jq1rew3ug5",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_od56wu2p0a",
+            "boneId": "bone_jq1rew3ug5",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_od56wu2p0a",
+            "boneId": "bone_jq1rew3ug5",
             "weight": 1
           }
         ]
@@ -718,49 +762,49 @@
       "influences": [
         [
           {
-            "boneId": "bone_jq1rew3ug5",
+            "boneId": "bone_od56wu2p0a",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_jq1rew3ug5",
+            "boneId": "bone_od56wu2p0a",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_jq1rew3ug5",
+            "boneId": "bone_od56wu2p0a",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_jq1rew3ug5",
+            "boneId": "bone_od56wu2p0a",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_jq1rew3ug5",
+            "boneId": "bone_od56wu2p0a",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_jq1rew3ug5",
+            "boneId": "bone_od56wu2p0a",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_jq1rew3ug5",
+            "boneId": "bone_od56wu2p0a",
             "weight": 1
           }
         ],
         [
           {
-            "boneId": "bone_jq1rew3ug5",
+            "boneId": "bone_od56wu2p0a",
             "weight": 1
           }
         ]

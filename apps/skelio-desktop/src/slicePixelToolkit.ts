@@ -1,5 +1,5 @@
 /**
- * Browser-only helpers for Character Rig sprite editing.
+ * Browser-only helpers for Character Setup wizard sprite editing.
  */
 import type { CharacterRigSliceEmbeddedImage, EditorProject } from "@skelio/domain";
 

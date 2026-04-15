@@ -45,14 +45,17 @@ export const useEditorStore = defineStore("editor", () => {
   const weightBrushStrength = ref(0.06);
   const weightBrushSubtract = ref(false);
 
-  /** Character Rig: Viewport + Schritte + Sprite-Import. */
+  /** Character Setup: geführter Wizard (Viewport + Schritte + Sprite-Import), kein Alltags-Animator. */
   const characterRigModalOpen = ref(false);
+
+  /** Hauptfenster: Bind-Pose / Knochen-Struktur wie Wizard-Schritt „Bones“, ohne Assistenten. */
+  const quickRigMode = ref(false);
 
   /** Modal: Region aus Sprite-Sheet in gewählten Slot übernehmen. */
   const sheetSliceModalOpen = ref(false);
   const sheetSliceModalSheetId = ref<string | null>(null);
 
-  /** Character-Rig-Assistent: aktiver Schritt (0–4), für Viewport-Logik. */
+  /** Character-Setup-Assistent: aktiver Schritt (0–4), für Viewport-Logik im Wizard. */
   const characterRigModalStep = ref(0);
   /** Nächster Klick im Viewport setzt die Position dieses Knochens (BindPose). */
   const pendingBonePlacementId = ref<string | null>(null);
@@ -60,7 +63,7 @@ export const useEditorStore = defineStore("editor", () => {
   /** Neu angelegte Kind-Knochen: Bind X/Y an Parent-Spitze (wenn Parent `length` > 0), sonst klassisch (40,0). */
   const placeNewBonesAtParentTip = ref(false);
 
-  /** Nur im Character-Rig-Modal: Kamera-Modus (2D = Ortho; 2.5D/3D = Perspektive). Beim Schließen → 2D. */
+  /** Nur im Character-Setup-Wizard: Kamera-Modus (2D = Ortho; 2.5D/3D = Perspektive). Beim Schließen → 2D. */
   const rigCameraViewKind = ref<RigCameraViewKind>("2d");
   /** Keine Welt-Y-Stauchung mehr (echtes 2.5D/3D über Kamera/Perspektive). */
   const rigCameraWorldYScale = computed(() => 1);
@@ -247,7 +250,12 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function openCharacterRigModal() {
+    quickRigMode.value = false;
     characterRigModalOpen.value = true;
+  }
+
+  function setQuickRigMode(on: boolean) {
+    quickRigMode.value = on;
   }
 
   function closeCharacterRigModal() {
@@ -326,6 +334,8 @@ export const useEditorStore = defineStore("editor", () => {
     characterRigModalOpen,
     openCharacterRigModal,
     closeCharacterRigModal,
+    quickRigMode,
+    setQuickRigMode,
     sheetSliceModalOpen,
     sheetSliceModalSheetId,
     openSheetSliceModal,

@@ -476,6 +476,16 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
+  it("places new child at parent tip when parent length is zero", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!;
+    p = applyCommand(p, { type: "setBoneLength", boneId: root.id, length: 0 });
+    p = applyCommand(p, { type: "addBone", parentId: root.id, name: "child", placeAtParentTip: true });
+    expect(p.bones.find((b) => b.name === "child")!.bindPose.x).toBeCloseTo(0, 5);
+    expect(p.bones.find((b) => b.name === "child")!.bindPose.y).toBeCloseTo(0, 5);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
   it("addBone with placeAtParentTip false keeps classic offset", () => {
     let p = createDefaultEditorProject();
     const root = p.bones[0]!.id;

@@ -92,8 +92,13 @@ export function boneLengthFromWorldPointer(W: Mat2D, worldX: number, worldY: num
 
 /**
  * Tip-drag style: distance from joint to pointer = bone length; bind rotation turns local +X toward the pointer.
- * Pass `previewBindPose` (usually same as bone.bindPose but with last frame’s preview rotation) so joint/tangent
- * stay consistent while dragging.
+ * Pass `previewBindPose` (usually same as bone.bindPose but with last frame’s preview rotation) for `cur` (current
+ * world angle of local +X). During live preview, pass `jointWorldFix` = world joint at pointer-down so length does
+ * not use a pivot that moves when preview rotation changes (avoids jitter).
+ *
+ * **Child bones:** `rotation += tgt - cur` is wrong once the parent world matrix rotates the child axis: `cur` is a
+ * world angle but `+dr` is applied in **local** space. We instead map the unit world direction into the parent’s
+ * linear 2×2 inverse and take `atan2` there — same result as root when the parent is identity.
  */
 export function boneLengthAndBindRotationFromWorldTip(
   project: EditorProject,
@@ -101,6 +106,7 @@ export function boneLengthAndBindRotationFromWorldTip(
   worldX: number,
   worldY: number,
   previewBindPose?: Transform2D,
+  jointWorldFix?: { x: number; y: number },
 ): { length: number; rotation: number } | null {
   const bone = project.bones.find((b) => b.id === boneId);
   if (!bone) return null;
@@ -108,16 +114,41 @@ export function boneLengthAndBindRotationFromWorldTip(
   const mats = worldBindBoneMatricesOverridingBindPose(project, boneId, local);
   const W = mats.get(boneId);
   if (!W) return null;
-  const J = apply(W, 0, 0);
+  const J = jointWorldFix ?? apply(W, 0, 0);
   const dx = worldX - J.x;
   const dy = worldY - J.y;
   const L = Math.max(1e-6, Math.hypot(dx, dy));
   const tgt = Math.atan2(dy, dx);
-  const cur = Math.atan2(W.b, W.a);
-  let dr = tgt - cur;
-  while (dr > Math.PI) dr -= 2 * Math.PI;
-  while (dr < -Math.PI) dr += 2 * Math.PI;
-  const rotation = local.rotation + dr;
+  const wx = Math.cos(tgt);
+  const wy = Math.sin(tgt);
+
+  let rotation: number;
+  if (bone.parentId === null) {
+    const cur = Math.atan2(W.b, W.a);
+    let dr = tgt - cur;
+    while (dr > Math.PI) dr -= 2 * Math.PI;
+    while (dr < -Math.PI) dr += 2 * Math.PI;
+    rotation = local.rotation + dr;
+  } else {
+    const P = mats.get(bone.parentId);
+    const det = P ? P.a * P.d - P.b * P.c : 0;
+    if (!P || Math.abs(det) < 1e-14) {
+      const cur = Math.atan2(W.b, W.a);
+      let dr = tgt - cur;
+      while (dr > Math.PI) dr -= 2 * Math.PI;
+      while (dr < -Math.PI) dr += 2 * Math.PI;
+      rotation = local.rotation + dr;
+    } else {
+      const invDet = 1 / det;
+      const ia = P.d * invDet;
+      const ib = -P.b * invDet;
+      const ic = -P.c * invDet;
+      const id = P.a * invDet;
+      const hx = ia * wx + ic * wy;
+      const hy = ib * wx + id * wy;
+      rotation = Math.atan2(hy, hx);
+    }
+  }
   return { length: L, rotation };
 }
 

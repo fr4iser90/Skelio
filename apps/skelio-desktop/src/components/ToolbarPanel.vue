@@ -228,9 +228,25 @@ async function saveRuntimeExportToFile() {
       <button type="button" title="Nach project.skelio.json im gewählten Ordner speichern" @click="onSaveProjectFolder">Ordner speichern</button>
       <button type="button" class="ghost" title="Anderen Zielordner (Pfad)" @click="onSaveProjectFolderAs">Speichern unter…</button>
     </template>
-    <button type="button" title="Viewport, Sprite-Import, Knochen binden, Tiefe" @click="store.openCharacterRigModal()">
-      Character Rig…
+    <button
+      type="button"
+      title="Character Setup — geführter Assistent (kein Alltags-Animator): Parts, Bones, Binding, 3D-Tiefe, Vorschau"
+      @click="store.openCharacterRigModal()"
+    >
+      Character Setup…
     </button>
+    <button
+      type="button"
+      class="ghost"
+      :class="{ 'quick-rig-toggle-on': store.quickRigMode }"
+      title="Quick Rig: Bind-Pose und Knochen-Struktur im Hauptfenster (Viewport wie Setup »Bones«); Animator-Ziehen auf Knochen/Sprites aus"
+      @click="store.setQuickRigMode(!store.quickRigMode)"
+    >
+      Quick Rig
+    </button>
+    <span v-if="store.quickRigMode" class="quick-rig-pill" role="status">
+      Quick Rig an — Bind/Struktur; kein Keyframe-Ziehen auf Knochen/Sprites
+    </span>
     <button type="button" @click="triggerRefImage">Referenzbild…</button>
     <input
       ref="refImageInput"
@@ -321,6 +337,23 @@ button:hover {
 button.ghost {
   border-color: #555;
   color: #9ca3af;
+}
+button.quick-rig-toggle-on {
+  border-color: #d97706;
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.45);
+}
+.quick-rig-pill {
+  font-size: 0.72rem;
+  color: #fcd34d;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(217, 119, 6, 0.55);
+  background: rgba(120, 53, 15, 0.35);
+  white-space: nowrap;
+  max-width: min(42vw, 22rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sp {
   flex: 1;

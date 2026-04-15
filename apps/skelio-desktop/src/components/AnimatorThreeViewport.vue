@@ -19,6 +19,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useEditorStore, type RigCameraViewKind } from "../stores/editor.js";
+import { orbitControlsHandleWasd } from "../viewportWasd.js";
 
 const store = useEditorStore();
 const { project, currentTime, selectedBoneId, selectedCharacterRigSliceId, rigCameraViewKind } = storeToRefs(store);
@@ -31,6 +32,7 @@ let perspCamera: THREE.PerspectiveCamera | null = null;
 let orthoCamera: THREE.OrthographicCamera | null = null;
 let controls: OrbitControls | null = null;
 let animId = 0;
+let animatorWasdKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 const rootGroup = new THREE.Group();
 const sliceGroup = new THREE.Group();
@@ -408,12 +410,23 @@ onMounted(() => {
 
   applyRigCameraMode(rigCameraViewKind.value);
   window.addEventListener("resize", onResize);
+
+  animatorWasdKeyHandler = (e: KeyboardEvent) => {
+    if (!controls) return;
+    if (orbitControlsHandleWasd(controls, e)) e.preventDefault();
+  };
+  window.addEventListener("keydown", animatorWasdKeyHandler, true);
+
   animate();
 });
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(animId);
   window.removeEventListener("resize", onResize);
+  if (animatorWasdKeyHandler) {
+    window.removeEventListener("keydown", animatorWasdKeyHandler, true);
+    animatorWasdKeyHandler = null;
+  }
   controls?.dispose();
   disposeTextureCache();
   if (renderer) {

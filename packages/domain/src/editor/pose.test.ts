@@ -114,4 +114,45 @@ describe("bone length / tip", () => {
     expect(r.length).toBeCloseTo(30, 5);
     expect(r.rotation).toBeCloseTo(0, 5);
   });
+
+  it("tip drag jointWorldFix measures length from the fixed pivot, not apply(W,0,0) with preview", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones.find((b) => b.parentId === null)!;
+    root.length = 40;
+    p.bones.push({
+      id: "child_len_fix",
+      parentId: root.id,
+      name: "child",
+      bindPose: { x: 40, y: 0, rotation: 0, sx: 1, sy: 1 },
+      length: 30,
+    });
+    const child = p.bones.find((b) => b.id === "child_len_fix")!;
+    const J = worldBindOrigins(p).get(child.id)!;
+    const wx = 80;
+    const wy = 10;
+    const previewSpin = { ...child.bindPose, rotation: Math.PI / 3 };
+    const withFix = boneLengthAndBindRotationFromWorldTip(p, child.id, wx, wy, previewSpin, J)!;
+    expect(withFix.length).toBeCloseTo(Math.hypot(wx - J.x, wy - J.y), 5);
+  });
+
+  it("tip drag for child under rotated parent aims world +X at pointer (parent chain, not local+delta)", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones.find((b) => b.parentId === null)!;
+    root.bindPose = { x: 0, y: 0, rotation: Math.PI / 2, sx: 1, sy: 1 };
+    root.length = 10;
+    p.bones.push({
+      id: "child_rot_parent",
+      parentId: root.id,
+      name: "child",
+      bindPose: { x: 10, y: 0, rotation: 0, sx: 1, sy: 1 },
+      length: 20,
+    });
+    const child = p.bones.find((b) => b.id === "child_rot_parent")!;
+    const J = worldBindOrigins(p).get(child.id)!;
+    const r = boneLengthAndBindRotationFromWorldTip(p, child.id, J.x + 35, J.y, undefined, J)!;
+    expect(r.length).toBeCloseTo(35, 5);
+    child.bindPose.rotation = r.rotation;
+    const W = worldBindBoneMatrices(p).get(child.id)!;
+    expect(Math.atan2(W.b, W.a)).toBeCloseTo(0, 4);
+  });
 });

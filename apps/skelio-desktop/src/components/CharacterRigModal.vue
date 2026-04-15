@@ -10,7 +10,7 @@ import {
   type CharacterRigSpriteSlice,
 } from "@skelio/domain";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, onUnmounted, ref, toRaw, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, toRaw, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 import { generateRegeneratedDepthTexturePayload } from "../slicePixelToolkit.js";
 import CharacterRigThreeViewport from "./CharacterRigThreeViewport.vue";
@@ -57,6 +57,11 @@ const selectedSliceFor3d = computed(() => {
   return slices.value.find((s) => s.id === id) ?? null;
 });
 
+/** 3D Settings + WebGL mesh: only the column matching rail „Side“. */
+const selectedSliceFacing3d = computed<"front" | "back">(() =>
+  selectedSliceFor3d.value?.side === "back" ? "back" : "front",
+);
+
 const partModalSlice = computed(() => {
   const id = spriteModalSliceId.value;
   if (!id) return null;
@@ -90,7 +95,7 @@ const steps = [
   {
     id: "depth",
     title: "3D Settings",
-    hint: "Selected part: front/back max depth, map thumbnails, edit & regenerate. Viewport shows only this part. Bone depth: “Bones” step.",
+    hint: "Per part: depth UI matches **Side** in the rail (Front vs Back). Viewport shows that part only. Bone depth: “Bones” step.",
   },
   { id: "preview", title: "Preview", hint: "Overview — available only after binding is complete." },
 ] as const;
@@ -443,6 +448,22 @@ function setSliceSide(sliceId: string, side: "front" | "back") {
   store.dispatch({ type: "patchCharacterRigSlice", sliceId, side });
 }
 
+function removeSlice(sliceId: string) {
+  const s = slices.value.find((x) => x.id === sliceId);
+  if (!s) return;
+  if (
+    !confirm(
+      `Part „${s.name}“ löschen? Bindung, Tiefen-Einträge und das zugehörige rig_slice-Mesh werden entfernt (Undo: Toolbar).`,
+    )
+  )
+    return;
+  if (!store.dispatch({ type: "removeCharacterRigSlice", sliceId })) return;
+  if (selectedCharacterRigSliceId.value === sliceId) {
+    const rest = project.value.characterRig?.slices ?? [];
+    store.selectCharacterRigSlice(rest[0]?.id ?? null);
+  }
+}
+
 function onSliceNameChange(s: CharacterRigSpriteSlice, e: Event) {
   const el = e.target as HTMLInputElement;
   const v = el.value.trim();
@@ -489,7 +510,13 @@ function addEmptySlot() {
   if (!store.dispatch({ type: "addCharacterRigEmptyPart" })) return;
   const next = project.value.characterRig?.slices;
   if (next && next.length > before) {
-    store.selectCharacterRigSlice(next[next.length - 1]!.id);
+    const id = next[next.length - 1]!.id;
+    store.selectCharacterRigSlice(id);
+    void nextTick(() => {
+      const inp = document.querySelector<HTMLInputElement>(`input.rail-name-input[data-slice-id="${id}"]`);
+      inp?.focus();
+      inp?.select();
+    });
   }
 }
 
@@ -601,6 +628,23 @@ function onBoneNameChange(boneId: string, e: Event) {
   }
 }
 
+function removeBoneFromWizard(boneId: string) {
+  const b = project.value.bones.find((x) => x.id === boneId);
+  if (!b || b.parentId === null) return;
+  if (
+    !confirm(
+      `Knochen „${b.name}“ löschen? Kinder hängen am Elternteil (Undo: Toolbar).`,
+    )
+  )
+    return;
+  const parentId = b.parentId;
+  if (!store.dispatch({ type: "removeBone", boneId })) return;
+  if (selectedBoneId.value === boneId) {
+    const parent = project.value.bones.find((x) => x.id === parentId);
+    store.selectBone(parent?.id ?? project.value.bones[0]?.id ?? null);
+  }
+}
+
 async function onSheetFiles(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = [...(input.files ?? [])];
@@ -641,11 +685,17 @@ async function onSheetFiles(e: Event) {
     <div v-if="characterRigModalOpen" class="overlay" @click.self="close">
       <div class="dialog" role="dialog" aria-labelledby="crig-title">
         <header class="head">
-          <h2 id="crig-title">Character Rig</h2>
+          <div class="head-title">
+            <h2 id="crig-title">Character Setup</h2>
+            <p class="head-sub">
+              Guided wizard for first-time rigging: parts, bones, binding, 3D depth, preview — not your daily animation
+              workspace.
+            </p>
+          </div>
           <div class="head-actions">
             <button type="button" class="ghost" @click="store.undo()">Undo</button>
             <button type="button" class="ghost" @click="store.redo()">Redo</button>
-            <button type="button" class="close" title="Close (Esc)" @click="close">×</button>
+            <button type="button" class="close" title="Close setup wizard (Esc)" @click="close">×</button>
           </div>
         </header>
 
@@ -658,6 +708,12 @@ async function onSheetFiles(e: Event) {
             </p>
             <div class="rail-table-wrap">
               <table v-if="slices.length" class="rail-table">
+                <colgroup>
+                  <col class="rail-col-drag" />
+                  <col class="rail-col-name" />
+                  <col class="rail-col-side-col" />
+                  <col class="rail-col-tools-col" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th class="rail-th-drag" title="Drag to reorder" aria-label="Reorder" />
@@ -694,6 +750,7 @@ async function onSheetFiles(e: Event) {
                       <input
                         class="rail-input rail-name-input"
                         type="text"
+                        :data-slice-id="s.id"
                         :value="s.name"
                         :title="'Name: ' + s.name"
                         @click.stop
@@ -716,14 +773,26 @@ async function onSheetFiles(e: Event) {
                       </select>
                     </td>
                     <td class="rail-tools" @click.stop>
-                      <button
-                        type="button"
-                        class="rail-detail-btn"
-                        title="Part details (name, side…)"
-                        @click="openPartModal(s.id)"
-                      >
-                        …
-                      </button>
+                      <div class="rail-tool-btns">
+                        <button
+                          type="button"
+                          class="rail-detail-btn"
+                          title="Teil bearbeiten: Name, Seite, Zuschnitt… (gleiches Formular wie Doppelklick)"
+                          aria-label="Teil bearbeiten"
+                          @click="openPartModal(s.id)"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          class="rail-del-btn"
+                          title="Part löschen"
+                          aria-label="Part löschen"
+                          @click="removeSlice(s.id)"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   <tr
@@ -767,6 +836,16 @@ async function onSheetFiles(e: Event) {
                     @click.stop
                     @change="onBoneNameChange(b.id, $event)"
                   />
+                  <button
+                    v-if="b.depth > 0"
+                    type="button"
+                    class="rail-del-btn bone-tree-del"
+                    title="Knochen löschen"
+                    aria-label="Knochen löschen"
+                    @click.stop="removeBoneFromWizard(b.id)"
+                  >
+                    ×
+                  </button>
                 </li>
               </ul>
               <p v-else class="muted rail-empty">No bones.</p>
@@ -774,7 +853,7 @@ async function onSheetFiles(e: Event) {
             <button type="button" class="rail-new rail-new-bone" @click="addChildBone">+ New</button>
           </section>
 
-          <nav class="nav" aria-label="Workflow">
+          <nav class="nav" aria-label="Setup steps">
             <button
               v-for="(s, i) in steps"
               :key="s.id"
@@ -851,7 +930,7 @@ async function onSheetFiles(e: Event) {
                   Create <strong>parts</strong> on the left; load <strong>sprite sheets</strong> on the right; click a
                   sheet and pick a region in the modal (click or marquee). Select the target part in the left list first.
                   <strong>Move:</strong> drag the part in the viewport. <strong>Brush / Fill / Eraser:</strong> below —
-                  edit front or back layer.
+                  layer matches each part’s <strong>Side</strong> in the rail (Front vs Back).
                 </p>
                 <SpriteSliceEditPanel />
               </div>
@@ -933,8 +1012,8 @@ async function onSheetFiles(e: Event) {
                 <template v-else>
                   <p class="muted depth-intro">
                     Skelio-style: <strong>one part</strong> (select on the left) — viewport shows only that part.
-                    <strong>Max depth</strong> = mesh extrusion; <strong>Regenerate map</strong> = heuristic grayscale map
-                    from the sprite. Bone in front/behind: <strong>Bones</strong> step.
+                    Settings below follow the part’s <strong>Side</strong> (Front vs Back in the rail). Max depth = extrusion;
+                    Regenerate map = heuristic from the sprite. Bone in front/behind: <strong>Bones</strong> step.
                   </p>
                   <p v-if="!selectedSliceFor3d" class="muted skelio-pick-hint">
                     Select a part with pixels on the left.
@@ -947,8 +1026,12 @@ async function onSheetFiles(e: Event) {
                   </p>
                   <template v-else>
                     <h3 class="skelio-part-title">{{ selectedSliceFor3d.name }}</h3>
-                    <div class="skelio-depth-columns">
-                      <section class="skelio-depth-col" aria-labelledby="skelio-front-h">
+                    <div class="skelio-depth-columns skelio-depth-columns--single">
+                      <section
+                        v-if="selectedSliceFacing3d === 'front'"
+                        class="skelio-depth-col"
+                        aria-labelledby="skelio-front-h"
+                      >
                         <h4 id="skelio-front-h" class="skelio-col-title">Front</h4>
                         <label class="skelio-depth-num"
                           >Max depth
@@ -1002,7 +1085,11 @@ async function onSheetFiles(e: Event) {
                           Default depth
                         </button>
                       </section>
-                      <section class="skelio-depth-col" aria-labelledby="skelio-back-h">
+                      <section
+                        v-if="selectedSliceFacing3d === 'back'"
+                        class="skelio-depth-col"
+                        aria-labelledby="skelio-back-h"
+                      >
                         <h4 id="skelio-back-h" class="skelio-col-title">Back</h4>
                         <label class="skelio-depth-num"
                           >Max depth
@@ -1404,21 +1491,38 @@ async function onSheetFiles(e: Event) {
 }
 .head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.65rem 1rem;
   border-bottom: 1px solid #3b3f48;
   flex-shrink: 0;
+}
+.head-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
 }
 .head h2 {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
 }
+.head-sub {
+  margin: 0;
+  max-width: 44rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: #9ca3af;
+}
 .head-actions {
   display: flex;
   gap: 0.35rem;
   align-items: center;
+  flex-shrink: 0;
+  align-self: center;
 }
 .close {
   width: 2rem;
@@ -1433,9 +1537,9 @@ async function onSheetFiles(e: Event) {
 }
 .body {
   display: grid;
-  /* Center column min ~40% / 320px — avoids a paper-thin viewport; right column stays narrow */
+  /* Spalte 1: Sprite-Liste braucht breitere Namensspalte (max 240px war zu wenig für Side+Tools). */
   grid-template-columns:
-    minmax(180px, 240px) minmax(112px, 152px) minmax(320px, 1fr) minmax(180px, 280px);
+    minmax(240px, min(400px, 36vw)) minmax(132px, 188px) minmax(260px, 1fr) minmax(180px, 280px);
   min-height: 0;
   flex: 1;
   overflow: hidden;
@@ -1444,7 +1548,7 @@ async function onSheetFiles(e: Event) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 0.65rem 0.5rem;
+  padding: 0.65rem 0.45rem 0.65rem 0.5rem;
   border-right: 1px solid #3b3f48;
   background: #1a1b20;
   min-height: 0;
@@ -1465,13 +1569,17 @@ async function onSheetFiles(e: Event) {
 .rail-table-wrap {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
+  padding-right: 0.2rem;
+  box-sizing: border-box;
 }
 .rail-table {
   width: 100%;
+  min-width: 17.5rem;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
 }
 .rail-table th,
 .rail-table td {
@@ -1499,19 +1607,33 @@ async function onSheetFiles(e: Event) {
   outline: 1px dashed #93c5fd;
   background: #1e2a3d;
 }
+.rail-col-drag {
+  width: 1.45rem;
+}
+.rail-col-name {
+  width: auto;
+  min-width: 0;
+}
+.rail-col-side-col {
+  width: 5.65rem;
+  min-width: 5.65rem;
+}
+.rail-col-tools-col {
+  width: 4.85rem;
+  min-width: 4.85rem;
+}
 .rail-th-drag {
   width: 1.5rem;
   padding: 0.15rem !important;
 }
 .rail-th-side {
-  width: 5.5rem;
-  min-width: 5.5rem;
+  width: 5.65rem;
+  min-width: 5.65rem;
   white-space: nowrap;
 }
 .rail-col-side {
-  width: 5.5rem;
-  min-width: 5.5rem;
-  max-width: 6.5rem;
+  width: 5.65rem;
+  min-width: 5.65rem;
   vertical-align: middle;
   box-sizing: border-box;
 }
@@ -1519,6 +1641,9 @@ async function onSheetFiles(e: Event) {
   width: 100%;
   min-width: 0;
   max-width: 100%;
+  font-size: 0.74rem;
+  padding: 0.18rem 0.28rem;
+  line-height: 1.25;
 }
 .rail-drag {
   width: 1.5rem;
@@ -1557,12 +1682,21 @@ async function onSheetFiles(e: Event) {
   background: #1a2433;
 }
 .rail-th-tools {
-  width: 1.75rem;
+  width: 4.85rem;
+  min-width: 4.85rem;
 }
 .rail-tools {
-  padding: 0.1rem;
-  text-align: center;
+  padding: 0.12rem 0.15rem 0.12rem 0.08rem;
+  text-align: right;
   vertical-align: middle;
+  box-sizing: border-box;
+}
+.rail-tool-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
 }
 .rail-detail-btn {
   padding: 0.1rem 0.35rem;
@@ -1578,22 +1712,36 @@ async function onSheetFiles(e: Event) {
   border-color: #6b7280;
   color: #fff;
 }
+.rail-del-btn {
+  padding: 0.1rem 0.28rem;
+  min-width: 1.35rem;
+  border-radius: 4px;
+  border: 1px solid #7f1d1d;
+  background: rgba(127, 29, 29, 0.35);
+  color: #fecaca;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.rail-del-btn:hover {
+  border-color: #f87171;
+  background: rgba(153, 27, 27, 0.55);
+  color: #fff;
+}
 .rail-name {
-  max-width: 6.5rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  width: auto;
+  min-width: 0;
   color: #e5e7eb;
 }
 .rail-input {
   width: 100%;
   min-width: 0;
-  padding: 0.15rem 0.25rem;
+  padding: 0.2rem 0.35rem;
   border-radius: 4px;
   border: 1px solid #444;
   background: #1a1b1e;
   color: inherit;
-  font-size: 0.72rem;
+  font-size: 0.82rem;
 }
 .rail-select {
   width: 100%;
@@ -1658,6 +1806,9 @@ async function onSheetFiles(e: Event) {
 .bone-tree-name {
   flex: 1;
   min-width: 0;
+}
+.bone-tree-del {
+  flex-shrink: 0;
 }
 .rail-new-bone {
   border-color: #4f5a8a;
@@ -1929,9 +2080,14 @@ async function onSheetFiles(e: Event) {
   font-style: italic;
 }
 .rail-name-input {
-  max-width: 7rem;
+  max-width: none;
   font-weight: 500;
-  color: #e5e7eb;
+  color: #f3f4f6;
+  letter-spacing: 0.01em;
+}
+.sprite-rail .rail-name-input {
+  min-width: 0;
+  line-height: 1.35;
 }
 .tools {
   border-left: 1px solid #3b3f48;
@@ -2163,6 +2319,10 @@ async function onSheetFiles(e: Event) {
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
   align-items: start;
+}
+.skelio-depth-columns--single {
+  grid-template-columns: 1fr;
+  max-width: 22rem;
 }
 @media (max-width: 720px) {
   .skelio-depth-columns {

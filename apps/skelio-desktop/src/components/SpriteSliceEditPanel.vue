@@ -34,6 +34,19 @@ const selectedSlice = computed(
   () => project.value.characterRig?.slices?.find((s) => s.id === selectedCharacterRigSliceId.value) ?? null,
 );
 
+/** Matches rail „Side“: only that layer is edited here. */
+const sliceFacing = computed<"front" | "back">(() =>
+  selectedSlice.value?.side === "back" ? "back" : "front",
+);
+
+watch(
+  [selectedCharacterRigSliceId, sliceFacing],
+  () => {
+    editLayer.value = sliceFacing.value;
+  },
+  { immediate: true },
+);
+
 const canEditPixels = computed(() => {
   const s = selectedSlice.value;
   return !!(s && s.width > 0 && s.height > 0);
@@ -458,13 +471,11 @@ onUnmounted(() => {
     </div>
 
     <div class="sse-row sse-layer">
-      <span class="sse-label">Edit layer</span>
-      <label class="sse-radio"
-        ><input v-model="editLayer" type="radio" value="front" /> Front</label
-      >
-      <label class="sse-radio"
-        ><input v-model="editLayer" type="radio" value="back" /> Back</label
-      >
+      <span class="sse-label">Layer</span>
+      <span class="sse-layer-pill" :class="sliceFacing === 'back' ? 'back' : 'front'">
+        {{ sliceFacing === "back" ? "Back" : "Front" }} (part side)
+      </span>
+      <span class="sse-layer-hint muted">Change in the rail column „Side“ or part details.</span>
       <label v-if="spriteEditTool === 'brush' || spriteEditTool === 'eraser'" class="sse-brush"
         >Size <input v-model.number="brushRadius" type="number" min="1" max="32" class="sse-num"
       /></label>
@@ -490,8 +501,12 @@ onUnmounted(() => {
       <span class="sse-label">Operations</span>
       <div class="sse-op-btns">
         <button type="button" class="sse-op" @click="opClearLayer">Clear layer</button>
-        <button type="button" class="sse-op" @click="opCopyFrontToBack">Copy front → back</button>
-        <button type="button" class="sse-op" @click="opCopyBackToFront">Copy back → front</button>
+        <button v-if="sliceFacing === 'front'" type="button" class="sse-op" @click="opCopyFrontToBack">
+          Copy front → back
+        </button>
+        <button v-if="sliceFacing === 'back'" type="button" class="sse-op" @click="opCopyBackToFront">
+          Copy back → front
+        </button>
         <button type="button" class="sse-op" @click="opCopyAllFrontsToBacks">Copy ALL front → back</button>
         <button type="button" class="sse-op" @click="opFlipHorizontal">Flip horizontal</button>
       </div>
@@ -547,12 +562,24 @@ onUnmounted(() => {
   opacity: 0.45;
   cursor: not-allowed;
 }
-.sse-layer .sse-radio {
-  font-size: 0.78rem;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  cursor: pointer;
+.sse-layer-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid #4b5563;
+  background: #2a2b31;
+  color: #e5e7eb;
+}
+.sse-layer-pill.back {
+  border-color: #7c3aed;
+  background: rgba(76, 29, 149, 0.35);
+  color: #e9d5ff;
+}
+.sse-layer-hint {
+  font-size: 0.68rem;
+  flex: 1;
+  min-width: 8rem;
 }
 .sse-brush {
   font-size: 0.75rem;

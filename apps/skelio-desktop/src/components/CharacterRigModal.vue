@@ -42,7 +42,7 @@ const depthTextureModalSide = ref<"front" | "back">("front");
 /** Short feedback after “generate meshes from rig”. */
 const meshSyncFeedback = ref("");
 
-/** Smack-like default extrusion (max depth). */
+/** Default extrusion (max depth). */
 const DEFAULT_SLICE_MAX_DEPTH = 8;
 
 const depthRegenBusy = ref<"front" | "back" | null>(null);
@@ -85,7 +85,7 @@ const steps = [
   {
     id: "bind",
     title: "Bind",
-    hint: "Part → bone; generate rig meshes. Max depth / depth maps / regenerate in the “3D Settings” step (Smack-style workflow).",
+    hint: "Part → bone; generate rig meshes. Max depth / depth maps / regenerate in the “3D Settings” step.",
   },
   {
     id: "depth",
@@ -153,7 +153,7 @@ const bonesHierarchy = computed(() => {
 const showSheetColumn = computed(() => step.value !== 1);
 const showBoneColumn = computed(() => step.value >= 2);
 
-/** Distance parent joint → selected bone (bind-pose world); Smack-style length without an extra field. */
+/** Distance parent joint → selected bone (bind-pose world); Length without an extra field. */
 const selectedBoneParentSpan = computed(() => {
   const b = selectedBone.value;
   if (!b?.parentId) return null;
@@ -796,7 +796,7 @@ async function onSheetFiles(e: Event) {
           <div class="main-col">
             <div class="rig-viewport-cap" role="status">
               <span class="rig-camera-label">Viewport</span>
-              <div class="rig-camera-modes" aria-label="Camera mode (Smack-style)">
+              <div class="rig-camera-modes" aria-label="Camera mode ">
                 <button
                   type="button"
                   class="cam-btn"
@@ -851,7 +851,7 @@ async function onSheetFiles(e: Event) {
                   Create <strong>parts</strong> on the left; load <strong>sprite sheets</strong> on the right; click a
                   sheet and pick a region in the modal (click or marquee). Select the target part in the left list first.
                   <strong>Move:</strong> drag the part in the viewport. <strong>Brush / Fill / Eraser:</strong> below —
-                  edit front or back layer; copy/mirror ops like Smack.
+                  edit front or back layer.
                 </p>
                 <SpriteSliceEditPanel />
               </div>
@@ -927,36 +927,36 @@ async function onSheetFiles(e: Event) {
                 </div>
               </div>
 
-              <div v-show="step === 3" class="panel panel-3d-smack">
+              <div v-show="step === 3" class="panel panel-3d-skelio">
                 <p v-if="meshSyncFeedback" class="mesh-sync-feedback" role="status">{{ meshSyncFeedback }}</p>
                 <p v-if="!slices.length" class="muted">No parts — add slots on the left.</p>
                 <template v-else>
                   <p class="muted depth-intro">
-                    Smack-style: <strong>one part</strong> (select on the left) — viewport shows only that part.
+                    Skelio-style: <strong>one part</strong> (select on the left) — viewport shows only that part.
                     <strong>Max depth</strong> = mesh extrusion; <strong>Regenerate map</strong> = heuristic grayscale map
                     from the sprite. Bone in front/behind: <strong>Bones</strong> step.
                   </p>
-                  <p v-if="!selectedSliceFor3d" class="muted smack-pick-hint">
+                  <p v-if="!selectedSliceFor3d" class="muted skelio-pick-hint">
                     Select a part with pixels on the left.
                   </p>
                   <p
                     v-else-if="selectedSliceFor3d.width <= 0 || selectedSliceFor3d.height <= 0"
-                    class="muted smack-pick-hint"
+                    class="muted skelio-pick-hint"
                   >
                     This slot has no pixels yet — assign a sprite first.
                   </p>
                   <template v-else>
-                    <h3 class="smack-part-title">{{ selectedSliceFor3d.name }}</h3>
-                    <div class="smack-depth-columns">
-                      <section class="smack-depth-col" aria-labelledby="smack-front-h">
-                        <h4 id="smack-front-h" class="smack-col-title">Front</h4>
-                        <label class="smack-depth-num"
+                    <h3 class="skelio-part-title">{{ selectedSliceFor3d.name }}</h3>
+                    <div class="skelio-depth-columns">
+                      <section class="skelio-depth-col" aria-labelledby="skelio-front-h">
+                        <h4 id="skelio-front-h" class="skelio-col-title">Front</h4>
+                        <label class="skelio-depth-num"
                           >Max depth
                           <input
                             type="number"
                             step="0.1"
                             min="0"
-                            class="smack-num-inp"
+                            class="skelio-num-inp"
                             :value="depthFor(selectedSliceFor3d.id).maxDepthFront"
                             @change="
                               setDepth(
@@ -969,48 +969,48 @@ async function onSheetFiles(e: Event) {
                         /></label>
                         <button
                           type="button"
-                          class="smack-thumb-btn"
+                          class="skelio-thumb-btn"
                           :title="'Edit depth map (front)'"
                           @click="openDepthTextureModal(selectedSliceFor3d.id, 'front')"
                         >
                           <img
                             v-if="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'front')"
-                            class="smack-depth-thumb"
+                            class="skelio-depth-thumb"
                             :src="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'front')"
                             alt=""
                           />
-                          <span v-else class="smack-thumb-ph">No map — click to paint</span>
+                          <span v-else class="skelio-thumb-ph">No map — click to paint</span>
                         </button>
-                        <div class="smack-col-actions">
+                        <div class="skelio-col-actions">
                           <button
                             type="button"
-                            class="mini smack-action"
+                            class="mini skelio-action"
                             @click="openDepthTextureModal(selectedSliceFor3d.id, 'front')"
                           >
                             Edit…
                           </button>
                           <button
                             type="button"
-                            class="mini smack-action"
+                            class="mini skelio-action"
                             :disabled="depthRegenBusy !== null"
                             @click="regenerateDepthTexture('front')"
                           >
                             {{ depthRegenBusy === 'front' ? '…' : 'Regenerate' }}
                           </button>
                         </div>
-                        <button type="button" class="smack-default-btn" @click="setDefaultDepthFront">
+                        <button type="button" class="skelio-default-btn" @click="setDefaultDepthFront">
                           Default depth
                         </button>
                       </section>
-                      <section class="smack-depth-col" aria-labelledby="smack-back-h">
-                        <h4 id="smack-back-h" class="smack-col-title">Back</h4>
-                        <label class="smack-depth-num"
+                      <section class="skelio-depth-col" aria-labelledby="skelio-back-h">
+                        <h4 id="skelio-back-h" class="skelio-col-title">Back</h4>
+                        <label class="skelio-depth-num"
                           >Max depth
                           <input
                             type="number"
                             step="0.1"
                             min="0"
-                            class="smack-num-inp"
+                            class="skelio-num-inp"
                             :disabled="depthFor(selectedSliceFor3d.id).syncBackWithFront"
                             :value="depthFor(selectedSliceFor3d.id).maxDepthBack"
                             @change="
@@ -1022,7 +1022,7 @@ async function onSheetFiles(e: Event) {
                               )
                             "
                         /></label>
-                        <label class="smack-sync-row">
+                        <label class="skelio-sync-row">
                           <input
                             type="checkbox"
                             :checked="depthFor(selectedSliceFor3d.id).syncBackWithFront"
@@ -1039,36 +1039,36 @@ async function onSheetFiles(e: Event) {
                         </label>
                         <button
                           type="button"
-                          class="smack-thumb-btn"
+                          class="skelio-thumb-btn"
                           :title="'Edit depth map (back)'"
                           @click="openDepthTextureModal(selectedSliceFor3d.id, 'back')"
                         >
                           <img
                             v-if="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'back')"
-                            class="smack-depth-thumb"
+                            class="skelio-depth-thumb"
                             :src="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'back')"
                             alt=""
                           />
-                          <span v-else class="smack-thumb-ph">No map — click to paint</span>
+                          <span v-else class="skelio-thumb-ph">No map — click to paint</span>
                         </button>
-                        <div class="smack-col-actions">
+                        <div class="skelio-col-actions">
                           <button
                             type="button"
-                            class="mini smack-action"
+                            class="mini skelio-action"
                             @click="openDepthTextureModal(selectedSliceFor3d.id, 'back')"
                           >
                             Edit…
                           </button>
                           <button
                             type="button"
-                            class="mini smack-action"
+                            class="mini skelio-action"
                             :disabled="depthRegenBusy !== null"
                             @click="regenerateDepthTexture('back')"
                           >
                             {{ depthRegenBusy === 'back' ? '…' : 'Regenerate' }}
                           </button>
                         </div>
-                        <button type="button" class="smack-default-btn" @click="setDefaultDepthBack">
+                        <button type="button" class="skelio-default-btn" @click="setDefaultDepthBack">
                           Default depth
                         </button>
                       </section>
@@ -2145,31 +2145,31 @@ async function onSheetFiles(e: Event) {
   font-size: 0.82rem;
   line-height: 1.45;
 }
-.panel-3d-smack {
+.panel-3d-skelio {
   min-height: 0;
 }
-.smack-pick-hint {
+.skelio-pick-hint {
   margin: 0.35rem 0 0.75rem;
   font-size: 0.82rem;
 }
-.smack-part-title {
+.skelio-part-title {
   margin: 0 0 0.65rem;
   font-size: 1rem;
   font-weight: 600;
   color: #e5e7eb;
 }
-.smack-depth-columns {
+.skelio-depth-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
   align-items: start;
 }
 @media (max-width: 720px) {
-  .smack-depth-columns {
+  .skelio-depth-columns {
     grid-template-columns: 1fr;
   }
 }
-.smack-depth-col {
+.skelio-depth-col {
   padding: 0.65rem 0.75rem;
   border-radius: 8px;
   border: 1px solid #3b3f48;
@@ -2178,7 +2178,7 @@ async function onSheetFiles(e: Event) {
   flex-direction: column;
   gap: 0.5rem;
 }
-.smack-col-title {
+.skelio-col-title {
   margin: 0;
   font-size: 0.82rem;
   font-weight: 600;
@@ -2186,14 +2186,14 @@ async function onSheetFiles(e: Event) {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.smack-depth-num {
+.skelio-depth-num {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
   font-size: 0.78rem;
   color: #9ca3af;
 }
-.smack-num-inp {
+.skelio-num-inp {
   max-width: 6rem;
   padding: 0.25rem 0.4rem;
   border-radius: 4px;
@@ -2201,7 +2201,7 @@ async function onSheetFiles(e: Event) {
   background: #18191c;
   color: #e5e7eb;
 }
-.smack-thumb-btn {
+.skelio-thumb-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2212,31 +2212,31 @@ async function onSheetFiles(e: Event) {
   background: #0f1012;
   cursor: pointer;
 }
-.smack-thumb-btn:hover {
+.skelio-thumb-btn:hover {
   border-color: #6366f1;
 }
-.smack-depth-thumb {
+.skelio-depth-thumb {
   max-width: 100%;
   max-height: 120px;
   image-rendering: pixelated;
   object-fit: contain;
 }
-.smack-thumb-ph {
+.skelio-thumb-ph {
   font-size: 0.72rem;
   color: #6b7280;
   text-align: center;
   padding: 0.5rem;
 }
-.smack-col-actions {
+.skelio-col-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
 }
-.smack-action {
+.skelio-action {
   flex: 1 1 auto;
   min-width: 0;
 }
-.smack-default-btn {
+.skelio-default-btn {
   align-self: flex-start;
   margin-top: 0.15rem;
   padding: 0.28rem 0.55rem;
@@ -2247,10 +2247,10 @@ async function onSheetFiles(e: Event) {
   color: #d1d5db;
   cursor: pointer;
 }
-.smack-default-btn:hover {
+.skelio-default-btn:hover {
   border-color: #818cf8;
 }
-.smack-sync-row {
+.skelio-sync-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;

@@ -15,7 +15,7 @@ export function ensureMinimalSliceDepthOnMeshSync(project: EditorProject): Edito
   const rig = project.characterRig;
   if (!rig?.slices?.length) return project;
 
-  const bindingBySlice = new Map(rig.bindings.map((b) => [b.sliceId, b.boneId] as const));
+  const bindingBySlice = new Map((rig.bindings ?? []).map((b) => [b.sliceId, b.boneId] as const));
   const boneIds = new Set(project.bones.map((b) => b.id));
 
   const depthList: CharacterRigSliceDepth[] = [...(rig.sliceDepths ?? [])];

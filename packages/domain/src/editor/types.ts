@@ -56,6 +56,12 @@ export type AnimationClip = {
 export type EditorMeta = {
   name: string;
   fps: number;
+  /**
+   * When true (default for new projects), clip channel values for tx/ty/tz/rot/tilt/spin are
+   * **offsets from the bone’s bind pose** at key time. Omitted/false: legacy absolute values;
+   * `normalizeEditorProjectInPlace` converts once and sets this to true.
+   */
+  clipTransformsRelativeToBind?: boolean;
 };
 
 /**
@@ -132,10 +138,23 @@ export type CharacterRigSpriteSlice = {
   embeddedBack?: CharacterRigSliceEmbeddedImage;
 };
 
-/** Maps a slice to a bone (Smack-style bind step). */
+/** Maps a slice to a bone. */
 export type CharacterRigBinding = {
   sliceId: string;
   boneId: string;
+  /**
+   * Optional bind-time local attachment point (bone local space).
+   * When present, binding a slice to a bone should NOT change the slice’s current world placement:
+   * we store the local coordinates that reproduce the current `worldCx/worldCy` at bind pose.
+   */
+  localX?: number;
+  localY?: number;
+  localZ?: number;
+  /**
+   * Optional rotation offset (radians) added on top of the bone’s in-plane rotation.
+   * Used to keep sprite orientation stable at bind time and/or compensate atlas orientation.
+   */
+  rotOffset?: number;
 };
 
 /** Optional 2.5D depth per slice (editor spike; not in runtime export yet). */
@@ -200,6 +219,6 @@ export type EditorProject = {
   skinnedMeshes?: SkinnedMesh[];
   /** Optional IK chains (editor / viewport spike; not in runtime export). */
   ikTwoBoneChains?: IkTwoBoneChain[];
-  /** Optional Smack-style character rig (sheet, slices, bindings). */
+  /** Optional Character rig (sheet, slices, bindings). */
   characterRig?: CharacterRigConfig;
 };

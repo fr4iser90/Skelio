@@ -44,6 +44,7 @@ export {
 export { createId } from "./editor/ids.js";
 export { validateEditorProject, type ValidationIssue } from "./editor/validate.js";
 export type { Mat2D } from "./editor/mat2d.js";
+export type { Mat4 } from "./editor/mat4.js";
 export {
   worldBindBoneMatrices,
   worldBindBoneMatricesOverridingBindPose,
@@ -60,6 +61,9 @@ export {
   boneLengthFromWorldPointer,
   boneLengthAndBindRotationFromWorldTip,
   childBindTranslationAtParentTip,
+  boundSliceLocalInBindSpace,
+  boundSliceWorldAtPose,
+  rigidCharacterRigSliceWorldPose,
 } from "./editor/pose.js";
 export {
   getBindLocalBoneState,
@@ -67,9 +71,19 @@ export {
   localMat4FromState,
   mat4ToMat2dProjection,
   worldBindBoneMatrices4,
+  worldBindBoneMatrices4OverridingBindPose,
   worldPoseBoneMatrices4,
 } from "./editor/bone3dPose.js";
-export { mat4Identity, mat4Multiply, mat4Translate, mat4RotateZ, mat4RotateX, mat4RotateY } from "./editor/mat4.js";
+export {
+  mat4Identity,
+  mat4Invert,
+  mat4Multiply,
+  transformPointMat4,
+  mat4Translate,
+  mat4RotateZ,
+  mat4RotateX,
+  mat4RotateY,
+} from "./editor/mat4.js";
 export {
   fabrik2dThreeJoints,
   segmentLengthsFromBindOrigins,
@@ -82,6 +96,7 @@ export {
   characterRigBindingsComplete,
   RIG_SLICE_MESH_ID_PREFIX,
   rigSliceSkinnedMeshId,
+  resolveCharacterRigSliceBoundBoneId,
   skinnedMeshesFromCharacterRig,
 } from "./editor/characterRigMesh.js";
 export {

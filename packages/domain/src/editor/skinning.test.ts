@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultEditorProject } from "./projectFactory.js";
-import { worldBindBoneMatrices, worldPoseBoneMatrices } from "./pose.js";
+import { worldBindBoneMatrices4, worldPoseBoneMatrices4 } from "./bone3dPose.js";
 import { createDemoSkinnedMesh } from "./demoMesh.js";
+import { createDefaultEditorProject } from "./projectFactory.js";
 import { deformSkinnedMesh } from "./skinning.js";
 
 describe("deformSkinnedMesh", () => {
@@ -9,8 +9,8 @@ describe("deformSkinnedMesh", () => {
     const p = createDefaultEditorProject();
     const root = p.bones[0]!.id;
     const mesh = createDemoSkinnedMesh(root);
-    const bind = worldBindBoneMatrices(p);
-    const pose = worldPoseBoneMatrices(p, 0);
+    const bind = worldBindBoneMatrices4(p);
+    const pose = worldPoseBoneMatrices4(p, 0);
     const out = deformSkinnedMesh(mesh, bind, pose);
     expect(out.length).toBe(mesh.vertices.length);
     for (let i = 0; i < mesh.vertices.length; i++) {

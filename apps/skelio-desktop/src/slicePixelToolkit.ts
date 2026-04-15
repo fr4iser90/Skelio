@@ -1,5 +1,5 @@
 /**
- * Browser-only helpers for Character Rig sprite editing (Smack-style front/back).
+ * Browser-only helpers for Character Rig sprite editing.
  */
 import type { CharacterRigSliceEmbeddedImage, EditorProject } from "@skelio/domain";
 
@@ -107,7 +107,7 @@ export async function buildEmbeddedBackFromFront(
 
 /**
  * Heuristische Depth-Heightmap aus Sprite-RGBA (heller + deckender → höher).
- * Näherung an „Regenerate“-Workflows wie Smack Studio — kein ML.
+ * Näherung an „Regenerate“-Workflow — kein ML.
  */
 export function proceduralDepthFromAlbedoImageData(src: ImageData): ImageData {
   const w = src.width;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDefaultEditorProject } from "./projectFactory.js";
 import {
   characterRigBindingsComplete,
+  resolveCharacterRigSliceBoundBoneId,
   rigSliceSkinnedMeshId,
   skinnedMeshesFromCharacterRig,
 } from "./characterRigMesh.js";
@@ -158,5 +159,48 @@ describe("skinnedMeshesFromCharacterRig", () => {
     const m = skinnedMeshesFromCharacterRig(p)[0]!;
     expect(m.vertices).toHaveLength(8);
     expect(m.indices.length).toBe(12);
+  });
+});
+
+describe("resolveCharacterRigSliceBoundBoneId", () => {
+  it("returns bone id when binding is valid", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p.characterRig = {
+      spriteSheets: [],
+      slices: [{ id: "s1", name: "A", x: 0, y: 0, width: 10, height: 10, worldCx: 0, worldCy: 0 }],
+      bindings: [{ sliceId: "s1", boneId: root }],
+      sliceDepths: [],
+    };
+    p.skinnedMeshes = skinnedMeshesFromCharacterRig(p);
+    expect(resolveCharacterRigSliceBoundBoneId(p, "s1")).toBe(root);
+  });
+
+  it("returns null when bindings are empty even if rig_slice mesh exists", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p.characterRig = {
+      spriteSheets: [],
+      slices: [{ id: "s1", name: "A", x: 0, y: 0, width: 10, height: 10, worldCx: 0, worldCy: 0 }],
+      bindings: [{ sliceId: "s1", boneId: root }],
+      sliceDepths: [],
+    };
+    p.skinnedMeshes = skinnedMeshesFromCharacterRig(p);
+    p.characterRig!.bindings = [];
+    expect(resolveCharacterRigSliceBoundBoneId(p, "s1")).toBe(null);
+  });
+
+  it("returns null when binding references a deleted bone id", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p.characterRig = {
+      spriteSheets: [],
+      slices: [{ id: "s1", name: "A", x: 0, y: 0, width: 10, height: 10, worldCx: 0, worldCy: 0 }],
+      bindings: [{ sliceId: "s1", boneId: root }],
+      sliceDepths: [],
+    };
+    p.skinnedMeshes = skinnedMeshesFromCharacterRig(p);
+    p.characterRig!.bindings = [{ sliceId: "s1", boneId: "deleted_bone" }];
+    expect(resolveCharacterRigSliceBoundBoneId(p, "s1")).toBe(null);
   });
 });

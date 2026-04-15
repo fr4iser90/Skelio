@@ -7,11 +7,15 @@ import {
   boneLengthAndBindRotationFromWorldTip,
   deformSkinnedMesh,
   localBindTranslationForWorldOrigin,
+  resolveCharacterRigSliceBoundBoneId,
+  rigidCharacterRigSliceWorldPose,
   worldBindBoneMatrices,
+  worldBindBoneMatrices4,
   worldBindBoneMatricesOverridingBindPose,
   worldBindBoneTipForLengthHit,
   worldBindOrigins,
   worldPoseBoneMatrices,
+  worldPoseBoneMatrices4,
   worldPoseOriginsWithIk,
   BONE_LENGTH_HIT_MIN_LOCAL,
   type CharacterRigConfig,
@@ -74,13 +78,13 @@ const refImageGroup = new THREE.Group();
 
 const matLine = new THREE.LineBasicMaterial({ color: 0x6b7280 });
 const matLineSel = new THREE.LineBasicMaterial({ color: 0xa5b4fc });
-const matJoint = new THREE.MeshBasicMaterial({ color: 0x22c55e });
-const matJointSel = new THREE.MeshBasicMaterial({ color: 0xa5b4fc });
+const matJoint = new THREE.MeshBasicMaterial({ color: 0xd4d9e6 });
+const matJointSel = new THREE.MeshBasicMaterial({ color: 0xc9d6f5 });
 // Bones should stay readable even when zoomed out (world units = pixels).
 const matBone = new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.9, metalness: 0.0 });
 const matBoneSel = new THREE.MeshStandardMaterial({ color: 0xa5b4fc, roughness: 0.75, metalness: 0.0 });
 
-// Ensure bones stay visible on top of sprites/meshes (Smack-like overlay).
+// Ensure bones stay visible on top of sprites/meshes.
 matBone.depthTest = false;
 matBone.depthWrite = false;
 matBoneSel.depthTest = false;
@@ -441,10 +445,10 @@ function applyBrushAt(wx: number, wy: number) {
   if (!st || !boneId) return;
   const mesh = project.value.skinnedMeshes?.find((m) => m.id === st.meshId);
   if (!mesh) return;
-  const bindM = worldBindBoneMatrices(project.value);
-  const poseM = worldPoseBoneMatrices(project.value, currentTime.value);
+  const bindM4 = worldBindBoneMatrices4(project.value);
+  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
   const tmp: SkinnedMesh = { ...mesh, influences: st.working };
-  const deformed = deformSkinnedMesh(tmp, bindM, poseM);
+  const deformed = deformSkinnedMesh(tmp, bindM4, poseM4);
   const r = weightBrushRadius.value;
   const r2 = r * r;
   const str = weightBrushStrength.value * (weightBrushSubtract.value ? -1 : 1);
@@ -611,8 +615,14 @@ function rebuildSliceMeshes() {
   const rig = project.value.characterRig;
   if (!rig?.slices?.length) return;
 
+  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
+  const boneM4 = rigModalBoneStep.value ? worldBindBoneMatrices4(project.value) : poseM4;
+  const jointDisplayByBoneId = rigModalBoneStep.value
+    ? new Map([...worldBindOrigins(project.value)].map(([id, o]) => [id, { x: o.x, y: o.y }] as const))
+    : worldPoseOriginsWithIk(project.value, currentTime.value);
+
   const activeSliceId = selectedCharacterRigSliceId.value;
-  /** Schritt 3: wie Smack — nur das gewählte Teil rendern (keine abgedunkelten anderen). */
+  /** Schritt 3: nur das gewählte Teil rendern (keine abgedunkelten anderen). */
   const onlySelectedSlice3d =
     rigModalDepthStep.value && activeSliceId !== null;
 
@@ -620,13 +630,27 @@ function rebuildSliceMeshes() {
     if (s.width <= 0 || s.height <= 0) continue;
     if (onlySelectedSlice3d && s.id !== activeSliceId) continue;
     const { cx, cy } = effectiveSliceCenter(s);
+    // Bind step should NOT change visual placement: show layout-only (no bound rotation/offset).
+    const bid = rigModalBindStep.value ? null : resolveCharacterRigSliceBoundBoneId(project.value, s.id);
+    const binding = bid ? project.value.characterRig?.bindings?.find((b) => b.sliceId === s.id && b.boneId === bid) ?? null : null;
+    const rigid = bid
+      ? rigidCharacterRigSliceWorldPose(project.value, bid, cx, cy, boneM4, jointDisplayByBoneId, {
+          localX: binding?.localX,
+          localY: binding?.localY,
+          localZ: binding?.localZ,
+          rotOffset: binding?.rotOffset,
+        })
+      : null;
+    const px = rigid?.cx ?? cx;
+    const py = rigid?.cy ?? cy;
+    const rot = rigid?.rot ?? 0;
     const { df, db } = depthForSlice(s.id);
     const { tex, texBack } = getSliceAlbedoTextures(s, rig);
     const depthTotal = df + db;
     const alpha = onlySelectedSlice3d ? 1 : activeSliceId === null ? 1 : s.id === activeSliceId ? 1 : 0.44;
 
     if (depthTotal > 1e-3 && tex) {
-      // Smack-style: if a depth texture exists, show displaced surfaces (preview only).
+      // If a depth texture exists, show displaced surfaces (preview only).
       const imgF = getDepthImageDataOrStartLoad(s.id, "front");
       const imgB = getDepthImageDataOrStartLoad(s.id, "back");
       const hasTex = !!imgF || !!imgB || !!depthTextureForSlice(s.id, "front") || !!depthTextureForSlice(s.id, "back");
@@ -659,7 +683,8 @@ function rebuildSliceMeshes() {
           pos.needsUpdate = true;
           geo.computeVertexNormals();
           const mesh = new THREE.Mesh(geo, mkMat());
-          mesh.position.set(cx, -cy, 0);
+          mesh.position.set(px, -py, 0);
+          mesh.rotation.z = -rot;
           mesh.renderOrder = 1;
           sliceGroup.add(mesh);
         }
@@ -678,7 +703,8 @@ function rebuildSliceMeshes() {
           pos.needsUpdate = true;
           geo.computeVertexNormals();
           const mesh = new THREE.Mesh(geo, mkMat());
-          mesh.position.set(cx, -cy, 0);
+          mesh.position.set(px, -py, 0);
+          mesh.rotation.z = -rot;
           mesh.renderOrder = 1;
           sliceGroup.add(mesh);
         }
@@ -704,7 +730,8 @@ function rebuildSliceMeshes() {
       });
       const mats: THREE.Material[] = [sideMat, sideMat, sideMat, sideMat, frontMat, backMat];
       const mesh = new THREE.Mesh(geo, mats);
-      mesh.position.set(cx, -cy, (db - df) / 2);
+      mesh.position.set(px, -py, (db - df) / 2);
+      mesh.rotation.z = -rot;
       mesh.renderOrder = 1;
       mats.forEach((m) => {
         (m as THREE.MeshStandardMaterial).opacity = alpha;
@@ -723,7 +750,8 @@ function rebuildSliceMeshes() {
       mat.opacity = alpha;
       mat.transparent = alpha < 1;
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(cx, -cy, 0);
+      mesh.position.set(px, -py, 0);
+      mesh.rotation.z = -rot;
       sliceGroup.add(mesh);
     }
   }
@@ -1112,8 +1140,8 @@ function onPointerDown(e: PointerEvent) {
       e.preventDefault();
       e.stopPropagation();
       if (controls) controls.enabled = false;
-      const bind = bindings.find((b) => b.sliceId === hitSlice);
-      if (bind) store.selectBone(bind.boneId);
+      const bidDepth = resolveCharacterRigSliceBoundBoneId(project.value, hitSlice);
+      if (bidDepth) store.selectBone(bidDepth);
       store.selectCharacterRigSlice(hitSlice);
       store.clearMeshVertexSelection();
       const sd = rig?.sliceDepths?.find((x) => x.sliceId === hitSlice);
@@ -1142,8 +1170,16 @@ function onPointerDown(e: PointerEvent) {
       e.preventDefault();
       e.stopPropagation();
       store.selectBone(hitBone);
-      const bind = bindings.find((b) => b.boneId === hitBone);
-      store.selectCharacterRigSlice(bind?.sliceId ?? null);
+      let sid: string | null = bindings.find((b) => b.boneId === hitBone)?.sliceId ?? null;
+      if (!sid) {
+        for (const sl of rig?.slices ?? []) {
+          if (resolveCharacterRigSliceBoundBoneId(project.value, sl.id) === hitBone) {
+            sid = sl.id;
+            break;
+          }
+        }
+      }
+      store.selectCharacterRigSlice(sid);
       store.clearMeshVertexSelection();
       return;
     }
@@ -1151,8 +1187,8 @@ function onPointerDown(e: PointerEvent) {
     if (hitSlice) {
       e.preventDefault();
       e.stopPropagation();
-      const bind = bindings.find((b) => b.sliceId === hitSlice);
-      if (bind) store.selectBone(bind.boneId);
+      const bidSlice = resolveCharacterRigSliceBoundBoneId(project.value, hitSlice);
+      if (bidSlice) store.selectBone(bidSlice);
       store.selectCharacterRigSlice(hitSlice);
       store.clearMeshVertexSelection();
       return;

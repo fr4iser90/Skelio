@@ -65,23 +65,40 @@ function mapSkinnedMesh(m: SkinnedMesh): RuntimeSkinnedMesh {
 /** Runtime 1.1.0 kennt nur 2D-Kanäle; Editor-Kanäle tz/tilt/spin werden gestrippt (ADR 0011). */
 const RUNTIME_CHANNEL_PROPS = new Set(["tx", "ty", "rot", "sx", "sy"]);
 
+/** Editor clips store tx/ty/rot offsets from bind; runtime JSON keeps absolute local values. */
+function runtimeChannelValue(bone: Bone | undefined, prop: "tx" | "ty" | "rot" | "sx" | "sy", storedV: number): number {
+  if (!bone) return storedV;
+  const bp = bone.bindPose;
+  if (prop === "tx") return storedV + bp.x;
+  if (prop === "ty") return storedV + bp.y;
+  if (prop === "rot") return storedV + bp.rotation;
+  return storedV;
+}
+
 function mapClip(clip: AnimationClip, bones: Bone[]): RuntimeExport["animations"][0] {
+  const boneById = new Map(bones.map((b) => [b.id, b] as const));
   const length = clipDurationSeconds(clip, bones);
   return {
     id: clip.id,
     name: clip.name,
     length,
     tracks: clip.tracks
-      .map((tr) => ({
-        boneId: tr.boneId,
-        channels: tr.channels
-          .filter((ch) => RUNTIME_CHANNEL_PROPS.has(ch.property))
-          .map((ch) => ({
-            property: ch.property as "tx" | "ty" | "rot" | "sx" | "sy",
-            interpolation: ch.interpolation,
-            keys: ch.keys.map((k) => ({ t: k.t, v: k.v })),
-          })),
-      }))
+      .map((tr) => {
+        const bone = boneById.get(tr.boneId);
+        return {
+          boneId: tr.boneId,
+          channels: tr.channels
+            .filter((ch) => RUNTIME_CHANNEL_PROPS.has(ch.property))
+            .map((ch) => {
+              const prop = ch.property as "tx" | "ty" | "rot" | "sx" | "sy";
+              return {
+                property: prop,
+                interpolation: ch.interpolation,
+                keys: ch.keys.map((k) => ({ t: k.t, v: runtimeChannelValue(bone, prop, k.v) })),
+              };
+            }),
+        };
+      })
       .filter((tr) => tr.channels.length > 0),
   };
 }

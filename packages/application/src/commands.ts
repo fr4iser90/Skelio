@@ -4,16 +4,20 @@ import {
   createDemoSkinnedMesh,
   createId,
   ensureMinimalSliceDepthOnMeshSync,
+  mat4Invert,
   normalizeReferenceImageMime,
   RIG_SLICE_MESH_ID_PREFIX,
   sanitizeInfluenceRow,
+  worldBindBoneMatrices4,
   skinnedMeshesFromCharacterRig,
+  transformPointMat4,
   validateSkinnedMesh,
   type Bone,
   type BoneBind3d,
   type ChannelProperty,
   type CharacterRigConfig,
   type CharacterRigSliceEmbeddedImage,
+  type AnimationClip,
   type EditorProject,
   type Keyframe,
   type SkinInfluence,
@@ -34,6 +38,12 @@ export type Command =
   | { type: "setFps"; fps: number }
   | { type: "addKeyframe"; boneId: string; property: ChannelProperty; t: number; v: number }
   | { type: "removeKeyframe"; boneId: string; property: ChannelProperty; t: number }
+  /**
+   * Removes all `tx` / `ty` / `rot` keys near `t` on every track of the active clip (±1e-4 s).
+   * Sampling then falls back to bind pose — fixes accidental `0` keys that collapse rigs whose bind
+   * translations are non-zero.
+   */
+  | { type: "purgeClipTranslationRotationKeysAtTime"; t: number }
   | { type: "setReferenceImage"; fileName: string; mimeType: string; dataBase64: string }
   | { type: "clearReferenceImage" }
   | { type: "addDemoSkinnedMesh" }
@@ -139,7 +149,13 @@ export type Command =
   /** Bake sheet rect into embedded front (drops sheet reference). */
   | { type: "promoteCharacterRigSliceToEmbedded"; sliceId: string; image: CharacterRigSliceEmbeddedImage }
   /** TX/TY keys at `t` in one step (single undo) — main-view bone drag animation. */
-  | { type: "setBoneTranslationKeysAtTime"; boneId: string; t: number; x: number; y: number };
+  | { type: "setBoneTranslationKeysAtTime"; boneId: string; t: number; x: number; y: number }
+  | { type: "addAnimationClip"; name: string }
+  | { type: "removeAnimationClip"; clipId: string }
+  | { type: "renameAnimationClip"; clipId: string; name: string }
+  | { type: "duplicateAnimationClip"; clipId: string }
+  | { type: "setActiveClip"; clipId: string }
+  | { type: "importAnimationClip"; clip: AnimationClip };
 
 function ensureCharacterRig(p: EditorProject): CharacterRigConfig {
   if (!p.characterRig) {
@@ -558,10 +574,26 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
 
   if (cmd.type === "setCharacterRigBinding") {
     const rig = ensureCharacterRig(p);
-    if (!rig.slices.some((s) => s.id === cmd.sliceId)) return project;
+    const slice = rig.slices.find((s) => s.id === cmd.sliceId);
+    if (!slice) return project;
     if (!p.bones.some((b) => b.id === cmd.boneId)) return project;
+    // Compute local attachment so binding does NOT move the slice at bind pose.
+    let localX: number | undefined;
+    let localY: number | undefined;
+    let localZ: number | undefined;
+    let rotOffset: number | undefined;
+    const Wbind4 = worldBindBoneMatrices4(p).get(cmd.boneId);
+    if (Wbind4) {
+      const inv = mat4Invert(Wbind4);
+      if (inv) {
+        const loc = transformPointMat4(inv, slice.worldCx, slice.worldCy, 0);
+        localX = loc.x;
+        localY = loc.y;
+        localZ = loc.z;
+      }
+    }
     const others = rig.bindings.filter((b) => b.sliceId !== cmd.sliceId);
-    others.push({ sliceId: cmd.sliceId, boneId: cmd.boneId });
+    others.push({ sliceId: cmd.sliceId, boneId: cmd.boneId, localX, localY, localZ, rotOffset });
     rig.bindings = others;
     return p;
   }
@@ -713,8 +745,8 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       chy = { property: "ty", interpolation: "linear", keys: [] };
       tr.channels.push(chy);
     }
-    chx.keys = insertSorted(chx.keys, { t: cmd.t, v: cmd.x });
-    chy.keys = insertSorted(chy.keys, { t: cmd.t, v: cmd.y });
+    chx.keys = insertSorted(chx.keys, { t: cmd.t, v: cmd.x - b.bindPose.x });
+    chy.keys = insertSorted(chy.keys, { t: cmd.t, v: cmd.y - b.bindPose.y });
     return p;
   }
 
@@ -866,6 +898,90 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     if (tr.channels.length === 0) {
       clip.tracks = clip.tracks.filter((t) => t.boneId !== cmd.boneId);
     }
+    return p;
+  }
+
+  if (cmd.type === "purgeClipTranslationRotationKeysAtTime") {
+    if (!Number.isFinite(cmd.t)) return p;
+    const clip = activeClip(p);
+    const timeEps = 1e-4;
+    const purgeProps = new Set<ChannelProperty>(["tx", "ty", "rot"]);
+    const nextTracks: AnimationClip["tracks"] = [];
+    for (const tr of clip.tracks) {
+      const channels = tr.channels
+        .map((c) => {
+          if (!purgeProps.has(c.property)) return c;
+          const keys = c.keys.filter((k) => Math.abs(k.t - cmd.t) > timeEps);
+          return { ...c, keys };
+        })
+        .filter((c) => c.keys.length > 0);
+      if (channels.length > 0) nextTracks.push({ ...tr, channels });
+    }
+    clip.tracks = nextTracks;
+    return p;
+  }
+
+  if (cmd.type === "addAnimationClip") {
+    const id = createId("clip");
+    const name = cmd.name.trim() || `Clip ${p.clips.length + 1}`;
+    p.clips.push({ id, name, tracks: [] });
+    p.activeClipId = id;
+    return p;
+  }
+
+  if (cmd.type === "removeAnimationClip") {
+    if (p.clips.length <= 1) return p;
+    const next = p.clips.filter((c) => c.id !== cmd.clipId);
+    if (next.length === p.clips.length) return p;
+    p.clips = next;
+    if (p.activeClipId === cmd.clipId) {
+      p.activeClipId = p.clips[0]!.id;
+    }
+    return p;
+  }
+
+  if (cmd.type === "renameAnimationClip") {
+    const c = p.clips.find((x) => x.id === cmd.clipId);
+    if (!c) return p;
+    const name = cmd.name.trim();
+    if (!name) return p;
+    c.name = name;
+    return p;
+  }
+
+  if (cmd.type === "duplicateAnimationClip") {
+    const src = p.clips.find((x) => x.id === cmd.clipId);
+    if (!src) return p;
+    const id = createId("clip");
+    const copy: AnimationClip = {
+      id,
+      name: `${src.name} copy`,
+      tracks: structuredClone(src.tracks),
+    };
+    p.clips.push(copy);
+    p.activeClipId = id;
+    return p;
+  }
+
+  if (cmd.type === "setActiveClip") {
+    if (!p.clips.some((c) => c.id === cmd.clipId)) return p;
+    p.activeClipId = cmd.clipId;
+    return p;
+  }
+
+  if (cmd.type === "importAnimationClip") {
+    const boneIds = new Set(p.bones.map((b) => b.id));
+    for (const tr of cmd.clip.tracks) {
+      if (!boneIds.has(tr.boneId)) return p;
+    }
+    const id = createId("clip");
+    const incoming: AnimationClip = {
+      id,
+      name: cmd.clip.name.trim() || "Imported",
+      tracks: structuredClone(cmd.clip.tracks),
+    };
+    p.clips.push(incoming);
+    p.activeClipId = id;
     return p;
   }
 

@@ -51,12 +51,13 @@ export function getLocalBoneState(bone: Bone, clip: AnimationClip | undefined, t
   let spin = b3?.spin ?? 0;
   if (tr) {
     for (const ch of tr.channels) {
-      if (ch.property === "tx") x = sampleChannel(ch.keys, time, bp.x);
-      if (ch.property === "ty") y = sampleChannel(ch.keys, time, bp.y);
-      if (ch.property === "tz") z = sampleChannel(ch.keys, time, zBase);
-      if (ch.property === "rot") rot = sampleChannel(ch.keys, time, bp.rotation);
-      if (ch.property === "tilt") tilt = sampleChannel(ch.keys, time, b3?.tilt ?? 0);
-      if (ch.property === "spin") spin = sampleChannel(ch.keys, time, b3?.spin ?? 0);
+      // Channel values are offsets from bind (EditorMeta.clipTransformsRelativeToBind).
+      if (ch.property === "tx") x = bp.x + sampleChannel(ch.keys, time, 0);
+      if (ch.property === "ty") y = bp.y + sampleChannel(ch.keys, time, 0);
+      if (ch.property === "tz") z = zBase + sampleChannel(ch.keys, time, 0);
+      if (ch.property === "rot") rot = bp.rotation + sampleChannel(ch.keys, time, 0);
+      if (ch.property === "tilt") tilt = (b3?.tilt ?? 0) + sampleChannel(ch.keys, time, 0);
+      if (ch.property === "spin") spin = (b3?.spin ?? 0) + sampleChannel(ch.keys, time, 0);
     }
   }
   return { x, y, z, rot, tilt, spin, sx: bp.sx, sy: bp.sy };

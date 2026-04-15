@@ -2,8 +2,11 @@ import { apply, invert, type Mat2D } from "./mat2d.js";
 import {
   worldBindBoneMatrices2D,
   worldBindBoneMatrices2DOverridingBindPose,
+  worldBindBoneMatrices4,
+  mat4ToMat2dProjection,
   worldPoseBoneMatrices2D,
 } from "./bone3dPose.js";
+import { mat4Invert, transformPointMat4, type Mat4 } from "./mat4.js";
 import type { AnimationClip, Bone, EditorProject, Transform2D } from "./types.js";
 
 /** World bone matrices in bind pose (no animation). 2D-Projektion aus 4×4-Kette (ADR 0011). */
@@ -156,8 +159,8 @@ export function localBindTranslationForWorldOrigin(
 }
 
 /**
- * Parent chain from **pose at `time`** (not bind). Use when dragging in the main viewport to write
- * TX/TY keys so the joint moves to `(worldX, worldY)` at that time.
+ * Parent chain from **pose at `time`** (not bind). Use when dragging in the main viewport; the
+ * command layer writes **translation offsets from bind** (`tx`/`ty` keys), not absolute locals.
  */
 export function localTranslationForWorldJointAtPoseTime(
   project: EditorProject,
@@ -188,6 +191,92 @@ export function worldPoseOrigins(project: EditorProject, time: number): Map<stri
     origins.set(id, apply(m, 0, 0));
   }
   return origins;
+}
+
+/** Rigid rig slice: slice center in world → bone-local at bind (inverse bind matrix). */
+export function boundSliceLocalInBindSpace(
+  bindWorld: Mat2D,
+  sliceWorldX: number,
+  sliceWorldY: number,
+): { lx: number; ly: number } | null {
+  const inv = invert(bindWorld);
+  if (!inv) return null;
+  const p = apply(inv, sliceWorldX, sliceWorldY);
+  return { lx: p.x, ly: p.y };
+}
+
+/** World center + in-plane rotation from bone +X at pose matrix. */
+export function boundSliceWorldAtPose(
+  poseWorld: Mat2D,
+  localX: number,
+  localY: number,
+): { x: number; y: number; rotationRad: number } {
+  const w = apply(poseWorld, localX, localY);
+  return { x: w.x, y: w.y, rotationRad: Math.atan2(poseWorld.b, poseWorld.a) };
+}
+
+/** In-plane rotation for a canvas sprite from the posed bone’s local +X axis (XY). */
+function sliceDrawRotationFromPose4(poseWorld4: Mat4): number {
+  const o = transformPointMat4(poseWorld4, 0, 0, 0);
+  const xp = transformPointMat4(poseWorld4, 1, 0, 0);
+  return Math.atan2(xp.y - o.y, xp.x - o.x);
+}
+
+/**
+ * Rigid character-rig slice in world space using full **4×4** bind/pose (ADR 0011).
+ * Avoids singular / lossy 2×3 `mat4ToMat2dProjection` inverses when tilt/spin are used.
+ * `jointDisplayByBoneId` should match {@link worldPoseOriginsWithIk} for IK-corrected joints.
+ */
+export function rigidCharacterRigSliceWorldPose(
+  project: EditorProject,
+  boneId: string,
+  layoutWorldX: number,
+  layoutWorldY: number,
+  poseBoneM4: Map<string, Mat4>,
+  jointDisplayByBoneId: Map<string, { x: number; y: number }>,
+  opts?: { localX?: number; localY?: number; localZ?: number; rotOffset?: number },
+): { cx: number; cy: number; rot: number } | null {
+  const Wbind4 = worldBindBoneMatrices4(project).get(boneId);
+  if (!Wbind4) return null;
+  const Wpose4 = poseBoneM4.get(boneId);
+  if (!Wpose4) return null;
+  const invB = mat4Invert(Wbind4);
+  let cx: number;
+  let cy: number;
+  let rot: number;
+  if (!invB) {
+    const B2 = mat4ToMat2dProjection(Wbind4);
+    const P2 = mat4ToMat2dProjection(Wpose4);
+    const loc =
+      opts && opts.localX != null && opts.localY != null
+        ? { lx: opts.localX, ly: opts.localY }
+        : boundSliceLocalInBindSpace(B2, layoutWorldX, layoutWorldY);
+    if (!loc) return null;
+    const wp = boundSliceWorldAtPose(P2, loc.lx, loc.ly);
+    cx = wp.x;
+    cy = wp.y;
+    const rotBind = Math.atan2(B2.b, B2.a);
+    rot = wp.rotationRad - rotBind;
+  } else {
+    const local =
+      opts && opts.localX != null && opts.localY != null
+        ? { x: opts.localX, y: opts.localY, z: opts.localZ ?? 0 }
+        : transformPointMat4(invB, layoutWorldX, layoutWorldY, 0);
+    const wp = transformPointMat4(Wpose4, local.x, local.y, local.z);
+    cx = wp.x;
+    cy = wp.y;
+    const rotPose = sliceDrawRotationFromPose4(Wpose4);
+    const rotBind = sliceDrawRotationFromPose4(Wbind4);
+    rot = rotPose - rotBind;
+  }
+  if (opts?.rotOffset) rot += opts.rotOffset;
+  /** FK joint like {@link worldPoseOrigins} (2D projection) — matches `worldPoseOriginsWithIk` before IK. */
+  const M2d = mat4ToMat2dProjection(Wpose4);
+  const jFk = { x: M2d.e, y: M2d.f };
+  const jIk = jointDisplayByBoneId.get(boneId);
+  const djx = jIk ? jIk.x - jFk.x : 0;
+  const djy = jIk ? jIk.y - jFk.y : 0;
+  return { cx: cx + djx, cy: cy + djy, rot };
 }
 
 export function clipDurationSeconds(clip: AnimationClip, _bones: Bone[]): number {

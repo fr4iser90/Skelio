@@ -76,13 +76,22 @@ function bind3d(field: "z" | "depthOffset" | "tilt" | "spin"): number {
   return b.bindBone3d[field];
 }
 
-/** Keyframe at playhead: sample current value (incl. interpolation) and write a key. */
+/** Keyframe at playhead: sample current pose and write **offset-from-bind** channel values. */
 function keyframeChannel(prop: "tz" | "tilt" | "spin" | "rot") {
   const b = selectedBone.value;
   if (!b) return;
   const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
   const s = getLocalBoneState(b, clip, currentTime.value);
-  const v = prop === "tz" ? s.z : prop === "tilt" ? s.tilt : prop === "spin" ? s.spin : s.rot;
+  const b3 = b.bindBone3d;
+  const zBase = (b3?.z ?? 0) + (b3?.depthOffset ?? 0);
+  const v =
+    prop === "tz"
+      ? s.z - zBase
+      : prop === "tilt"
+        ? s.tilt - (b3?.tilt ?? 0)
+        : prop === "spin"
+          ? s.spin - (b3?.spin ?? 0)
+          : s.rot - b.bindPose.rotation;
   store.dispatch({
     type: "addKeyframe",
     boneId: b.id,
@@ -102,7 +111,7 @@ function patchPoseRotation(ev: Event) {
     boneId: b.id,
     property: "rot",
     t: currentTime.value,
-    v: n,
+    v: n - b.bindPose.rotation,
   });
 }
 

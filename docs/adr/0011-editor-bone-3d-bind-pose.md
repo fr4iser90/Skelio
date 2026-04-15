@@ -1,4 +1,4 @@
-# ADR 0011: Editor Bone 3D (Z, Tilt, Spin, Depth) — Smack-näher
+# ADR 0011: Editor Bone 3D (Z, Tilt, Spin, Depth)
 
 ## Status
 
@@ -6,12 +6,12 @@ Accepted (Editor-only; Runtime JSON unverändert bis separates Schema-Update).
 
 ## Kontext
 
-Smack Studio trennt u. a. **Position (X/Y/Z)**, **Depth offset**, **Rotation / Tilt / Spin** und Skalierung. Skelio hatte nur **2D**-`bindPose` und Kanäle `tx` / `ty` / `rot`.
+Skelio hatte nur **2D**-`bindPose` und Kanäle `tx` / `ty` / `rot`.
 
 ## Entscheidung
 
 1. **Editor-Datenmodell** (`packages/domain`): optionales `bindBone3d` pro `Bone`:
-   - `z`, `depthOffset` (werden für die lokale Z-Translation **addiert**; UI kann beide Felder zeigen wie Smack),
+   - `z`, `depthOffset` (werden für die lokale Z-Translation **addiert**; ),
    - `tilt`, `spin` (Bogenmaß).
 2. **Neue Animationskanäle**: `tz`, `tilt`, `spin` (Interpolation wie bestehende Skalare).
 3. **Lokale Transformations-Reihenfolge** (Spaltenvektoren, `M * v`):

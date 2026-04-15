@@ -5,21 +5,28 @@ import {
   deformSkinnedMesh,
   localBindTranslationForWorldOrigin,
   localTranslationForWorldJointAtPoseTime,
-  worldBindBoneMatrices,
-  worldBindBoneMatricesOverridingBindPose,
+  mat4ToMat2dProjection,
+  resolveCharacterRigSliceBoundBoneId,
+  rigidCharacterRigSliceWorldPose,
+  worldBindBoneMatrices4,
+  worldBindBoneMatrices4OverridingBindPose,
   BONE_LENGTH_HIT_MIN_LOCAL,
   worldBindBoneTipForLengthHit,
   worldBindOrigins,
   worldPoseBoneMatrices,
+  worldPoseBoneMatrices4,
   worldPoseOriginsWithIk,
-  RIG_SLICE_MESH_ID_PREFIX,
+  type CharacterRigConfig,
   type CharacterRigSpriteSlice,
+  type Mat2D,
+  type Mat4,
   type SkinInfluence,
   type SkinnedMesh,
 } from "@skelio/domain";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
+import AnimatorThreeViewport from "./AnimatorThreeViewport.vue";
 
 type BrushStroke = {
   meshId: string;
@@ -43,6 +50,7 @@ const {
   characterRigModalStep,
   pendingBonePlacementId,
   rigCameraWorldYScale,
+  rigCameraViewKind,
 } = storeToRefs(store);
 
 /** Y-Stauchung nur im Character-Rig-Modal (Pseudo-2.5D/3D). */
@@ -83,9 +91,9 @@ const rigModalBoneStep = computed(
   () => characterRigModalOpen.value && characterRigModalStep.value === 1,
 );
 
-/** Nach „Meshes aus Rig“: Teile folgen dem Skinning — keine freien Slice-Züge mehr in der Hauptansicht. */
+/** Rig slices can only be dragged in the rig modal (step 0). Never in the animator. */
 const mainViewSliceDragEnabled = computed(
-  () => !(project.value.skinnedMeshes ?? []).some((m) => m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)),
+  () => characterRigModalOpen.value && characterRigModalStep.value === 0,
 );
 
 const viewportHintText = computed(() => {
@@ -93,7 +101,7 @@ const viewportHintText = computed(() => {
     return "Weight brush: selected bone · paint in the viewport (one undo per stroke)";
   }
   if (!characterRigModalOpen.value) {
-    return "Animator: set time on the timeline · drag on a bound sprite or bone — TX/TY keys (joint follows cursor smoothly, no snap) · wheel = zoom · Alt+left = pan · right-drag = rotate view";
+    return "Animator: timeline time · drag bound sprite or bone → TX/TY keys (absolute local values) · if the rig looks wrong at t=0, try Timeline „Keys @Zeit“ to remove stray TX/TY/Rot keys · wheel = zoom · Alt+left = pan · right-drag = rotate view";
   }
   if (characterRigModalOpen.value && rigCameraWorldYScale.value < 0.999) {
     return "Kamera: Y gestaucht (Pseudo-Tiefe) — gleiche Logik für Klicks · Rad = Zoom";
@@ -112,6 +120,8 @@ const viewportHintText = computed(() => {
   }
   return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Y unten · Vertex für Gewichte";
 });
+
+const animatorUsesWebglViewport = computed(() => !characterRigModalOpen.value && rigCameraViewKind.value !== "2d");
 
 function hitTestBoneTip(wx: number, wy: number, radiusWorld: number): string | null {
   const r2 = radiusWorld * radiusWorld;
@@ -441,24 +451,102 @@ function effectiveSliceCenter(s: CharacterRigSpriteSlice): { cx: number; cy: num
   return { cx: s.worldCx, cy: s.worldCy };
 }
 
+function mat4MapToMat2d(m4: Map<string, Mat4>): Map<string, Mat2D> {
+  const o = new Map<string, Mat2D>();
+  for (const [id, m] of m4) o.set(id, mat4ToMat2dProjection(m));
+  return o;
+}
+
+/** Bind + Pose matrices for main viewport (slices + bones + mesh preview). */
+function viewportBoneBindPoseAndDrawState(): {
+  bindM4: Map<string, Mat4>;
+  poseM4: Map<string, Mat4>;
+  boneM4: Map<string, Mat4>;
+  boneM: Map<string, Mat2D>;
+  boneO: Map<string, { x: number; y: number }>;
+} {
+  const bindM4 = worldBindBoneMatrices4(project.value);
+  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
+  const lenDrag = boneLengthDrag.value;
+  let boneM4 = rigModalBoneStep.value ? bindM4 : poseM4;
+  let boneO = rigModalBoneStep.value
+    ? worldBindOrigins(project.value)
+    : worldPoseOriginsWithIk(project.value, currentTime.value);
+  if (rigModalBoneStep.value && lenDrag) {
+    const b = project.value.bones.find((x) => x.id === lenDrag.boneId);
+    if (b) {
+      boneM4 = worldBindBoneMatrices4OverridingBindPose(project.value, lenDrag.boneId, {
+        ...b.bindPose,
+        rotation: lenDrag.previewRotation,
+      });
+      boneO = new Map();
+      for (const [id, m] of boneM4) boneO.set(id, { x: m[12], y: m[13] });
+    }
+  }
+  const boneM = mat4MapToMat2d(boneM4);
+  return { bindM4, poseM4, boneM4, boneM, boneO };
+}
+
+function rigidSliceWorldPose(
+  s: CharacterRigSpriteSlice,
+  _rig: CharacterRigConfig,
+  layoutCx: number,
+  layoutCy: number,
+  boneM4: Map<string, Mat4>,
+  boneO: Map<string, { x: number; y: number }>,
+): { cx: number; cy: number; rot: number } | null {
+  const bid = resolveCharacterRigSliceBoundBoneId(project.value, s.id);
+  if (!bid) return null;
+  const binding = project.value.characterRig?.bindings?.find((b) => b.sliceId === s.id && b.boneId === bid) ?? null;
+  return rigidCharacterRigSliceWorldPose(project.value, bid, layoutCx, layoutCy, boneM4, boneO, {
+    localX: binding?.localX,
+    localY: binding?.localY,
+    localZ: binding?.localZ,
+    rotOffset: binding?.rotOffset,
+  });
+}
+
+function pointInRotatedSliceRect(
+  wx: number,
+  wy: number,
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+  rot: number,
+): boolean {
+  const dx = wx - cx;
+  const dy = wy - cy;
+  const c = Math.cos(-rot);
+  const s = Math.sin(-rot);
+  const lx = dx * c - dy * s;
+  const ly = dx * s + dy * c;
+  return Math.abs(lx) <= w / 2 && Math.abs(ly) <= h / 2;
+}
+
 function hitTestRigSlice(wx: number, wy: number): string | null {
   const slices = project.value.characterRig?.slices;
   if (!slices?.length) return null;
+  const rig = project.value.characterRig!;
+  const { boneM4, boneO } = viewportBoneBindPoseAndDrawState();
   for (let i = slices.length - 1; i >= 0; i--) {
     const s = slices[i]!;
     if (s.width <= 0 || s.height <= 0) continue;
     const { cx, cy } = effectiveSliceCenter(s);
-    const hw = s.width / 2;
-    const hh = s.height / 2;
-    if (wx >= cx - hw && wx <= cx + hw && wy >= cy - hh && wy <= cy + hh) return s.id;
+    const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4, boneO);
+    if (rigid) {
+      if (pointInRotatedSliceRect(wx, wy, rigid.cx, rigid.cy, s.width, s.height, rigid.rot)) return s.id;
+    } else {
+      const hw = s.width / 2;
+      const hh = s.height / 2;
+      if (wx >= cx - hw && wx <= cx + hw && wy >= cy - hh && wy <= cy + hh) return s.id;
+    }
   }
   return null;
 }
 
 function bindingBoneIdForSlice(sliceId: string): string | null {
-  const rig = project.value.characterRig;
-  const row = rig?.bindings?.find((x) => x.sliceId === sliceId);
-  return row?.boneId ?? null;
+  return resolveCharacterRigSliceBoundBoneId(project.value, sliceId);
 }
 
 function animatorBoneDragGrab(boneId: string, pwx: number, pwy: number): { j0x: number; j0y: number; p0x: number; p0y: number } {
@@ -481,6 +569,7 @@ function draw() {
   if (!c) return;
   const ctx = c.getContext("2d");
   if (!ctx) return;
+  const g = ctx;
   const w = c.width;
   const h = c.height;
   ctx.fillStyle = "#121316";
@@ -526,28 +615,47 @@ function draw() {
     ctx.stroke();
   }
 
+  const skinMeshes = project.value.skinnedMeshes ?? [];
+  const { bindM4, poseM4, boneM4, boneM, boneO } = viewportBoneBindPoseAndDrawState();
+
   const rig = project.value.characterRig;
   if (rig?.slices?.length) {
     const activeSliceId = selectedCharacterRigSliceId.value;
     for (const s of rig.slices) {
       if (s.width <= 0 || s.height <= 0) continue;
       const { cx, cy } = effectiveSliceCenter(s);
-      const dx = cx - s.width / 2;
-      const dy = cy - s.height / 2;
       const isActive = activeSliceId !== null && s.id === activeSliceId;
-      /** Mit Auswahl: aktives Teil voll, andere ausgegraut. Ohne Auswahl: alle sichtbar (auf Referenz legen). */
       const alpha = activeSliceId === null ? 1 : isActive ? 1 : 0.44;
       ctx.save();
       ctx.globalAlpha = alpha;
-      if (s.embedded) {
-        const eimg = embeddedRigImages.value.get(s.id);
-        if (eimg?.complete && eimg.naturalWidth > 0) {
-          ctx.drawImage(eimg, dx, dy, s.width, s.height);
+      const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4, boneO);
+      if (rigid) {
+        ctx.translate(rigid.cx, rigid.cy);
+        ctx.rotate(rigid.rot);
+        if (s.embedded) {
+          const eimg = embeddedRigImages.value.get(s.id);
+          if (eimg?.complete && eimg.naturalWidth > 0) {
+            ctx.drawImage(eimg, -s.width / 2, -s.height / 2, s.width, s.height);
+          }
+        } else if (s.sheetId) {
+          const rigImg = rigSheetBitmaps.value.get(s.sheetId);
+          if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
+            ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, -s.width / 2, -s.height / 2, s.width, s.height);
+          }
         }
-      } else if (s.sheetId) {
-        const rigImg = rigSheetBitmaps.value.get(s.sheetId);
-        if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
-          ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, dx, dy, s.width, s.height);
+      } else {
+        const dx = cx - s.width / 2;
+        const dy = cy - s.height / 2;
+        if (s.embedded) {
+          const eimg = embeddedRigImages.value.get(s.id);
+          if (eimg?.complete && eimg.naturalWidth > 0) {
+            ctx.drawImage(eimg, dx, dy, s.width, s.height);
+          }
+        } else if (s.sheetId) {
+          const rigImg = rigSheetBitmaps.value.get(s.sheetId);
+          if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
+            ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, dx, dy, s.width, s.height);
+          }
         }
       }
       ctx.restore();
@@ -555,55 +663,44 @@ function draw() {
     ctx.save();
     for (const s of rig.slices) {
       if (s.width <= 0 || s.height <= 0) continue;
+      if (s.id !== selectedCharacterRigSliceId.value) continue;
       const { cx, cy } = effectiveSliceCenter(s);
-      const dx = cx - s.width / 2;
-      const dy = cy - s.height / 2;
-      const sel = s.id === selectedCharacterRigSliceId.value;
-      if (sel) {
-        ctx.strokeStyle = "rgba(251, 191, 36, 0.95)";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = "rgba(251, 191, 36, 0.95)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.save();
+      const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4, boneO);
+      if (rigid) {
+        ctx.translate(rigid.cx, rigid.cy);
+        ctx.rotate(rigid.rot);
+        ctx.strokeRect(-s.width / 2 - 1, -s.height / 2 - 1, s.width + 2, s.height + 2);
+      } else {
+        const dx = cx - s.width / 2;
+        const dy = cy - s.height / 2;
         ctx.strokeRect(dx - 1, dy - 1, s.width + 2, s.height + 2);
-        ctx.setLineDash([]);
       }
+      ctx.restore();
+      ctx.setLineDash([]);
     }
     ctx.restore();
   }
 
-  const skinMeshes = project.value.skinnedMeshes ?? [];
-  const bindM = worldBindBoneMatrices(project.value);
-  const poseM = worldPoseBoneMatrices(project.value, currentTime.value);
-
-  const lenDrag = boneLengthDrag.value;
-  let boneM = rigModalBoneStep.value ? bindM : poseM;
-  let boneO = rigModalBoneStep.value
-    ? worldBindOrigins(project.value)
-    : worldPoseOriginsWithIk(project.value, currentTime.value);
-  if (rigModalBoneStep.value && lenDrag) {
-    const b = project.value.bones.find((x) => x.id === lenDrag.boneId);
-    if (b) {
-      boneM = worldBindBoneMatricesOverridingBindPose(project.value, lenDrag.boneId, {
-        ...b.bindPose,
-        rotation: lenDrag.previewRotation,
-      });
-      boneO = new Map();
-      for (const [id, m] of boneM) boneO.set(id, { x: m.e, y: m.f });
-    }
-  }
   const bones = project.value.bones;
-  ctx.strokeStyle = "#6b7280";
-  ctx.lineWidth = 2;
+  /** 2D „Zylinder“-Schaft: dicke Stroke + runde Kappen. */
+  const BONE_SHAFT_W = 7;
+  const BONE_SHAFT_W_SEL = 9;
+  const boneStroke = "#c9d0df";
+  const boneStrokeSel = "#a7b6de";
   const tipHandles: { x: number; y: number }[] = [];
   const selBid = selectedBoneId.value;
   const rigStep = rigModalBoneStep.value;
-  for (const b of bones) {
-    ctx.strokeStyle = "#6b7280";
-    ctx.lineWidth = 2;
+
+  function drawOneBoneShaft(b: (typeof bones)[0], opts: { selected: boolean }) {
     const Lvis = lengthForBoneVisual(b, selBid, rigStep);
-    if (Lvis <= 1e-9) continue;
+    if (Lvis <= 1e-9) return;
     const M = boneM.get(b.id);
     const joint = boneO.get(b.id);
-    if (!M || !joint) continue;
+    if (!M || !joint) return;
     const dx = M.a;
     const dy = M.b;
     const dd = dx * dx + dy * dy;
@@ -618,29 +715,38 @@ function draw() {
     const tipY = joint.y + uy * Lvis;
     const ghost = rigStep && b.id === selBid && lengthForBoneDraw(b) < 1e-6;
     if (ghost) {
-      ctx.strokeStyle = "rgba(107, 114, 128, 0.45)";
-      ctx.setLineDash([4, 4]);
+      g.strokeStyle = "rgba(160, 168, 184, 0.5)";
+      g.lineWidth = 2;
+      g.lineCap = "butt";
+      g.setLineDash([4, 4]);
+      g.beginPath();
+      g.moveTo(joint.x, joint.y);
+      g.lineTo(tipX, tipY);
+      g.stroke();
+      g.setLineDash([]);
+      if (b.id === selBid && rigStep) tipHandles.push({ x: tipX, y: tipY });
+      return;
     }
-    ctx.beginPath();
-    ctx.moveTo(joint.x, joint.y);
-    ctx.lineTo(tipX, tipY);
-    ctx.stroke();
-    if (ghost) {
-      ctx.setLineDash([]);
-      ctx.strokeStyle = "#6b7280";
-    }
+    g.strokeStyle = opts.selected ? boneStrokeSel : boneStroke;
+    g.lineWidth = opts.selected ? BONE_SHAFT_W_SEL : BONE_SHAFT_W;
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    g.beginPath();
+    g.moveTo(joint.x, joint.y);
+    g.lineTo(tipX, tipY);
+    g.stroke();
     if (b.id === selBid && rigStep) {
       tipHandles.push({ x: tipX, y: tipY });
     }
   }
+
   for (const b of bones) {
-    const o = boneO.get(b.id);
-    if (!o) continue;
-    const sel = b.id === selectedBoneId.value;
-    ctx.fillStyle = sel ? "#a5b4fc" : "#22c55e";
-    ctx.beginPath();
-    ctx.arc(o.x, o.y, sel ? 7 : 5, 0, Math.PI * 2);
-    ctx.fill();
+    if (b.id === selBid) continue;
+    drawOneBoneShaft(b, { selected: false });
+  }
+  if (selBid) {
+    const bs = bones.find((x) => x.id === selBid);
+    if (bs) drawOneBoneShaft(bs, { selected: true });
   }
   if (tipHandles.length) {
     ctx.strokeStyle = "rgba(251, 191, 36, 0.9)";
@@ -672,7 +778,7 @@ function draw() {
     const mesh = skinMeshes.find((m) => m.id === smId);
     if (mesh && sv >= 0 && sv < mesh.vertices.length) {
       const m = meshForRender(mesh);
-      const deformed = deformSkinnedMesh(m, bindM, poseM);
+      const deformed = deformSkinnedMesh(m, bindM4, poseM4);
       const pv = deformed[sv];
       if (pv) {
         ctx.strokeStyle = "#fbbf24";
@@ -718,10 +824,10 @@ function applyBrushAt(wx: number, wy: number) {
   if (!st || !boneId) return;
   const mesh = project.value.skinnedMeshes?.find((m) => m.id === st.meshId);
   if (!mesh) return;
-  const bindM = worldBindBoneMatrices(project.value);
-  const poseM = worldPoseBoneMatrices(project.value, currentTime.value);
+  const bindM4 = worldBindBoneMatrices4(project.value);
+  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
   const tmp: SkinnedMesh = { ...mesh, influences: st.working };
-  const deformed = deformSkinnedMesh(tmp, bindM, poseM);
+  const deformed = deformSkinnedMesh(tmp, bindM4, poseM4);
   const r = weightBrushRadius.value;
   const r2 = r * r;
   const str = weightBrushStrength.value * (weightBrushSubtract.value ? -1 : 1);
@@ -899,13 +1005,13 @@ function onCanvasPointerDown(e: PointerEvent) {
     store.clearMeshVertexSelection();
     return;
   }
-  const bindM = worldBindBoneMatrices(project.value);
-  const poseM = worldPoseBoneMatrices(project.value, currentTime.value);
+  const bindM4 = worldBindBoneMatrices4(project.value);
+  const poseM4 = worldPoseBoneMatrices4(project.value, currentTime.value);
   const threshold2 = 20 * 20;
   let bestD2 = threshold2;
   let best: { meshId: string; vi: number } | null = null;
   for (const mesh of meshes) {
-    const deformed = deformSkinnedMesh(mesh, bindM, poseM);
+    const deformed = deformSkinnedMesh(mesh, bindM4, poseM4);
     for (let vi = 0; vi < deformed.length; vi++) {
       const pt = deformed[vi]!;
       const dx = pt.x - wx;
@@ -1153,10 +1259,18 @@ function onCanvasPointerCancel(e: PointerEvent) {
 
 <template>
   <div class="viewport">
+    <div v-if="animatorUsesWebglViewport" class="webgl-wrap">
+      <AnimatorThreeViewport />
+    </div>
     <canvas
       ref="canvas"
       class="cv"
       :class="{ brush: weightBrushEnabled }"
+      :style="
+        animatorUsesWebglViewport
+          ? 'opacity:0; position:absolute; inset:0; pointer-events:none;'
+          : undefined
+      "
       @pointerdown="onCanvasPointerDown"
       @pointermove="onCanvasPointerMove"
       @pointerup="onCanvasPointerUp"
@@ -1164,6 +1278,36 @@ function onCanvasPointerCancel(e: PointerEvent) {
       @wheel="onWheelView"
       @contextmenu.prevent
     />
+    <div v-if="!characterRigModalOpen" class="cam-modes" aria-label="Camera mode">
+      <span class="cam-label">Camera</span>
+      <button
+        type="button"
+        class="cam-btn"
+        :class="{ active: rigCameraViewKind === '2d' }"
+        title="2D (canvas)"
+        @click="store.setRigCameraViewKind('2d')"
+      >
+        2D
+      </button>
+      <button
+        type="button"
+        class="cam-btn"
+        :class="{ active: rigCameraViewKind === '2.5d' }"
+        title="2.5D (WebGL)"
+        @click="store.setRigCameraViewKind('2.5d')"
+      >
+        2.5D
+      </button>
+      <button
+        type="button"
+        class="cam-btn"
+        :class="{ active: rigCameraViewKind === '3d' }"
+        title="3D (WebGL)"
+        @click="store.setRigCameraViewKind('3d')"
+      >
+        3D
+      </button>
+    </div>
     <div class="view-toolbar" aria-label="Viewport-Ansicht">
       <span class="view-toolbar-label">{{ zoomPercent }}%</span>
       <button type="button" class="view-tb-btn" title="Verkleinern" @click="zoomViewportOut">−</button>
@@ -1183,6 +1327,11 @@ function onCanvasPointerCancel(e: PointerEvent) {
   display: flex;
   flex-direction: column;
 }
+.webgl-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
 .cv {
   flex: 1;
   min-height: 0;
@@ -1190,6 +1339,8 @@ function onCanvasPointerCancel(e: PointerEvent) {
   display: block;
   cursor: crosshair;
   touch-action: none;
+  position: relative;
+  z-index: 1;
 }
 .cv.brush {
   cursor: cell;
@@ -1208,6 +1359,38 @@ function onCanvasPointerCancel(e: PointerEvent) {
   font-size: 0.72rem;
   color: #9ca3af;
   z-index: 2;
+}
+.cam-modes {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(15, 16, 20, 0.88);
+  border: 1px solid #2d3340;
+  color: #cbd5e1;
+  z-index: 3;
+}
+.cam-label {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  margin-right: 4px;
+}
+.cam-btn {
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #374151;
+  background: #1f2430;
+  color: #e5e7eb;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+.cam-btn.active {
+  border-color: #8b5cf6;
+  background: #2a2440;
 }
 .view-toolbar-label {
   min-width: 2.75rem;

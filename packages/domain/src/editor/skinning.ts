@@ -1,19 +1,20 @@
-import { apply, invert, multiply, type Mat2D } from "./mat2d.js";
+import { mat4Invert, mat4Multiply, transformPointMat4, type Mat4 } from "./mat4.js";
 import type { SkinnedMesh } from "./types.js";
 
 const MAX_INFLUENCES = 8;
 
 /**
- * Linear blend skinning in 2D: v' = Σ w_i · (W_i · W_i^{-1}_{bind}) · v
- * Vertices live in the same plane as bones (y-down).
+ * Linear blend skinning: v' = Σ w_i · (W_i · W_i^{-1}_{bind}) · v
+ * Vertices are `(x, y, 0)` in world/bind space; result uses XY (y-down canvas plane).
+ * Uses full **4×4** bone chains so tilt/spin (ADR 0011) do not collapse to a singular 2×3 projection.
  */
 export function deformSkinnedMesh(
   mesh: SkinnedMesh,
-  bindWorld: Map<string, Mat2D>,
-  poseWorld: Map<string, Mat2D>,
+  bindWorld: Map<string, Mat4>,
+  poseWorld: Map<string, Mat4>,
 ): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
-  const skinMatrices = new Map<string, Mat2D>();
+  const skinMatrices = new Map<string, Mat4>();
 
   for (let vi = 0; vi < mesh.vertices.length; vi++) {
     const vx = mesh.vertices[vi]!.x;
@@ -31,12 +32,12 @@ export function deformSkinnedMesh(
         const bw = bindWorld.get(inf.boneId);
         const pw = poseWorld.get(inf.boneId);
         if (!bw || !pw) continue;
-        const invB = invert(bw);
+        const invB = mat4Invert(bw);
         if (!invB) continue;
-        sm = multiply(pw, invB);
+        sm = mat4Multiply(pw, invB);
         skinMatrices.set(inf.boneId, sm);
       }
-      const p = apply(sm, vx, vy);
+      const p = transformPointMat4(sm, vx, vy, 0);
       ox += w * p.x;
       oy += w * p.y;
       wsum += w;

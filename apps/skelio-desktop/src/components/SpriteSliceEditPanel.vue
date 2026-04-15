@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Sprites step: drawing mode + front/back ops (Smack-like).
+ * Sprites step: drawing mode + front/back ops.
  */
 import type { CharacterRigSpriteSlice } from "@skelio/domain";
 import { storeToRefs } from "pinia";

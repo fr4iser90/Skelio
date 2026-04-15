@@ -1,6 +1,35 @@
 import { createId } from "./ids.js";
 import type { EditorProject } from "./types.js";
 
+/**
+ * Legacy clips stored tx/ty/tz/rot/tilt/spin as **absolute** bind-local values; the editor now uses
+ * **offsets from bind** so empty or zero keys do not override the armature rest pose.
+ */
+function migrateClipTransformsToBindRelative(project: EditorProject): void {
+  if (project.meta.clipTransformsRelativeToBind === true) return;
+  const byId = new Map(project.bones.map((b) => [b.id, b] as const));
+  for (const clip of project.clips) {
+    for (const tr of clip.tracks) {
+      const bone = byId.get(tr.boneId);
+      if (!bone) continue;
+      const bp = bone.bindPose;
+      const b3 = bone.bindBone3d;
+      const zBase = (b3?.z ?? 0) + (b3?.depthOffset ?? 0);
+      const tilt0 = b3?.tilt ?? 0;
+      const spin0 = b3?.spin ?? 0;
+      for (const ch of tr.channels) {
+        if (ch.property === "tx") for (const k of ch.keys) k.v -= bp.x;
+        else if (ch.property === "ty") for (const k of ch.keys) k.v -= bp.y;
+        else if (ch.property === "rot") for (const k of ch.keys) k.v -= bp.rotation;
+        else if (ch.property === "tz") for (const k of ch.keys) k.v -= zBase;
+        else if (ch.property === "tilt") for (const k of ch.keys) k.v -= tilt0;
+        else if (ch.property === "spin") for (const k of ch.keys) k.v -= spin0;
+      }
+    }
+  }
+  project.meta.clipTransformsRelativeToBind = true;
+}
+
 function ensureBoneLengths(project: EditorProject): void {
   const childrenOf = (id: string) => project.bones.filter((c) => c.parentId === id);
   for (const b of project.bones) {
@@ -38,11 +67,17 @@ export function normalizeEditorProjectInPlace(project: EditorProject): void {
       }
     }
   }
+  migrateClipTransformsToBindRelative(project);
   const rig = project.characterRig;
   if (!rig) return;
 
   if (!rig.spriteSheets) rig.spriteSheets = [];
   if (!rig.slices) rig.slices = [];
+  if (!rig.bindings) rig.bindings = [];
+  // `rotOffset` was an experimental binding field; keep default behavior (follow bone rotation).
+  for (const b of rig.bindings) {
+    delete (b as { rotOffset?: number }).rotOffset;
+  }
 
   const legacy = rig.spriteSheet;
   if (legacy?.dataBase64 && rig.spriteSheets.length === 0) {

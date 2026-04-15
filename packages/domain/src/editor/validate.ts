@@ -260,7 +260,7 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
       }
     }
     const boundSlice = new Set<string>();
-    for (const b of rig.bindings) {
+    for (const b of rig.bindings ?? []) {
       if (!sliceIds.has(b.sliceId)) {
         issues.push({ path: "characterRig.bindings", message: `unknown slice id in binding: ${b.sliceId}` });
       }
@@ -282,7 +282,7 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
       }
       depthSlice.add(d.sliceId);
 
-      // Optional depth textures (Smack-style heightmaps) must match slice size.
+      // Optional depth textures must match slice size.
       const s = rig.slices.find((x) => x.id === d.sliceId);
       const checkTex = (label: "Front" | "Back", tex?: { mimeType: string; dataBase64: string; pixelWidth: number; pixelHeight: number }) => {
         if (!tex) return;

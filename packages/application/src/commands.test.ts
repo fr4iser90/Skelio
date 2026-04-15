@@ -3,13 +3,34 @@ import {
   createDefaultEditorProject,
   createId,
   editorProjectToRuntime,
+  getLocalBoneState,
   meshDisplayNameFromFileName,
+  normalizeEditorProjectInPlace,
   skinnedMeshFromObjText,
   validateEditorProject,
 } from "@skelio/domain";
 import { applyCommand } from "./commands.js";
 
 describe("applyCommand", () => {
+  it("normalizeEditorProjectInPlace converts legacy absolute tx keys to bind-relative offsets", () => {
+    const p = createDefaultEditorProject();
+    delete (p.meta as { clipTransformsRelativeToBind?: boolean }).clipTransformsRelativeToBind;
+    const root = p.bones[0]!;
+    root.bindPose.x = 10;
+    const clip = p.clips.find((c) => c.id === p.activeClipId)!;
+    clip.tracks = [
+      {
+        boneId: root.id,
+        channels: [{ property: "tx", interpolation: "linear", keys: [{ t: 0, v: 10 }] }],
+      },
+    ];
+    normalizeEditorProjectInPlace(p);
+    expect(p.meta.clipTransformsRelativeToBind).toBe(true);
+    const v = clip.tracks[0]!.channels[0]!.keys[0]!.v;
+    expect(v).toBe(0);
+    expect(getLocalBoneState(root, clip, 0).x).toBe(10);
+  });
+
   it("adds demo IK chain and validates", () => {
     let p = createDefaultEditorProject();
     p = applyCommand(p, { type: "addDemoIkChain" });
@@ -217,6 +238,40 @@ describe("applyCommand", () => {
     expect(p.skinnedMeshes?.length ?? 0).toBe(before);
   });
 
+  it("syncCharacterRigSkinnedMeshes is a no-op when bindings reference unknown bones", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, {
+      type: "setCharacterRigSpriteSheet",
+      fileName: "sheet.png",
+      mimeType: "image/png",
+      dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      pixelWidth: 64,
+      pixelHeight: 64,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "Part",
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 10,
+      worldCx: 0,
+      worldCy: 0,
+    });
+    const sid = p.characterRig!.slices[0]!.id;
+    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: sid, boneId: root });
+    p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
+    expect(p.skinnedMeshes?.some((m) => m.id.startsWith("rig_slice_"))).toBe(true);
+    p.characterRig!.bindings = [{ sliceId: sid, boneId: "no_such_bone" }];
+    const n = p.skinnedMeshes?.length ?? 0;
+    const beforeBindings = structuredClone(p.characterRig!.bindings);
+    p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
+    expect(p.characterRig!.bindings).toEqual(beforeBindings);
+    expect(p.skinnedMeshes?.length).toBe(n);
+    expect(validateEditorProject(p).some((i) => i.message.includes("unknown bone id in binding"))).toBe(true);
+  });
+
   it("syncCharacterRigSkinnedMeshes creates rig_slice meshes from bound slices", () => {
     let p = createDefaultEditorProject();
     const root = p.bones[0]!.id;
@@ -265,6 +320,34 @@ describe("applyCommand", () => {
     const ty = tr.channels.find((c) => c.property === "ty")!.keys;
     expect(tx.some((k) => Math.abs(k.t - 0.25) < 1e-9 && k.v === 12)).toBe(true);
     expect(ty.some((k) => Math.abs(k.t - 0.25) < 1e-9 && k.v === -7)).toBe(true);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("purgeClipTranslationRotationKeysAtTime removes tx/ty/rot keys at t without changing rest pose", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!;
+    root.bindPose.x = 49;
+    root.bindPose.y = 588;
+    const clip = p.clips.find((c) => c.id === p.activeClipId)!;
+    /** Offsets from bind: zeros mean rest at bind (49, 588). */
+    clip.tracks = [
+      {
+        boneId: root.id,
+        channels: [
+          { property: "tx", interpolation: "linear", keys: [{ t: 0, v: 0 }] },
+          { property: "ty", interpolation: "linear", keys: [{ t: 0, v: 0 }] },
+        ],
+      },
+    ];
+    const s0 = getLocalBoneState(root, clip, 0);
+    expect(s0.x).toBe(49);
+    expect(s0.y).toBe(588);
+    p = applyCommand(p, { type: "purgeClipTranslationRotationKeysAtTime", t: 0 });
+    const clip2 = p.clips.find((c) => c.id === p.activeClipId)!;
+    const s1 = getLocalBoneState(root, clip2, 0);
+    expect(s1.x).toBe(49);
+    expect(s1.y).toBe(588);
+    expect(clip2.tracks.length).toBe(0);
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
@@ -530,5 +613,28 @@ describe("applyCommand", () => {
     if ("error" in parsed) return;
     const p2 = applyCommand(p, { type: "addSkinnedMesh", mesh: parsed.mesh });
     expect(p2).toBe(p);
+  });
+
+  it("adds animation clips and switches active", () => {
+    let p = createDefaultEditorProject();
+    const mainId = p.activeClipId;
+    p = applyCommand(p, { type: "addAnimationClip", name: "Idle" });
+    expect(p.clips).toHaveLength(2);
+    const idleId = p.clips.find((c) => c.name === "Idle")!.id;
+    expect(p.activeClipId).toBe(idleId);
+    p = applyCommand(p, { type: "setActiveClip", clipId: mainId });
+    expect(p.activeClipId).toBe(mainId);
+    p = applyCommand(p, { type: "removeAnimationClip", clipId: idleId });
+    expect(p.clips).toHaveLength(1);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("rejects importAnimationClip when track references unknown bone", () => {
+    const p = createDefaultEditorProject();
+    const p2 = applyCommand(p, {
+      type: "importAnimationClip",
+      clip: { id: "x", name: "x", tracks: [{ boneId: "bone_unknown", channels: [] }] },
+    });
+    expect(p2).toEqual(p);
   });
 });

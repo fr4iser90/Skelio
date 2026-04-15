@@ -21,7 +21,7 @@ export function createDefaultEditorProject(): EditorProject {
   const clipId = createId("clip");
   return {
     editorSchemaVersion: "1.0.0",
-    meta: { name: "Untitled", fps: 60 },
+    meta: { name: "Untitled", fps: 60, clipTransformsRelativeToBind: true },
     bones: [root],
     clips: [emptyClip(clipId, "main")],
     activeClipId: clipId,

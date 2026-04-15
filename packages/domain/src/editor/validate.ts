@@ -172,9 +172,6 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
       if (!Number.isFinite(s.worldCx) || !Number.isFinite(s.worldCy)) {
         issues.push({ path: `characterRig.slices.${s.id}`, message: "slice world position must be finite" });
       }
-      if (s.viewName != null && (typeof s.viewName !== "string" || s.viewName.length === 0)) {
-        issues.push({ path: `characterRig.slices.${s.id}.viewName`, message: "view name must be non-empty when set" });
-      }
       if (s.side != null && s.side !== "front" && s.side !== "back") {
         issues.push({ path: `characterRig.slices.${s.id}.side`, message: "side must be front or back" });
       }

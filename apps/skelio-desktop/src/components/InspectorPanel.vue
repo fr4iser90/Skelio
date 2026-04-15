@@ -17,7 +17,18 @@ const {
   weightBrushStrength,
   weightBrushSubtract,
   placeNewBonesAtParentTip,
+  characterRigModalOpen,
 } = storeToRefs(store);
+
+/** Bind pose / length / chain: edit in Character Rig wizard; main window = animation + weights + IK. */
+const bindPoseLocked = computed(() => !characterRigModalOpen.value);
+
+const poseRotationAtPlayhead = computed(() => {
+  const b = selectedBone.value;
+  if (!b) return 0;
+  const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
+  return getLocalBoneState(b, clip, currentTime.value).rot;
+});
 
 const weightContext = computed(() => {
   const mid = selectedMeshId.value;
@@ -42,6 +53,7 @@ function rename(e: Event) {
 }
 
 function patchBind(field: "x" | "y" | "rotation" | "sx" | "sy", ev: Event) {
+  if (bindPoseLocked.value) return;
   const id = selectedBone.value?.id;
   if (!id) return;
   const n = Number((ev.target as HTMLInputElement).value);
@@ -50,6 +62,7 @@ function patchBind(field: "x" | "y" | "rotation" | "sx" | "sy", ev: Event) {
 }
 
 function patchBind3d(field: "z" | "depthOffset" | "tilt" | "spin", ev: Event) {
+  if (bindPoseLocked.value) return;
   const id = selectedBone.value?.id;
   if (!id) return;
   const n = Number((ev.target as HTMLInputElement).value);
@@ -63,13 +76,13 @@ function bind3d(field: "z" | "depthOffset" | "tilt" | "spin"): number {
   return b.bindBone3d[field];
 }
 
-/** Keyframe am Playhead: aktuellen Wert (inkl. Interpolation) schreiben. */
-function keyframeChannel(prop: "tz" | "tilt" | "spin") {
+/** Keyframe at playhead: sample current value (incl. interpolation) and write a key. */
+function keyframeChannel(prop: "tz" | "tilt" | "spin" | "rot") {
   const b = selectedBone.value;
   if (!b) return;
   const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
   const s = getLocalBoneState(b, clip, currentTime.value);
-  const v = prop === "tz" ? s.z : prop === "tilt" ? s.tilt : s.spin;
+  const v = prop === "tz" ? s.z : prop === "tilt" ? s.tilt : prop === "spin" ? s.spin : s.rot;
   store.dispatch({
     type: "addKeyframe",
     boneId: b.id,
@@ -79,7 +92,22 @@ function keyframeChannel(prop: "tz" | "tilt" | "spin") {
   });
 }
 
+function patchPoseRotation(ev: Event) {
+  const b = selectedBone.value;
+  if (!b) return;
+  const n = Number((ev.target as HTMLInputElement).value);
+  if (Number.isNaN(n)) return;
+  store.dispatch({
+    type: "addKeyframe",
+    boneId: b.id,
+    property: "rot",
+    t: currentTime.value,
+    v: n,
+  });
+}
+
 function patchBoneLength(ev: Event) {
+  if (bindPoseLocked.value) return;
   const id = selectedBone.value?.id;
   if (!id) return;
   const n = Number((ev.target as HTMLInputElement).value);
@@ -88,12 +116,14 @@ function patchBoneLength(ev: Event) {
 }
 
 function snapToParentTip() {
+  if (bindPoseLocked.value) return;
   const id = selectedBone.value?.id;
   if (!id) return;
   store.dispatch({ type: "snapBoneToParentTip", boneId: id });
 }
 
 function setFollowParentTip(ev: Event) {
+  if (bindPoseLocked.value) return;
   const id = selectedBone.value?.id;
   if (!id) return;
   const on = (ev.target as HTMLInputElement).checked;
@@ -194,36 +224,144 @@ function removeIkChain(chainId: string) {
 
     <template v-if="selectedBone">
       <h3 class="panel-title">Knochen</h3>
-      <p class="bone-hint">
-        <strong>Bind-Pose</strong> = Ruhe-Skelett. Die <strong>Animation</strong> steuerst du mit Keys zur Zeit
-        <span class="tmono">{{ currentTime.toFixed(2) }}s</span> (Timeline unten oder Knochen im Viewport ziehen).
+      <p v-if="bindPoseLocked" class="bone-hint bone-hint-warn">
+        <strong>Skeleton / bind pose</strong> is edited in <strong>Character Rig</strong> (open the rig wizard). Here:
+        <strong>animation</strong> (keys, viewport drag on sprites/bones), weights, IK.
+      </p>
+      <p v-else class="bone-hint">
+        <strong>Bind pose</strong> = rest skeleton. <strong>Animation</strong> uses keys at time
+        <span class="tmono">{{ currentTime.toFixed(2) }}s</span> (timeline or viewport).
       </p>
       <label class="lbl">Name <input class="inp" :value="selectedBone.name" @change="rename" /></label>
-      <label class="lbl">Bind X <input class="inp sm" type="number" step="0.1" :value="selectedBone.bindPose.x" @change="patchBind('x', $event)" /></label>
-      <label class="lbl">Bind Y <input class="inp sm" type="number" step="0.1" :value="selectedBone.bindPose.y" @change="patchBind('y', $event)" /></label>
-      <label class="lbl">Rotation (rad) <input class="inp sm" type="number" step="0.01" :value="selectedBone.bindPose.rotation" @change="patchBind('rotation', $event)" /></label>
-      <label class="lbl">Length <input class="inp sm" type="number" step="0.5" min="0" :value="selectedBone.length" @change="patchBoneLength($event)" /></label>
-      <label class="lbl">Scale X <input class="inp sm" type="number" step="0.05" :value="selectedBone.bindPose.sx" @change="patchBind('sx', $event)" /></label>
-      <label class="lbl">Scale Y <input class="inp sm" type="number" step="0.05" :value="selectedBone.bindPose.sy" @change="patchBind('sy', $event)" /></label>
+      <label class="lbl"
+        >Bind X
+        <input
+          class="inp sm"
+          type="number"
+          step="0.1"
+          :disabled="bindPoseLocked"
+          :value="selectedBone.bindPose.x"
+          @change="patchBind('x', $event)"
+      /></label>
+      <label class="lbl"
+        >Bind Y
+        <input
+          class="inp sm"
+          type="number"
+          step="0.1"
+          :disabled="bindPoseLocked"
+          :value="selectedBone.bindPose.y"
+          @change="patchBind('y', $event)"
+      /></label>
+      <label class="lbl"
+        >Bind rotation (rad)
+        <input
+          class="inp sm"
+          type="number"
+          step="0.01"
+          :disabled="bindPoseLocked"
+          :value="selectedBone.bindPose.rotation"
+          @change="patchBind('rotation', $event)"
+      /></label>
+      <label class="lbl"
+        >Length
+        <input
+          class="inp sm"
+          type="number"
+          step="0.5"
+          min="0"
+          :disabled="bindPoseLocked"
+          :value="selectedBone.length"
+          @change="patchBoneLength($event)"
+      /></label>
+      <label class="lbl"
+        >Scale X
+        <input
+          class="inp sm"
+          type="number"
+          step="0.05"
+          :disabled="bindPoseLocked"
+          :value="selectedBone.bindPose.sx"
+          @change="patchBind('sx', $event)"
+      /></label>
+      <label class="lbl"
+        >Scale Y
+        <input
+          class="inp sm"
+          type="number"
+          step="0.05"
+          :disabled="bindPoseLocked"
+          :value="selectedBone.bindPose.sy"
+          @change="patchBind('sy', $event)"
+      /></label>
 
       <h4 class="sub-title">3D (Editor, Bind)</h4>
       <p class="muted small">
-        Z / Depth offset / Tilt / Spin (Bogenmaß). Siehe docs/adr/0011-editor-bone-3d-bind-pose.md. Runtime-Export 1.1.0
-        strippt tz/tilt/spin noch.
+        Z / depth offset / tilt / spin (radians). See docs/adr/0011-editor-bone-3d-bind-pose.md. Runtime export 1.1.0
+        still strips tz/tilt/spin.
       </p>
-      <label class="lbl">Bind Z <input class="inp sm" type="number" step="0.1" :value="bind3d('z')" @change="patchBind3d('z', $event)" /></label>
-      <label class="lbl">Depth offset <input class="inp sm" type="number" step="0.1" :value="bind3d('depthOffset')" @change="patchBind3d('depthOffset', $event)" /></label>
-      <label class="lbl">Tilt (rad) <input class="inp sm" type="number" step="0.01" :value="bind3d('tilt')" @change="patchBind3d('tilt', $event)" /></label>
-      <label class="lbl">Spin (rad) <input class="inp sm" type="number" step="0.01" :value="bind3d('spin')" @change="patchBind3d('spin', $event)" /></label>
+      <label class="lbl"
+        >Bind Z
+        <input class="inp sm" type="number" step="0.1" :disabled="bindPoseLocked" :value="bind3d('z')" @change="patchBind3d('z', $event)"
+      /></label>
+      <label class="lbl"
+        >Depth offset
+        <input
+          class="inp sm"
+          type="number"
+          step="0.1"
+          :disabled="bindPoseLocked"
+          :value="bind3d('depthOffset')"
+          @change="patchBind3d('depthOffset', $event)"
+      /></label>
+      <label class="lbl"
+        >Tilt (rad)
+        <input
+          class="inp sm"
+          type="number"
+          step="0.01"
+          :disabled="bindPoseLocked"
+          :value="bind3d('tilt')"
+          @change="patchBind3d('tilt', $event)"
+      /></label>
+      <label class="lbl"
+        >Spin (rad)
+        <input
+          class="inp sm"
+          type="number"
+          step="0.01"
+          :disabled="bindPoseLocked"
+          :value="bind3d('spin')"
+          @change="patchBind3d('spin', $event)"
+      /></label>
       <div class="btnrow">
-        <button type="button" class="mini" title="Keyframe tz an aktueller Zeit" @click="keyframeChannel('tz')">Key TZ</button>
-        <button type="button" class="mini" title="Keyframe tilt an aktueller Zeit" @click="keyframeChannel('tilt')">Key tilt</button>
-        <button type="button" class="mini" title="Keyframe spin an aktueller Zeit" @click="keyframeChannel('spin')">Key spin</button>
+        <button type="button" class="mini" title="Keyframe TZ at current time" @click="keyframeChannel('tz')">Key TZ</button>
+        <button type="button" class="mini" title="Keyframe tilt at current time" @click="keyframeChannel('tilt')">Key tilt</button>
+        <button type="button" class="mini" title="Keyframe spin at current time" @click="keyframeChannel('spin')">Key spin</button>
+      </div>
+
+      <h4 class="sub-title">Animation (playhead)</h4>
+      <p class="muted small">
+        Pose rotation (FK) at <span class="tmono">{{ currentTime.toFixed(2) }}s</span> — raise arms etc. Viewport drag on
+        sprites/bones writes <strong>TX/TY</strong> keys only.
+      </p>
+      <label class="lbl"
+        >Pose rotation (rad)
+        <input
+          class="inp sm"
+          type="number"
+          step="0.01"
+          :value="poseRotationAtPlayhead"
+          @change="patchPoseRotation"
+      /></label>
+      <div class="btnrow">
+        <button type="button" class="mini" title="Keyframe rot at current time" @click="keyframeChannel('rot')">Key rot</button>
       </div>
 
       <label class="rowchk">
         <input
           type="checkbox"
+          :disabled="bindPoseLocked"
           :checked="placeNewBonesAtParentTip"
           @change="store.setPlaceNewBonesAtParentTip(($event.target as HTMLInputElement).checked)"
         />
@@ -231,10 +369,15 @@ function removeIkChain(chainId: string) {
       </label>
       <template v-if="selectedBone.parentId">
         <div class="btnrow">
-          <button type="button" class="mini" @click="snapToParentTip">An Spitze schnappen</button>
+          <button type="button" class="mini" :disabled="bindPoseLocked" @click="snapToParentTip">An Spitze schnappen</button>
         </div>
         <label class="rowchk">
-          <input type="checkbox" :checked="!!selectedBone.followParentTip" @change="setFollowParentTip($event)" />
+          <input
+            type="checkbox"
+            :disabled="bindPoseLocked"
+            :checked="!!selectedBone.followParentTip"
+            @change="setFollowParentTip($event)"
+          />
           Parent-Spitze folgen
         </label>
       </template>
@@ -342,6 +485,11 @@ h3:first-child {
 .bone-hint .tmono {
   font-variant-numeric: tabular-nums;
   color: #a5b4fc;
+}
+.bone-hint-warn {
+  border-left: 3px solid #f59e0b;
+  padding-left: 0.45rem;
+  color: #cbd5e1;
 }
 .lbl {
   display: flex;

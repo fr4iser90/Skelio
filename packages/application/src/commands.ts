@@ -100,7 +100,6 @@ export type Command =
       type: "patchCharacterRigSlice";
       sliceId: string;
       name?: string;
-      viewName?: string;
       side?: "front" | "back";
     }
   | { type: "renameCharacterRigSlice"; sliceId: string; name: string }
@@ -413,7 +412,6 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       height: 0,
       worldCx,
       worldCy,
-      viewName: "Default",
       side: "front",
     });
     return p;
@@ -454,7 +452,6 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       height: cmd.height,
       worldCx,
       worldCy,
-      viewName: "Default",
       side: "front",
       sheetId,
     });
@@ -479,7 +476,6 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       height: cmd.pixelHeight,
       worldCx,
       worldCy,
-      viewName: "Default",
       side: "front",
       embedded: {
         mimeType: mime,
@@ -499,10 +495,6 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     if (typeof cmd.name === "string") {
       const n = cmd.name.trim();
       if (n) s.name = n;
-    }
-    if (typeof cmd.viewName === "string") {
-      const v = cmd.viewName.trim();
-      if (v) s.viewName = v;
     }
     if (cmd.side === "front" || cmd.side === "back") s.side = cmd.side;
     return p;

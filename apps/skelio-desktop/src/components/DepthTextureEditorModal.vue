@@ -227,7 +227,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
       <div class="dialog" @click.stop>
         <header class="head">
           <h3 class="title">Edit depth texture · {{ slice.name }} · {{ side }}</h3>
-          <button type="button" class="close" title="Schließen (Esc)" @click="close">×</button>
+          <button type="button" class="close" title="Close (Esc)" @click="close">×</button>
         </header>
         <div class="body">
           <div class="canvas-wrap">
@@ -255,7 +255,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
             </label>
             <button type="button" class="ghost" @click="clearTexture">Clear</button>
             <p class="muted">
-              Weiß = maximal (mapped to Max Depth), Schwarz = 0. Speichert automatisch beim Loslassen.
+              White = full height (mapped to max depth), black = 0. Saves automatically on pointer up.
             </p>
           </aside>
         </div>

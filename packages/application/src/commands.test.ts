@@ -54,10 +54,8 @@ describe("applyCommand", () => {
     p = applyCommand(p, {
       type: "patchCharacterRigSlice",
       sliceId: sid,
-      viewName: "Walk",
       side: "back",
     });
-    expect(p.characterRig?.slices[0]?.viewName).toBe("Walk");
     expect(p.characterRig?.slices[0]?.side).toBe("back");
     expect(validateEditorProject(p)).toHaveLength(0);
   });

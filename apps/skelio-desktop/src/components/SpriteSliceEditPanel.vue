@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Schritt „Sprites“: Drawing-Mode + Front/Back-Operationen (Smack-näher).
+ * Sprites step: drawing mode + front/back ops (Smack-like).
  */
 import type { CharacterRigSpriteSlice } from "@skelio/domain";
 import { storeToRefs } from "pinia";
@@ -128,7 +128,7 @@ watch(spriteEditTool, async (t) => {
   if (["brush", "fill", "eraser", "select"].includes(t)) {
     const ok = await ensureEmbeddedFromSheet();
     if (!ok && selectedSlice.value?.sheetId) {
-      statusMsg.value = "Konnte Sheet nicht einbetten.";
+      statusMsg.value = "Could not embed sheet.";
       return;
     }
     await loadLayerIntoBuffer();
@@ -221,7 +221,7 @@ function onPointerDown(e: PointerEvent) {
   }
 
   if (spriteEditTool.value === "select") {
-    statusMsg.value = "Auswahl-Rechteck: demnächst — aktuell Pinsel nutzen.";
+    statusMsg.value = "Marquee select: coming soon — use brush for now.";
   }
 }
 
@@ -299,7 +299,7 @@ async function opClearLayer() {
   if (!s) return;
   if (editLayer.value === "back") {
     store.dispatch({ type: "clearCharacterRigSliceEmbeddedBack", sliceId: id });
-    statusMsg.value = "Rückseite entfernt.";
+    statusMsg.value = "Back layer removed.";
     await loadLayerIntoBuffer();
     await syncCanvasSize();
     return;
@@ -311,7 +311,7 @@ async function opClearLayer() {
   clearImageDataTransparent(empty);
   const img = imageDataToPngEmbedded(empty);
   store.dispatch({ type: "setCharacterRigSliceLayerPixels", sliceId: id, layer: "front", image: img });
-  statusMsg.value = "Vorderseite geleert.";
+  statusMsg.value = "Front layer cleared.";
   await loadLayerIntoBuffer();
   await syncCanvasSize();
 }
@@ -323,7 +323,7 @@ async function opCopyFrontToBack() {
   const img = await buildEmbeddedBackFromFront(project.value, id);
   if (!img) return;
   store.dispatch({ type: "setCharacterRigSliceLayerPixels", sliceId: id, layer: "back", image: img });
-  statusMsg.value = "Vorderseite → Rückseite kopiert.";
+  statusMsg.value = "Copied front → back.";
 }
 
 async function opCopyBackToFront() {
@@ -331,14 +331,14 @@ async function opCopyBackToFront() {
   if (!id) return;
   const s = selectedSlice.value;
   if (!s?.embeddedBack?.dataBase64) {
-    statusMsg.value = "Keine Rückseite vorhanden.";
+    statusMsg.value = "No back layer.";
     return;
   }
   const data = await rasterizeSliceToImageDataFromLayer(s, "back");
   if (!data) return;
   const img = imageDataToPngEmbedded(data);
   store.dispatch({ type: "setCharacterRigSliceLayerPixels", sliceId: id, layer: "front", image: img });
-  statusMsg.value = "Rückseite → Vorderseite kopiert.";
+  statusMsg.value = "Copied back → front.";
 }
 
 async function rasterizeSliceToImageDataFromLayer(
@@ -373,7 +373,7 @@ async function opCopyAllFrontsToBacks() {
       store.dispatch({ type: "setCharacterRigSliceLayerPixels", sliceId: s.id, layer: "back", image: img });
     }
   }
-  statusMsg.value = "Alle Vorder- → Rückseiten kopiert.";
+  statusMsg.value = "Copied all fronts → backs.";
 }
 
 async function opFlipHorizontal() {
@@ -393,7 +393,7 @@ async function opFlipHorizontal() {
     layer: layer === "front" ? "front" : "back",
     image: img,
   });
-  statusMsg.value = "Horizontal gespiegelt.";
+  statusMsg.value = "Flipped horizontally.";
   await loadLayerIntoBuffer();
   await syncCanvasSize();
 }
@@ -412,7 +412,7 @@ onUnmounted(() => {
           type="button"
           class="sse-tb"
           :class="{ on: spriteEditTool === 'move' }"
-          title="Teile im Viewport verschieben"
+          title="Move parts in the viewport"
           @click="setTool('move')"
         >
           Move
@@ -421,7 +421,7 @@ onUnmounted(() => {
           type="button"
           class="sse-tb"
           :class="{ on: spriteEditTool === 'select' }"
-          title="Auswahl (Platzhalter)"
+          title="Select (placeholder)"
           @click="setTool('select')"
         >
           Select
@@ -430,7 +430,7 @@ onUnmounted(() => {
           type="button"
           class="sse-tb"
           :class="{ on: spriteEditTool === 'brush' }"
-          title="Pinsel"
+          title="Brush"
           @click="setTool('brush')"
         >
           Brush
@@ -439,7 +439,7 @@ onUnmounted(() => {
           type="button"
           class="sse-tb"
           :class="{ on: spriteEditTool === 'fill' }"
-          title="Füllen"
+          title="Fill"
           @click="setTool('fill')"
         >
           Fill
@@ -448,7 +448,7 @@ onUnmounted(() => {
           type="button"
           class="sse-tb"
           :class="{ on: spriteEditTool === 'eraser' }"
-          title="Radierer"
+          title="Eraser"
           @click="setTool('eraser')"
         >
           Eraser
@@ -458,7 +458,7 @@ onUnmounted(() => {
     </div>
 
     <div class="sse-row sse-layer">
-      <span class="sse-label">Bearbeiten</span>
+      <span class="sse-label">Edit layer</span>
       <label class="sse-radio"
         ><input v-model="editLayer" type="radio" value="front" /> Front</label
       >
@@ -466,12 +466,12 @@ onUnmounted(() => {
         ><input v-model="editLayer" type="radio" value="back" /> Back</label
       >
       <label v-if="spriteEditTool === 'brush' || spriteEditTool === 'eraser'" class="sse-brush"
-        >Größe <input v-model.number="brushRadius" type="number" min="1" max="32" class="sse-num"
+        >Size <input v-model.number="brushRadius" type="number" min="1" max="32" class="sse-num"
       /></label>
     </div>
 
     <div v-if="spriteEditTool === 'move'" class="sse-hint muted">
-      <strong>Move:</strong> gewählten Teil im 3D-Viewport ziehen (wie zuvor).
+      <strong>Move:</strong> drag the selected part in the 3D viewport (same as before).
     </div>
 
     <div v-else-if="toolNeedsCanvas" class="sse-canvas-wrap">
@@ -497,7 +497,7 @@ onUnmounted(() => {
       </div>
     </div>
   </div>
-  <p v-else class="muted sse-empty">Sprite wählen (links) — Zeile mit Pixeln.</p>
+  <p v-else class="muted sse-empty">Pick a sprite on the left — row must have pixels.</p>
 </template>
 
 <style scoped>

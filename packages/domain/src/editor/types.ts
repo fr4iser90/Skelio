@@ -122,9 +122,7 @@ export type CharacterRigSpriteSlice = {
   height: number;
   worldCx: number;
   worldCy: number;
-  /** Smack-style animation view label (e.g. "Default"). */
-  viewName?: string;
-  /** Body facing for this part in the view. */
+  /** Body-facing metadata for this part (editor; 2D preview still uses front pixels / back layer). */
   side?: "front" | "back";
   /** Which sheet the rect refers to (when not embedded). */
   sheetId?: string;

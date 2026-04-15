@@ -127,21 +127,21 @@ const depthLoadPromises = new Map<DepthKey, Promise<void>>();
 
 const viewportHintText = computed(() => {
   if (rigModalBindStep.value) {
-    return "Binden: Knochen anklicken (Hierarchie) · Teil anklicken = Zeile in der Tabelle · keine Teile ziehen — Zuordnung im Dropdown „Knochen“.";
+    return "Bind: click a bone (hierarchy) · click a part = table row · do not drag parts — assign bone in the dropdown.";
   }
   if (rigModalDepthStep.value) {
-    return "3D Settings: nur gewähltes Teil · Max depth / Map rechts · Shift+Ziehen = Extrusion · Klick = Knochen · Vor/hinter: Schritt „Knochen“.";
+    return "3D Settings: selected part only · max depth / maps on the right · Shift+drag = extrusion · click = bone · in front/behind: “Bones” step.";
   }
   if (weightBrushEnabled.value) {
-    return "Pinsel: gewählter Knochen · Ziehen (ein Undo pro Strich)";
+    return "Weight brush: selected bone · paint (one undo per stroke).";
   }
   if (rigCameraViewKind.value === "2d") {
-    return "2D: Ortho von vorne · Pan/Zoom · Mittlere Maus = schieben · Rad = Zoom";
+    return "2D: ortho from front · pan/zoom · middle mouse = pan · wheel = zoom.";
   }
   if (rigCameraViewKind.value === "2.5d") {
-    return "2.5D: Perspektive · eingeschränkte Neigung · Links = Orbit · Mitte = schieben";
+    return "2.5D: perspective · limited tilt · left = orbit · middle = pan.";
   }
-  return "3D: volle Orbit-Kamera · Parts mit Tiefe = extrudierte Box · Grid = Boden";
+  return "3D: full orbit · parts with depth = extruded box · grid = ground.";
 });
 
 function activeCamera(): THREE.Camera {
@@ -1405,9 +1405,9 @@ onBeforeUnmount(() => {
     />
     <div class="view-toolbar" aria-label="Viewport-Ansicht">
       <span class="view-toolbar-label">{{ zoomLabel }}</span>
-      <button type="button" class="view-tb-btn" title="Verkleinern" @click="zoomOut">−</button>
-      <button type="button" class="view-tb-btn" title="Vergrößern" @click="zoomIn">+</button>
-      <button type="button" class="view-tb-reset view-tb-btn" title="Ansicht zurücksetzen" @click="resetView">Reset</button>
+      <button type="button" class="view-tb-btn" title="Zoom out" @click="zoomOut">−</button>
+      <button type="button" class="view-tb-btn" title="Zoom in" @click="zoomIn">+</button>
+      <button type="button" class="view-tb-reset view-tb-btn" title="Reset view" @click="resetView">Reset</button>
     </div>
     <div class="hint">{{ viewportHintText }}</div>
   </div>

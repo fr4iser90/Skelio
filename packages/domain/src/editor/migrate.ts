@@ -67,7 +67,7 @@ export function normalizeEditorProjectInPlace(project: EditorProject): void {
   for (const s of rig.slices) {
     if (typeof s.worldCx !== "number" || !Number.isFinite(s.worldCx)) s.worldCx = i * 14;
     if (typeof s.worldCy !== "number" || !Number.isFinite(s.worldCy)) s.worldCy = i * 14;
-    if (typeof s.viewName !== "string" || s.viewName.length === 0) s.viewName = "Default";
+    delete (s as { viewName?: string }).viewName;
     if (s.side !== "front" && s.side !== "back") s.side = "front";
     const eb = s.embeddedBack;
     if (eb) {

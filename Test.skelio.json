@@ -118,32 +118,6 @@
     ],
     "slices": [
       {
-        "id": "slice_8qvp19sk7g",
-        "name": "kopf",
-        "x": 77,
-        "y": 66,
-        "width": 405,
-        "height": 470,
-        "worldCx": 0,
-        "worldCy": 0,
-        "viewName": "Default",
-        "side": "front",
-        "sheetId": "sheet_56snq9m45b"
-      },
-      {
-        "id": "slice_ptdtw6yiyp",
-        "name": "brust",
-        "x": 541,
-        "y": 349,
-        "width": 412,
-        "height": 387,
-        "worldCx": 23.208347876439447,
-        "worldCy": 363.91721930469913,
-        "viewName": "Default",
-        "side": "front",
-        "sheetId": "sheet_56snq9m45b"
-      },
-      {
         "id": "slice_ky7cm8wj01",
         "name": "bein li",
         "x": 822,
@@ -152,7 +126,6 @@
         "height": 438,
         "worldCx": 195.65782475704725,
         "worldCy": 684.6598136317683,
-        "viewName": "Default",
         "side": "front",
         "sheetId": "sheet_56snq9m45b"
       },
@@ -165,7 +138,6 @@
         "height": 453,
         "worldCx": -38.336041029418475,
         "worldCy": 688.1811995844529,
-        "viewName": "Default",
         "side": "front",
         "sheetId": "sheet_56snq9m45b"
       },
@@ -178,7 +150,18 @@
         "height": 367,
         "worldCx": 209.4279035920259,
         "worldCy": 406.15982696502147,
-        "viewName": "Default",
+        "side": "front",
+        "sheetId": "sheet_56snq9m45b"
+      },
+      {
+        "id": "slice_ptdtw6yiyp",
+        "name": "brust",
+        "x": 541,
+        "y": 349,
+        "width": 412,
+        "height": 387,
+        "worldCx": 23.208347876439447,
+        "worldCy": 363.91721930469913,
         "side": "front",
         "sheetId": "sheet_56snq9m45b"
       },
@@ -191,7 +174,18 @@
         "height": 389,
         "worldCx": -138.89529242108298,
         "worldCy": 446.2143688814792,
-        "viewName": "Default",
+        "side": "front",
+        "sheetId": "sheet_56snq9m45b"
+      },
+      {
+        "id": "slice_8qvp19sk7g",
+        "name": "kopf",
+        "x": 77,
+        "y": 66,
+        "width": 405,
+        "height": 470,
+        "worldCx": 0,
+        "worldCy": 0,
         "side": "front",
         "sheetId": "sheet_56snq9m45b"
       }
@@ -222,140 +216,81 @@
         "boneId": "bone_jq1rew3ug5"
       }
     ],
-    "sliceDepths": []
+    "sliceDepths": [
+      {
+        "sliceId": "slice_ky7cm8wj01",
+        "maxDepthFront": 6,
+        "maxDepthBack": 6,
+        "syncBackWithFront": true
+      },
+      {
+        "sliceId": "slice_oa7tvs6gim",
+        "maxDepthFront": 6,
+        "maxDepthBack": 6,
+        "syncBackWithFront": true
+      },
+      {
+        "sliceId": "slice_osm02nbf1d",
+        "maxDepthFront": 6,
+        "maxDepthBack": 6,
+        "syncBackWithFront": true
+      },
+      {
+        "sliceId": "slice_ptdtw6yiyp",
+        "maxDepthFront": 6,
+        "maxDepthBack": 6,
+        "syncBackWithFront": true
+      },
+      {
+        "sliceId": "slice_s1v58k93b",
+        "maxDepthFront": 6,
+        "maxDepthBack": 6,
+        "syncBackWithFront": true
+      },
+      {
+        "sliceId": "slice_8qvp19sk7g",
+        "maxDepthFront": 6,
+        "maxDepthBack": 6,
+        "syncBackWithFront": true
+      }
+    ]
   },
   "skinnedMeshes": [
-    {
-      "id": "rig_slice_slice_8qvp19sk7g",
-      "name": "rig_kopf",
-      "vertices": [
-        {
-          "x": -202.5,
-          "y": -235
-        },
-        {
-          "x": 202.5,
-          "y": -235
-        },
-        {
-          "x": 202.5,
-          "y": 235
-        },
-        {
-          "x": -202.5,
-          "y": 235
-        }
-      ],
-      "indices": [
-        0,
-        1,
-        2,
-        0,
-        2,
-        3
-      ],
-      "influences": [
-        [
-          {
-            "boneId": "bone_2urpt0d440",
-            "weight": 1
-          }
-        ],
-        [
-          {
-            "boneId": "bone_2urpt0d440",
-            "weight": 1
-          }
-        ],
-        [
-          {
-            "boneId": "bone_2urpt0d440",
-            "weight": 1
-          }
-        ],
-        [
-          {
-            "boneId": "bone_2urpt0d440",
-            "weight": 1
-          }
-        ]
-      ]
-    },
-    {
-      "id": "rig_slice_slice_ptdtw6yiyp",
-      "name": "rig_brust",
-      "vertices": [
-        {
-          "x": -182.79165212356054,
-          "y": 170.41721930469913
-        },
-        {
-          "x": 229.20834787643946,
-          "y": 170.41721930469913
-        },
-        {
-          "x": 229.20834787643946,
-          "y": 557.4172193046991
-        },
-        {
-          "x": -182.79165212356054,
-          "y": 557.4172193046991
-        }
-      ],
-      "indices": [
-        0,
-        1,
-        2,
-        0,
-        2,
-        3
-      ],
-      "influences": [
-        [
-          {
-            "boneId": "bone_o7rt2yd2s7",
-            "weight": 1
-          }
-        ],
-        [
-          {
-            "boneId": "bone_o7rt2yd2s7",
-            "weight": 1
-          }
-        ],
-        [
-          {
-            "boneId": "bone_o7rt2yd2s7",
-            "weight": 1
-          }
-        ],
-        [
-          {
-            "boneId": "bone_o7rt2yd2s7",
-            "weight": 1
-          }
-        ]
-      ]
-    },
     {
       "id": "rig_slice_slice_ky7cm8wj01",
       "name": "rig_bein_li",
       "vertices": [
         {
           "x": 102.65782475704725,
-          "y": 465.6598136317683
+          "y": 459.6598136317683
         },
         {
           "x": 288.65782475704725,
-          "y": 465.6598136317683
+          "y": 459.6598136317683
         },
         {
           "x": 288.65782475704725,
-          "y": 903.6598136317683
+          "y": 897.6598136317683
         },
         {
           "x": 102.65782475704725,
-          "y": 903.6598136317683
+          "y": 897.6598136317683
+        },
+        {
+          "x": 102.65782475704725,
+          "y": 471.6598136317683
+        },
+        {
+          "x": 288.65782475704725,
+          "y": 471.6598136317683
+        },
+        {
+          "x": 288.65782475704725,
+          "y": 909.6598136317683
+        },
+        {
+          "x": 102.65782475704725,
+          "y": 909.6598136317683
         }
       ],
       "indices": [
@@ -364,9 +299,39 @@
         2,
         0,
         2,
-        3
+        3,
+        4,
+        5,
+        6,
+        4,
+        6,
+        7
       ],
       "influences": [
+        [
+          {
+            "boneId": "bone_bzc4a3tys9",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_bzc4a3tys9",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_bzc4a3tys9",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_bzc4a3tys9",
+            "weight": 1
+          }
+        ],
         [
           {
             "boneId": "bone_bzc4a3tys9",
@@ -399,19 +364,35 @@
       "vertices": [
         {
           "x": -109.83604102941848,
-          "y": 461.6811995844529
+          "y": 455.6811995844529
         },
         {
           "x": 33.163958970581525,
-          "y": 461.6811995844529
+          "y": 455.6811995844529
         },
         {
           "x": 33.163958970581525,
-          "y": 914.6811995844529
+          "y": 908.6811995844529
         },
         {
           "x": -109.83604102941848,
-          "y": 914.6811995844529
+          "y": 908.6811995844529
+        },
+        {
+          "x": -109.83604102941848,
+          "y": 467.6811995844529
+        },
+        {
+          "x": 33.163958970581525,
+          "y": 467.6811995844529
+        },
+        {
+          "x": 33.163958970581525,
+          "y": 920.6811995844529
+        },
+        {
+          "x": -109.83604102941848,
+          "y": 920.6811995844529
         }
       ],
       "indices": [
@@ -420,9 +401,39 @@
         2,
         0,
         2,
-        3
+        3,
+        4,
+        5,
+        6,
+        4,
+        6,
+        7
       ],
       "influences": [
+        [
+          {
+            "boneId": "bone_lyj3v2i9un",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_lyj3v2i9un",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_lyj3v2i9un",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_lyj3v2i9un",
+            "weight": 1
+          }
+        ],
         [
           {
             "boneId": "bone_lyj3v2i9un",
@@ -454,20 +465,36 @@
       "name": "rig_arm_li",
       "vertices": [
         {
-          "x": 123.80291592538794,
-          "y": 222.65982696502147
+          "x": 121.9279035920259,
+          "y": 216.65982696502147
         },
         {
-          "x": 298.80291592538794,
-          "y": 222.65982696502147
+          "x": 296.9279035920259,
+          "y": 216.65982696502147
         },
         {
-          "x": 298.80291592538794,
-          "y": 589.6598269650215
+          "x": 296.9279035920259,
+          "y": 583.6598269650215
         },
         {
-          "x": 123.80291592538794,
-          "y": 589.6598269650215
+          "x": 121.9279035920259,
+          "y": 583.6598269650215
+        },
+        {
+          "x": 121.9279035920259,
+          "y": 228.65982696502147
+        },
+        {
+          "x": 296.9279035920259,
+          "y": 228.65982696502147
+        },
+        {
+          "x": 296.9279035920259,
+          "y": 595.6598269650215
+        },
+        {
+          "x": 121.9279035920259,
+          "y": 595.6598269650215
         }
       ],
       "indices": [
@@ -476,9 +503,39 @@
         2,
         0,
         2,
-        3
+        3,
+        4,
+        5,
+        6,
+        4,
+        6,
+        7
       ],
       "influences": [
+        [
+          {
+            "boneId": "bone_od56wu2p0a",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_od56wu2p0a",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_od56wu2p0a",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_od56wu2p0a",
+            "weight": 1
+          }
+        ],
         [
           {
             "boneId": "bone_od56wu2p0a",
@@ -506,24 +563,40 @@
       ]
     },
     {
-      "id": "rig_slice_slice_s1v58k93b",
-      "name": "rig_arm_re",
+      "id": "rig_slice_slice_ptdtw6yiyp",
+      "name": "rig_brust",
       "vertices": [
         {
-          "x": -209.89529242108298,
-          "y": 251.71436888147917
+          "x": -182.79165212356054,
+          "y": 164.41721930469913
         },
         {
-          "x": -67.89529242108298,
-          "y": 251.71436888147917
+          "x": 229.20834787643946,
+          "y": 164.41721930469913
         },
         {
-          "x": -67.89529242108298,
-          "y": 640.7143688814792
+          "x": 229.20834787643946,
+          "y": 551.4172193046991
         },
         {
-          "x": -209.89529242108298,
-          "y": 640.7143688814792
+          "x": -182.79165212356054,
+          "y": 551.4172193046991
+        },
+        {
+          "x": -182.79165212356054,
+          "y": 176.41721930469913
+        },
+        {
+          "x": 229.20834787643946,
+          "y": 176.41721930469913
+        },
+        {
+          "x": 229.20834787643946,
+          "y": 563.4172193046991
+        },
+        {
+          "x": -182.79165212356054,
+          "y": 563.4172193046991
         }
       ],
       "indices": [
@@ -532,7 +605,115 @@
         2,
         0,
         2,
-        3
+        3,
+        4,
+        5,
+        6,
+        4,
+        6,
+        7
+      ],
+      "influences": [
+        [
+          {
+            "boneId": "bone_o7rt2yd2s7",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_o7rt2yd2s7",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_o7rt2yd2s7",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_o7rt2yd2s7",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_o7rt2yd2s7",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_o7rt2yd2s7",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_o7rt2yd2s7",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_o7rt2yd2s7",
+            "weight": 1
+          }
+        ]
+      ]
+    },
+    {
+      "id": "rig_slice_slice_s1v58k93b",
+      "name": "rig_arm_re",
+      "vertices": [
+        {
+          "x": -209.89529242108298,
+          "y": 245.71436888147917
+        },
+        {
+          "x": -67.89529242108298,
+          "y": 245.71436888147917
+        },
+        {
+          "x": -67.89529242108298,
+          "y": 634.7143688814792
+        },
+        {
+          "x": -209.89529242108298,
+          "y": 634.7143688814792
+        },
+        {
+          "x": -209.89529242108298,
+          "y": 257.7143688814792
+        },
+        {
+          "x": -67.89529242108298,
+          "y": 257.7143688814792
+        },
+        {
+          "x": -67.89529242108298,
+          "y": 646.7143688814792
+        },
+        {
+          "x": -209.89529242108298,
+          "y": 646.7143688814792
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        4,
+        6,
+        7
       ],
       "influences": [
         [
@@ -556,6 +737,132 @@
         [
           {
             "boneId": "bone_jq1rew3ug5",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_jq1rew3ug5",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_jq1rew3ug5",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_jq1rew3ug5",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_jq1rew3ug5",
+            "weight": 1
+          }
+        ]
+      ]
+    },
+    {
+      "id": "rig_slice_slice_8qvp19sk7g",
+      "name": "rig_kopf",
+      "vertices": [
+        {
+          "x": -202.5,
+          "y": -241
+        },
+        {
+          "x": 202.5,
+          "y": -241
+        },
+        {
+          "x": 202.5,
+          "y": 229
+        },
+        {
+          "x": -202.5,
+          "y": 229
+        },
+        {
+          "x": -202.5,
+          "y": -229
+        },
+        {
+          "x": 202.5,
+          "y": -229
+        },
+        {
+          "x": 202.5,
+          "y": 241
+        },
+        {
+          "x": -202.5,
+          "y": 241
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        4,
+        6,
+        7
+      ],
+      "influences": [
+        [
+          {
+            "boneId": "bone_2urpt0d440",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_2urpt0d440",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_2urpt0d440",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_2urpt0d440",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_2urpt0d440",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_2urpt0d440",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_2urpt0d440",
+            "weight": 1
+          }
+        ],
+        [
+          {
+            "boneId": "bone_2urpt0d440",
             "weight": 1
           }
         ]

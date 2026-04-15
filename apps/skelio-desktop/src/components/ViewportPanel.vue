@@ -61,8 +61,12 @@ const brushStroke = ref<BrushStroke | null>(null);
 const rigSliceDrag = ref<{ sliceId: string; grabDx: number; grabDy: number } | null>(null);
 /** Live position while dragging (before commit). */
 const rigSlicePreview = ref<{ id: string; cx: number; cy: number } | null>(null);
-/** Schritt „Knochen“ im Character-Rig-Modal: Knochen in der Welt ziehen. */
-const boneDrag = ref<{ boneId: string } | null>(null);
+/** Bone drag: rig modal bone step = bind pose; main animator = TX/TY keys (see `animGrab`). */
+const boneDrag = ref<{
+  boneId: string;
+  /** Main animator: pointer-down joint vs cursor so the joint does not snap to the cursor on first move. */
+  animGrab?: { j0x: number; j0y: number; p0x: number; p0y: number };
+} | null>(null);
 /**
  * Spitze ziehen: Live-Vorschau (Länge + Bind-Rotation zur Maus), Commit beim Loslassen (ein Undo).
  */
@@ -86,10 +90,10 @@ const mainViewSliceDragEnabled = computed(
 
 const viewportHintText = computed(() => {
   if (weightBrushEnabled.value) {
-    return "Pinsel: gewählter Knochen · Ziehen im Viewport (ein Undo pro Strich)";
+    return "Weight brush: selected bone · paint in the viewport (one undo per stroke)";
   }
   if (!characterRigModalOpen.value) {
-    return "Animator: Zeit unten wählen · Knochen anklicken & ziehen = TX/TY-Keys an dieser Zeit · Rad = Zoom · Alt+Links = schieben · Rechts = drehen · Mesh-Vertex = Gewichte";
+    return "Animator: set time on the timeline · drag on a bound sprite or bone — TX/TY keys (joint follows cursor smoothly, no snap) · wheel = zoom · Alt+left = pan · right-drag = rotate view";
   }
   if (characterRigModalOpen.value && rigCameraWorldYScale.value < 0.999) {
     return "Kamera: Y gestaucht (Pseudo-Tiefe) — gleiche Logik für Klicks · Rad = Zoom";
@@ -210,18 +214,51 @@ function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null
   return best;
 }
 
-/** Pick bones where they are **drawn** (Pose + IK), für Hauptfenster-Animation. */
-function hitTestBoneAtPose(wx: number, wy: number, radiusWorld: number): string | null {
+function distPointToSegmentSq(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const ab2 = abx * abx + aby * aby;
+  if (ab2 < 1e-12) return (px - ax) ** 2 + (py - ay) ** 2;
+  let t = ((px - ax) * abx + (py - ay) * aby) / ab2;
+  t = Math.max(0, Math.min(1, t));
+  const qx = ax + t * abx;
+  const qy = ay + t * aby;
+  return (px - qx) ** 2 + (py - qy) ** 2;
+}
+
+/**
+ * Main editor (animator): pick by joint **or** by distance to the posed bone segment (joint → tip).
+ * Joints alone are tiny under full sprites; segment picking matches what you see as the grey bone line.
+ */
+function hitTestBoneAnimator(wx: number, wy: number): string | null {
   const origins = worldPoseOriginsWithIk(project.value, currentTime.value);
-  const r2 = radiusWorld * radiusWorld;
+  const mats = worldPoseBoneMatrices(project.value, currentTime.value);
+  const jointR2 = 48 * 48;
+  const segMaxD2 = 40 * 40;
   let best: string | null = null;
-  let bestD = r2;
+  let bestScore = Infinity;
   for (const b of project.value.bones) {
-    const o = origins.get(b.id);
-    if (!o) continue;
-    const d = (o.x - wx) ** 2 + (o.y - wy) ** 2;
-    if (d <= r2 && d < bestD) {
-      bestD = d;
+    const joint = origins.get(b.id);
+    const M = mats.get(b.id);
+    if (!joint || !M) continue;
+    const dJoint = (wx - joint.x) ** 2 + (wy - joint.y) ** 2;
+    let dSeg = Infinity;
+    if (b.length > 1e-6) {
+      const dx = M.a;
+      const dy = M.b;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      const tipX = joint.x + ux * b.length;
+      const tipY = joint.y + uy * b.length;
+      dSeg = distPointToSegmentSq(wx, wy, joint.x, joint.y, tipX, tipY);
+    }
+    const jointHit = dJoint <= jointR2;
+    const segHit = b.length > 1e-6 && dSeg <= segMaxD2;
+    if (!jointHit && !segHit) continue;
+    const score = Math.min(dJoint, dSeg);
+    if (score < bestScore) {
+      bestScore = score;
       best = b.id;
     }
   }
@@ -416,6 +453,27 @@ function hitTestRigSlice(wx: number, wy: number): string | null {
     if (wx >= cx - hw && wx <= cx + hw && wy >= cy - hh && wy <= cy + hh) return s.id;
   }
   return null;
+}
+
+function bindingBoneIdForSlice(sliceId: string): string | null {
+  const rig = project.value.characterRig;
+  const row = rig?.bindings?.find((x) => x.sliceId === sliceId);
+  return row?.boneId ?? null;
+}
+
+function animatorBoneDragGrab(boneId: string, pwx: number, pwy: number): { j0x: number; j0y: number; p0x: number; p0y: number } {
+  const j = worldPoseOriginsWithIk(project.value, currentTime.value).get(boneId);
+  if (!j) return { j0x: pwx, j0y: pwy, p0x: pwx, p0y: pwy };
+  return { j0x: j.x, j0y: j.y, p0x: pwx, p0y: pwy };
+}
+
+/** Topmost sprite rect under cursor that is bound to a bone (animator: drag drives TX/TY on that bone). */
+function hitTestBoundRigSliceForAnimator(wx: number, wy: number): { sliceId: string; boneId: string } | null {
+  const sid = hitTestRigSlice(wx, wy);
+  if (!sid) return null;
+  const boneId = bindingBoneIdForSlice(sid);
+  if (!boneId) return null;
+  return { sliceId: sid, boneId };
 }
 
 function draw() {
@@ -784,12 +842,25 @@ function onCanvasPointerDown(e: PointerEvent) {
   }
 
   if (e.button === 0 && !characterRigModalOpen.value) {
-    const boneHitR = mainViewSliceDragEnabled.value ? 20 : 34;
-    const hitPose = hitTestBoneAtPose(wx, wy, boneHitR);
+    const hitPose = hitTestBoneAnimator(wx, wy);
     if (hitPose) {
       e.preventDefault();
       store.selectBone(hitPose);
-      boneDrag.value = { boneId: hitPose };
+      boneDrag.value = { boneId: hitPose, animGrab: animatorBoneDragGrab(hitPose, wx, wy) };
+      try {
+        c.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      draw();
+      return;
+    }
+    const fromSprite = hitTestBoundRigSliceForAnimator(wx, wy);
+    if (fromSprite) {
+      e.preventDefault();
+      store.selectCharacterRigSlice(fromSprite.sliceId);
+      store.selectBone(fromSprite.boneId);
+      boneDrag.value = { boneId: fromSprite.boneId, animGrab: animatorBoneDragGrab(fromSprite.boneId, wx, wy) };
       try {
         c.setPointerCapture(e.pointerId);
       } catch {
@@ -901,12 +972,15 @@ function onCanvasPointerMove(e: PointerEvent) {
         store.dispatch({ type: "setBindPose", boneId: boneDrag.value.boneId, partial: { x: local.x, y: local.y } });
       }
     } else {
+      const g = boneDrag.value.animGrab;
+      const twx = g ? g.j0x + (wx - g.p0x) : wx;
+      const twy = g ? g.j0y + (wy - g.p0y) : wy;
       const local = localTranslationForWorldJointAtPoseTime(
         project.value,
         boneDrag.value.boneId,
         currentTime.value,
-        wx,
-        wy,
+        twx,
+        twy,
       );
       if (local) {
         store.dispatch({

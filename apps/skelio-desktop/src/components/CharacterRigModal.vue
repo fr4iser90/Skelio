@@ -31,24 +31,23 @@ const {
 
 const step = ref(0);
 const sheetInput = ref<HTMLInputElement | null>(null);
-/** Teil-Detail (Smack-ähnliches „Sprite“-Modal). */
+/** Part details (sprite modal). */
 const spriteModalSliceId = ref<string | null>(null);
 const partEditName = ref("");
-const partEditViewName = ref("Default");
 const partEditSide = ref<"front" | "back">("front");
 
 const depthTextureModalOpen = ref(false);
 const depthTextureModalSliceId = ref<string | null>(null);
 const depthTextureModalSide = ref<"front" | "back">("front");
-/** Kurz-Feedback nach „Meshes aus Rig erzeugen“. */
+/** Short feedback after “generate meshes from rig”. */
 const meshSyncFeedback = ref("");
 
-/** Smack-ähnliche Default-Extrusion (Max depth). */
+/** Smack-like default extrusion (max depth). */
 const DEFAULT_SLICE_MAX_DEPTH = 8;
 
 const depthRegenBusy = ref<"front" | "back" | null>(null);
 
-/** HTML5-DnD: Sprite-Zeichenreihenfolge (Listen-Reihenfolge). */
+/** HTML5 DnD: sprite draw order (list order). */
 const sliceDragSourceId = ref<string | null>(null);
 const sliceDropHighlightId = ref<string | "end" | null>(null);
 
@@ -69,7 +68,6 @@ watch(spriteModalSliceId, (id) => {
   const s = project.value.characterRig?.slices?.find((x) => x.id === id);
   if (!s) return;
   partEditName.value = s.name;
-  partEditViewName.value = s.viewName ?? "Default";
   partEditSide.value = s.side === "back" ? "back" : "front";
 });
 
@@ -77,24 +75,24 @@ const steps = [
   {
     id: "sprites",
     title: "Sprites",
-    hint: "Links: + Neu = neuer Teil. Griff (⋮⋮) = Reihenfolge ziehen — unten in der Liste zuletzt gezeichnet (weiter vorne). Sheets rechts, Mitte anordnen.",
+    hint: "Left: + New adds a part. Drag handle (⋮⋮) reorders — lower in the list draws later (on top). Sheets on the right; arrange in the center.",
   },
   {
     id: "bones",
-    title: "Knochen",
-    hint: "Hierarchie, Platzieren/Ziehen im Viewport. Rechts: 2D-Bindpose + 3D-Bindpose (Z / Depth offset) für vor/hinter im Rig. Length per Shift+Gelenk.",
+    title: "Bones",
+    hint: "Hierarchy; place/drag in the viewport. Right: 2D bind pose + 3D bind pose (Z / depth offset) for in-front / behind. Length: Shift+joint drag.",
   },
   {
     id: "bind",
-    title: "Binden",
-    hint: "Teil → Knochen, Rig-Meshes erzeugen. Max depth / Depth-Maps / Regenerate im Schritt „3D Settings“ (Smack-Workflow).",
+    title: "Bind",
+    hint: "Part → bone; generate rig meshes. Max depth / depth maps / regenerate in the “3D Settings” step (Smack-style workflow).",
   },
   {
     id: "depth",
     title: "3D Settings",
-    hint: "Gewähltes Teil: Front/Back mit Max depth, Map-Thumbnails, Bearbeiten & Regenerate. Viewport zeigt nur dieses Teil. Knochen-Tiefe: Schritt „Knochen“.",
+    hint: "Selected part: front/back max depth, map thumbnails, edit & regenerate. Viewport shows only this part. Bone depth: “Bones” step.",
   },
-  { id: "preview", title: "Vorschau", hint: "Überblick — nur nach vollständigem Binden erreichbar." },
+  { id: "preview", title: "Preview", hint: "Overview — available only after binding is complete." },
 ] as const;
 
 const rig = computed(() => project.value.characterRig);
@@ -107,7 +105,7 @@ const rigBindingsComplete = computed(() => characterRigBindingsComplete(project.
 function goToRigStep(i: number) {
   if ((i === 3 || i === 4) && !rigBindingsComplete.value) {
     alert(
-      "„3D Settings“ und „Vorschau“ sind erst frei, wenn jedes Teil mit Pixeln einem Knochen zugeordnet ist (Schritt „Binden“).",
+      '“3D Settings” and “Preview” unlock only after every part with pixels is assigned to a bone (“Bind” step).',
     );
     return;
   }
@@ -131,7 +129,7 @@ const bonesSorted = computed(() =>
   [...project.value.bones].sort((a, b) => a.name.localeCompare(b.name)),
 );
 
-/** Knochen in Baumreihenfolge (Wurzel zuerst, Kinder nach Name). */
+/** Bones in tree order (root first, children sorted by name). */
 const bonesHierarchy = computed(() => {
   const bones = project.value.bones;
   const byId = new Map(bones.map((b) => [b.id, b]));
@@ -151,11 +149,11 @@ const bonesHierarchy = computed(() => {
   return out;
 });
 
-/** Schritt 0: nur Sheets; Schritt 1: nur Knochen links, rechts Kurzhinweis; ab Bind wieder Sheets + Knochenliste. */
+/** Step 0: sheets only; step 1: bones left + hint right; from Bind on, sheets + bone list. */
 const showSheetColumn = computed(() => step.value !== 1);
 const showBoneColumn = computed(() => step.value >= 2);
 
-/** Abstand Parent-Gelenk → gewählter Knochen (Bind-Pose-Welt), Smack-„Length“-Ersatz ohne extra Feld. */
+/** Distance parent joint → selected bone (bind-pose world); Smack-style length without an extra field. */
 const selectedBoneParentSpan = computed(() => {
   const b = selectedBone.value;
   if (!b?.parentId) return null;
@@ -319,7 +317,7 @@ async function regenerateDepthTexture(side: "front" | "back") {
   try {
     const payload = await generateRegeneratedDepthTexturePayload(toRaw(project.value), id, side);
     if (!payload?.dataBase64) {
-      alert("Keine Sprite-Pixel für diesen Teil — zuerst Front-Art setzen (Sheet oder eingebettet).");
+      alert("No sprite pixels for this part — set front art first (sheet or embedded).");
       return;
     }
     const ok = store.dispatch({
@@ -331,7 +329,7 @@ async function regenerateDepthTexture(side: "front" | "back") {
       pixelWidth: payload.pixelWidth,
       pixelHeight: payload.pixelHeight,
     });
-    if (!ok) alert("Depth-Map konnte nicht gespeichert werden (Validierung).");
+    if (!ok) alert("Depth map could not be saved (validation).");
   } finally {
     depthRegenBusy.value = null;
   }
@@ -359,7 +357,7 @@ function setDefaultDepthBack() {
 function syncMeshingFromRig() {
   if (!rigBindingsComplete.value) {
     alert(
-      "Meshes können erst erzeugt werden, wenn alle Teile mit Pixeln einem Knochen zugeordnet sind (Schritt „Binden“).",
+      "Meshes can only be generated after every part with pixels is assigned to a bone (“Bind” step).",
     );
     return;
   }
@@ -367,7 +365,7 @@ function syncMeshingFromRig() {
   const ok = store.dispatch({ type: "syncCharacterRigSkinnedMeshes" });
   if (!ok) {
     meshSyncFeedback.value = "";
-    alert("Mesh-Sync abgelehnt (Validierung). Prüfe Bindungen und Teile mit Pixeln.");
+    alert("Mesh sync rejected (validation). Check bindings and parts with pixels.");
     return;
   }
   const n = rigGeneratedMeshCount.value;
@@ -375,21 +373,21 @@ function syncMeshingFromRig() {
   step.value = 3;
   meshSyncFeedback.value =
     n === countBefore && n > 0
-      ? `Aktualisiert: ${n} Rig-Mesh(es). Schritt „3D Settings“ — Depth-Maps & Vorschau.`
-      : `Fertig: ${n} Rig-Mesh(es). Weiter bei „3D Settings“ (Depth-Maps).`;
+      ? `Updated: ${n} rig mesh(es). Open “3D Settings” for depth maps & preview.`
+      : `Done: ${n} rig mesh(es). Continue in “3D Settings” (depth maps).`;
 }
 
-/** Ein Projekt: Rig-Daten und `skinnedMeshes` sind identisch — vor dem Zurück in die Hauptansicht Meshes aus dem Rig schreiben. */
+/** Project rig data and `skinnedMeshes` stay in sync — write meshes from rig before returning to the main editor. */
 function finishRigAndClose() {
   if (!rigBindingsComplete.value) {
     alert(
-      "Fertigstellen geht erst, wenn jedes Teil mit Pixeln einem Knochen zugeordnet ist (Schritt „Binden“).",
+      "Finish is only available after every part with pixels is assigned to a bone (“Bind” step).",
     );
     return;
   }
   const ok = store.dispatch({ type: "syncCharacterRigSkinnedMeshes" });
   if (!ok) {
-    alert("Mesh-Sync abgelehnt (Validierung). Prüfe Bindungen und Teile mit Pixeln, dann erneut „Fertig“.");
+    alert("Mesh sync rejected (validation). Check bindings and parts with pixels, then try “Done” again.");
     return;
   }
   const meshes = project.value.skinnedMeshes ?? [];
@@ -435,10 +433,9 @@ function applyPartModal() {
     type: "patchCharacterRigSlice",
     sliceId: id,
     name: partEditName.value,
-    viewName: partEditViewName.value,
     side: partEditSide.value,
   });
-  if (!ok) alert("Speichern fehlgeschlagen (Projekt-Validierung). Details in der Konsole.");
+  if (!ok) alert("Save failed (project validation). See console for details.");
   else closePartModal();
 }
 
@@ -457,7 +454,7 @@ function onSliceNameChange(s: CharacterRigSpriteSlice, e: Event) {
   const ok = store.dispatch({ type: "patchCharacterRigSlice", sliceId: s.id, name: v });
   if (!ok) {
     el.value = s.name;
-    alert("Name konnte nicht gespeichert werden.");
+    alert("Could not save name.");
   }
 }
 
@@ -472,7 +469,7 @@ function readImageFileAsPayload(file: File): Promise<{ fileName: string; mimeTyp
       const s = fr.result as string;
       const m = s.match(/^data:([^;]+);base64,(.+)$/);
       if (!m) {
-        reject(new Error("Bild konnte nicht gelesen werden."));
+        reject(new Error("Could not read image."));
         return;
       }
       let mime = m[1]!.trim().toLowerCase();
@@ -482,7 +479,7 @@ function readImageFileAsPayload(file: File): Promise<{ fileName: string; mimeTyp
       }
       resolve({ fileName: file.name, mimeType: mime, dataBase64 });
     };
-    fr.onerror = () => reject(fr.error ?? new Error("Lesen fehlgeschlagen"));
+    fr.onerror = () => reject(fr.error ?? new Error("Read failed"));
     fr.readAsDataURL(file);
   });
 }
@@ -512,7 +509,7 @@ function openSheetSlicePicker(sheetId: string) {
     sid = last.id;
   }
   if (!sid) {
-    alert("Zuerst links einen Teil anlegen oder auswählen (Sheet-Zuweisung braucht einen aktiven Slot).");
+    alert("Create or select a part on the left first (sheet assignment needs an active slot).");
     return;
   }
   store.openSheetSliceModal(sheetId);
@@ -529,7 +526,7 @@ function addChildBone() {
   const parentId =
     sid && bones.some((b) => b.id === sid) ? sid : root?.id ?? null;
   if (parentId === null) return;
-  const name = `Knochen ${bones.length + 1}`;
+  const name = `Bone ${bones.length + 1}`;
   const nBefore = bones.length;
   if (
     !store.dispatch({
@@ -600,7 +597,7 @@ function onBoneNameChange(boneId: string, e: Event) {
   const ok = store.dispatch({ type: "renameBone", boneId, name: v });
   if (!ok) {
     el.value = previousName;
-    alert("Name konnte nicht gespeichert werden.");
+    alert("Could not save name.");
   }
 }
 
@@ -634,7 +631,7 @@ async function onSheetFiles(e: Event) {
     }
   }
   if (files.length > 0 && okCount === 0) {
-    alert("Sprite-Sheet konnte nicht hinzugefügt werden (PNG / JPEG / WebP).");
+    alert("Could not add sprite sheet (PNG / JPEG / WebP).");
   }
 }
 </script>
@@ -648,25 +645,24 @@ async function onSheetFiles(e: Event) {
           <div class="head-actions">
             <button type="button" class="ghost" @click="store.undo()">Undo</button>
             <button type="button" class="ghost" @click="store.redo()">Redo</button>
-            <button type="button" class="close" title="Schließen (Esc)" @click="close">×</button>
+            <button type="button" class="close" title="Close (Esc)" @click="close">×</button>
           </div>
         </header>
 
         <div class="body">
-          <section v-if="step !== 1" class="sprite-rail" aria-label="Sprites und Ansicht">
+          <section v-if="step !== 1" class="sprite-rail" aria-label="Sprites">
             <div class="rail-title">Sprites</div>
             <p class="muted rail-order-hint">
-              Reihenfolge = Zeichen-Reihenfolge: weiter unten = weiter vorne. Griff ⋮⋮ ziehen, unten ablegen =
-              ganz vorne.
+              Order = draw order: lower in the list draws later (on top). Drag ⋮⋮; drop on the row below to move, or use
+              the bottom row to send to the end (topmost draw).
             </p>
             <div class="rail-table-wrap">
               <table v-if="slices.length" class="rail-table">
                 <thead>
                   <tr>
-                    <th class="rail-th-drag" title="Ziehen zum Sortieren" aria-label="Sortieren" />
+                    <th class="rail-th-drag" title="Drag to reorder" aria-label="Reorder" />
                     <th>Sprite</th>
-                    <th>View</th>
-                    <th>Seite</th>
+                    <th class="rail-th-side">Side</th>
                     <th class="rail-th-tools" />
                   </tr>
                 </thead>
@@ -688,8 +684,8 @@ async function onSheetFiles(e: Event) {
                       <span
                         class="rail-drag-grip"
                         draggable="true"
-                        title="Teil in der Liste verschieben (Zeichen-Reihenfolge)"
-                        aria-label="Teil verschieben"
+                        title="Reorder part (draw order)"
+                        aria-label="Reorder part"
                         @dragstart="onSliceGripDragStart(s.id, $event)"
                         @click.stop
                         >⋮⋮</span>
@@ -703,28 +699,13 @@ async function onSheetFiles(e: Event) {
                         @click.stop
                         @change="onSliceNameChange(s, $event)"
                       />
-                      <span v-if="s.width <= 0 || s.height <= 0" class="dim"> (leer)</span>
+                      <span v-if="s.width <= 0 || s.height <= 0" class="dim"> (empty)</span>
                     </td>
-                    <td>
-                      <input
-                        class="rail-input"
-                        type="text"
-                        :value="s.viewName ?? 'Default'"
-                        title="Ansicht (z. B. Default)"
-                        @click.stop
-                        @change="
-                          store.dispatch({
-                            type: 'patchCharacterRigSlice',
-                            sliceId: s.id,
-                            viewName: ($event.target as HTMLInputElement).value,
-                          })
-                        "
-                      />
-                    </td>
-                    <td>
+                    <td class="rail-col-side">
                       <select
-                        class="rail-select"
+                        class="rail-select rail-select-side"
                         :value="s.side ?? 'front'"
+                        title="Facing metadata (front / back)"
                         @click.stop
                         @change="
                           setSliceSide(s.id, ($event.target as HTMLSelectElement).value as 'front' | 'back')
@@ -738,7 +719,7 @@ async function onSheetFiles(e: Event) {
                       <button
                         type="button"
                         class="rail-detail-btn"
-                        title="Teil-Details (Name, Ansicht…)"
+                        title="Part details (name, side…)"
                         @click="openPartModal(s.id)"
                       >
                         …
@@ -752,21 +733,20 @@ async function onSheetFiles(e: Event) {
                     @drop="onSliceDropAppendEnd"
                     @dragend="onSliceRailDragEnd"
                   >
-                    <td colspan="5" class="rail-drop-end-cell">Ans Ende ziehen → ganz vorne zeichnen</td>
+                    <td colspan="4" class="rail-drop-end-cell">Drop here → draw on top (end of list)</td>
                   </tr>
                 </tbody>
               </table>
-              <p v-else class="muted rail-empty">Noch keine Sprites — „+ Neu“ für einen neuen Teil (Slot).</p>
+              <p v-else class="muted rail-empty">No sprites yet — use + New to add a part slot.</p>
             </div>
-            <button type="button" class="rail-new" @click="addEmptySlot">+ Neu</button>
+            <button type="button" class="rail-new" @click="addEmptySlot">+ New</button>
           </section>
 
-          <section v-else class="sprite-rail bone-rail" aria-label="Knochen-Hierarchie">
-            <div class="rail-title">Knochen</div>
+          <section v-else class="sprite-rail bone-rail" aria-label="Bone hierarchy">
+            <div class="rail-title">Bones</div>
             <p class="muted rail-bone-intro">
-              Einrückung = Kind von oben. <strong>+ Neu</strong> = Kind des <strong>markierten</strong> Knochens
-              (sonst unter Wurzel). Neu erscheint orange — <strong>Klick</strong> in die Ansicht platziert, dann
-              ziehen.
+              Indent = child of the row above. <strong>+ New</strong> adds a child of the <strong>selected</strong> bone
+              (otherwise under root). New bones appear orange — <strong>click</strong> in the view to place, then drag.
             </p>
             <div class="rail-table-wrap">
               <ul v-if="bonesHierarchy.length" class="bone-tree">
@@ -789,12 +769,12 @@ async function onSheetFiles(e: Event) {
                   />
                 </li>
               </ul>
-              <p v-else class="muted rail-empty">Keine Knochen.</p>
+              <p v-else class="muted rail-empty">No bones.</p>
             </div>
-            <button type="button" class="rail-new rail-new-bone" @click="addChildBone">+ Neu</button>
+            <button type="button" class="rail-new rail-new-bone" @click="addChildBone">+ New</button>
           </section>
 
-          <nav class="nav" aria-label="Ablauf">
+          <nav class="nav" aria-label="Workflow">
             <button
               v-for="(s, i) in steps"
               :key="s.id"
@@ -804,7 +784,7 @@ async function onSheetFiles(e: Event) {
               :disabled="(i === 3 || i === 4) && !rigBindingsComplete"
               :title="
                 (i === 3 || i === 4) && !rigBindingsComplete
-                  ? 'Erst im Schritt „Binden“ jedes Teil mit Pixeln einem Knochen zuordnen.'
+                  ? 'In the “Bind” step, assign every part with pixels to a bone first.'
                   : undefined
               "
               @click="goToRigStep(i)"
@@ -816,12 +796,12 @@ async function onSheetFiles(e: Event) {
           <div class="main-col">
             <div class="rig-viewport-cap" role="status">
               <span class="rig-camera-label">Viewport</span>
-              <div class="rig-camera-modes" aria-label="Kamera-Modus (Smack-ähnlich)">
+              <div class="rig-camera-modes" aria-label="Camera mode (Smack-style)">
                 <button
                   type="button"
                   class="cam-btn"
                   :class="{ active: rigCameraViewKind === '2d' }"
-                  title="Orthografisch von vorne"
+                  title="Orthographic from front"
                   @click="store.setRigCameraViewKind('2d')"
                 >
                   2D
@@ -830,7 +810,7 @@ async function onSheetFiles(e: Event) {
                   type="button"
                   class="cam-btn"
                   :class="{ active: rigCameraViewKind === '2.5d' }"
-                  title="Perspektive, eingeschränkte Neigung"
+                  title="Perspective, limited tilt"
                   @click="store.setRigCameraViewKind('2.5d')"
                 >
                   2.5D
@@ -839,14 +819,14 @@ async function onSheetFiles(e: Event) {
                   type="button"
                   class="cam-btn"
                   :class="{ active: rigCameraViewKind === '3d' }"
-                  title="Volle Orbit-Kamera, Tiefe als Extrusion"
+                  title="Full orbit camera; depth as extrusion"
                   @click="store.setRigCameraViewKind('3d')"
                 >
                   3D
                 </button>
               </div>
               <span class="muted rig-camera-cap"
-                >WebGL · Teile/Knochen · Tiefe/Extrusion im 3D-Modus sichtbar</span
+                >WebGL · parts/bones · depth/extrusion visible in 3D mode</span
               >
             </div>
             <div class="viewport-wrap">
@@ -868,48 +848,47 @@ async function onSheetFiles(e: Event) {
 
               <div v-show="step === 0" class="panel">
                 <p class="muted">
-                  Links neue <strong>Teile</strong> anlegen, rechts <strong>Sprite-Sheets</strong> laden, Sheet
-                  anklicken, im Modal Bereich wählen (Klick oder Rahmen). Gewählten Teil zuvor in der linken Liste
-                  anklicken. <strong>Move:</strong> Teil im Viewport ziehen. <strong>Brush / Fill / Eraser:</strong> unten
-                  — Front- oder Back-Layer bearbeiten; Operationen kopieren/spiegeln wie in Smack.
+                  Create <strong>parts</strong> on the left; load <strong>sprite sheets</strong> on the right; click a
+                  sheet and pick a region in the modal (click or marquee). Select the target part in the left list first.
+                  <strong>Move:</strong> drag the part in the viewport. <strong>Brush / Fill / Eraser:</strong> below —
+                  edit front or back layer; copy/mirror ops like Smack.
                 </p>
                 <SpriteSliceEditPanel />
               </div>
 
               <div v-show="step === 1" class="panel">
                 <p class="muted">
-                  Links Hierarchie und <strong>+ Neu</strong>. Neuen Knochen im Viewport per <strong>Klick</strong>
-                  platzieren, danach am Punkt ziehen. Rechts: Bind-Werte wie im Inspector.
+                  Hierarchy and <strong>+ New</strong> on the left. Place a new bone with a <strong>click</strong> in the
+                  viewport, then drag the joint. Right: bind values as in the inspector.
                 </p>
                 <p class="muted roadmap-hint">
-                  <strong>Length:</strong> Griff oder <strong>Shift+Gelenk</strong> ziehen, <strong>Esc</strong> =
-                  Vorschau abbrechen, loslassen = speichern.
-                  <strong>Kette:</strong> an Spitze / folgen (rechts). Viewport: <strong>WebGL</strong> (oben 2D / 2.5D / 3D
-                  wählen).
+                  <strong>Length:</strong> drag the handle or <strong>Shift+joint</strong>; <strong>Esc</strong> cancels
+                  preview, release commits.
+                  <strong>Chain:</strong> at tip / follow (right). Viewport: <strong>WebGL</strong> (pick 2D / 2.5D / 3D
+                  above).
                 </p>
                 <p class="muted roadmap-hint">
-                  <strong>Vor / hinter im Rig:</strong> rechts bei <strong>3D-Bindpose</strong> (Bind Z, Depth offset) —
-                  nicht in „3D Settings“.
+                  <strong>In front / behind in the rig:</strong> use <strong>3D bind pose</strong> on the right (Bind Z,
+                  depth offset) — not in “3D Settings”.
                 </p>
               </div>
 
               <div v-show="step === 2" class="panel">
                 <p v-if="!rigBindingsComplete && slices.length" class="bind-gate-warn" role="status">
-                  Sobald <strong>jedes</strong> Teil mit Pixeln einen Knochen hat, kannst du <strong>Rig-Meshes
-                  erzeugen</strong> (unten) und die Schritte <strong>3D Settings</strong> sowie <strong>Vorschau</strong>
-                  nutzen.
+                  When <strong>every</strong> part with pixels has a bone, you can <strong>generate rig meshes</strong>
+                  (below) and use <strong>3D Settings</strong> and <strong>Preview</strong>.
                 </p>
                 <p v-if="slices.length" class="muted bind-hint">
-                  Im Viewport: zuerst <strong>Knochen</strong> anklicken (liegt über den großen Sprite-Flächen) · Teil
-                  anklicken wählt die Zeile · Zuordnung hier im Dropdown — Teile sind in diesem Schritt
-                  <strong>nicht</strong> zum Verschieben.
+                  In the viewport: click a <strong>bone</strong> first (it sits above large sprite quads) · clicking a
+                  part selects its row · assign the bone in the dropdown here — parts are <strong>not</strong> draggable in
+                  this step.
                 </p>
-                <p v-if="!slices.length" class="muted">Zuerst links Sprites (+ Neu) anlegen und ggf. Pixel aus Sheets zuweisen.</p>
+                <p v-if="!slices.length" class="muted">Add sprites on the left (+ New) and assign pixels from sheets if needed.</p>
                 <table v-else class="bind-table">
                   <thead>
                     <tr>
-                      <th>Teil</th>
-                      <th>Knochen</th>
+                      <th>Part</th>
+                      <th>Bone</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -928,11 +907,10 @@ async function onSheetFiles(e: Event) {
                   </tbody>
                 </table>
                 <div v-if="slices.length" class="meshing-block meshing-on-bind">
-                  <h4 class="meshing-title">Rig-Meshes erzeugen (3D-Geometrie)</h4>
+                  <h4 class="meshing-title">Generate rig meshes (3D geometry)</h4>
                   <p class="muted meshing-copy">
-                    Erzeugt pro gebundenem Teil die <code>rig_slice_…</code>-Meshes. Ohne eingestellte Tiefe setzt der
-                    Sync automatisch eine kleine Standard-Extrusion (nicht papierflach). Danach
-                    <strong>3D Settings</strong> verfeinern (Maps, Max depth).
+                    Creates <code>rig_slice_…</code> meshes for each bound part. If depth is unset, sync applies a small
+                    default extrusion (not paper-thin). Then refine in <strong>3D Settings</strong> (maps, max depth).
                   </p>
                   <button
                     type="button"
@@ -940,10 +918,10 @@ async function onSheetFiles(e: Event) {
                     :disabled="!rigBindingsComplete"
                     @click="syncMeshingFromRig"
                   >
-                    Meshes aus Rig erzeugen / aktualisieren
+                    Generate / update meshes from rig
                   </button>
                   <p class="muted meshing-count">
-                    Rig-Meshes im Projekt: <strong>{{ rigGeneratedMeshCount }}</strong>
+                    Rig meshes in project: <strong>{{ rigGeneratedMeshCount }}</strong>
                     <span v-if="rigGeneratedMeshCount > 0">(IDs <code>rig_slice_…</code>)</span>
                   </p>
                 </div>
@@ -951,21 +929,21 @@ async function onSheetFiles(e: Event) {
 
               <div v-show="step === 3" class="panel panel-3d-smack">
                 <p v-if="meshSyncFeedback" class="mesh-sync-feedback" role="status">{{ meshSyncFeedback }}</p>
-                <p v-if="!slices.length" class="muted">Keine Teile — links Slots anlegen.</p>
+                <p v-if="!slices.length" class="muted">No parts — add slots on the left.</p>
                 <template v-else>
                   <p class="muted depth-intro">
-                    Wie Smack Studio: <strong>ein Teil</strong> (links wählen) — Viewport zeigt nur dieses Teil.
-                    <strong>Max depth</strong> = Mesh-Extrusion; <strong>Map neu</strong> = heuristische Graustufen-Map
-                    aus dem Sprite. Knochen vor/hinter: Schritt <strong>Knochen</strong>.
+                    Smack-style: <strong>one part</strong> (select on the left) — viewport shows only that part.
+                    <strong>Max depth</strong> = mesh extrusion; <strong>Regenerate map</strong> = heuristic grayscale map
+                    from the sprite. Bone in front/behind: <strong>Bones</strong> step.
                   </p>
                   <p v-if="!selectedSliceFor3d" class="muted smack-pick-hint">
-                    Wähle links ein Teil mit Pixeln.
+                    Select a part with pixels on the left.
                   </p>
                   <p
                     v-else-if="selectedSliceFor3d.width <= 0 || selectedSliceFor3d.height <= 0"
                     class="muted smack-pick-hint"
                   >
-                    Dieser Slot hat noch keine Pixel — zuerst Sprite zuweisen.
+                    This slot has no pixels yet — assign a sprite first.
                   </p>
                   <template v-else>
                     <h3 class="smack-part-title">{{ selectedSliceFor3d.name }}</h3>
@@ -992,7 +970,7 @@ async function onSheetFiles(e: Event) {
                         <button
                           type="button"
                           class="smack-thumb-btn"
-                          :title="'Depth-Map bearbeiten (Front)'"
+                          :title="'Edit depth map (front)'"
                           @click="openDepthTextureModal(selectedSliceFor3d.id, 'front')"
                         >
                           <img
@@ -1001,7 +979,7 @@ async function onSheetFiles(e: Event) {
                             :src="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'front')"
                             alt=""
                           />
-                          <span v-else class="smack-thumb-ph">Keine Map — klicken zum Malen</span>
+                          <span v-else class="smack-thumb-ph">No map — click to paint</span>
                         </button>
                         <div class="smack-col-actions">
                           <button
@@ -1009,7 +987,7 @@ async function onSheetFiles(e: Event) {
                             class="mini smack-action"
                             @click="openDepthTextureModal(selectedSliceFor3d.id, 'front')"
                           >
-                            Bearbeiten…
+                            Edit…
                           </button>
                           <button
                             type="button"
@@ -1017,11 +995,11 @@ async function onSheetFiles(e: Event) {
                             :disabled="depthRegenBusy !== null"
                             @click="regenerateDepthTexture('front')"
                           >
-                            {{ depthRegenBusy === 'front' ? '…' : 'Map neu' }}
+                            {{ depthRegenBusy === 'front' ? '…' : 'Regenerate' }}
                           </button>
                         </div>
                         <button type="button" class="smack-default-btn" @click="setDefaultDepthFront">
-                          Standard-Tiefe
+                          Default depth
                         </button>
                       </section>
                       <section class="smack-depth-col" aria-labelledby="smack-back-h">
@@ -1062,7 +1040,7 @@ async function onSheetFiles(e: Event) {
                         <button
                           type="button"
                           class="smack-thumb-btn"
-                          :title="'Depth-Map bearbeiten (Back)'"
+                          :title="'Edit depth map (back)'"
                           @click="openDepthTextureModal(selectedSliceFor3d.id, 'back')"
                         >
                           <img
@@ -1071,7 +1049,7 @@ async function onSheetFiles(e: Event) {
                             :src="depthTextureThumbDataUrl(selectedSliceFor3d.id, 'back')"
                             alt=""
                           />
-                          <span v-else class="smack-thumb-ph">Keine Map — klicken zum Malen</span>
+                          <span v-else class="smack-thumb-ph">No map — click to paint</span>
                         </button>
                         <div class="smack-col-actions">
                           <button
@@ -1079,7 +1057,7 @@ async function onSheetFiles(e: Event) {
                             class="mini smack-action"
                             @click="openDepthTextureModal(selectedSliceFor3d.id, 'back')"
                           >
-                            Bearbeiten…
+                            Edit…
                           </button>
                           <button
                             type="button"
@@ -1087,11 +1065,11 @@ async function onSheetFiles(e: Event) {
                             :disabled="depthRegenBusy !== null"
                             @click="regenerateDepthTexture('back')"
                           >
-                            {{ depthRegenBusy === 'back' ? '…' : 'Map neu' }}
+                            {{ depthRegenBusy === 'back' ? '…' : 'Regenerate' }}
                           </button>
                         </div>
                         <button type="button" class="smack-default-btn" @click="setDefaultDepthBack">
-                          Standard-Tiefe
+                          Default depth
                         </button>
                       </section>
                     </div>
@@ -1101,8 +1079,8 @@ async function onSheetFiles(e: Event) {
 
               <div v-show="step === 4" class="panel">
                 <p>
-                  <strong>{{ bindings.length }}</strong> Zuordnung(en), <strong>{{ slices.length }}</strong> Teil(e).
-                  Gespeichert unter <code>characterRig</code>.
+                  <strong>{{ bindings.length }}</strong> binding(s), <strong>{{ slices.length }}</strong> part(s).
+                  Stored under <code>characterRig</code>.
                 </p>
                 <ul class="summary">
                   <li v-for="s in slices" :key="s.id">
@@ -1114,14 +1092,14 @@ async function onSheetFiles(e: Event) {
             </div>
           </div>
 
-          <aside class="tools" aria-label="Werkzeuge">
+          <aside class="tools" aria-label="Tools">
             <div v-if="showSheetColumn" class="tools-block tools-block-sheets">
               <h3 class="tools-title">Sprite sheets</h3>
               <p class="tools-hint muted">
-                Nur Roh-Texturen. Klick öffnet Auswahl für den <strong>links gewählten</strong> Teil.
+                Raw textures only. Click opens the picker for the <strong>selected part on the left</strong>.
               </p>
               <button type="button" class="primary tools-import" @click="triggerSheetImport">
-                Sprite-Sheet hinzufügen…
+                Add sprite sheet…
               </button>
               <input
                 ref="sheetInput"
@@ -1140,22 +1118,22 @@ async function onSheetFiles(e: Event) {
                 >
                   <img class="tools-thumb" :src="sheetThumbDataUrl(sh)" alt="" />
                   <span class="tools-name" :title="sh.fileName">{{ sh.fileName }}</span>
-                  <button type="button" class="tools-remove" title="Sheet entfernen" @click.stop="removeSheet(sh.id)">
+                  <button type="button" class="tools-remove" title="Remove sheet" @click.stop="removeSheet(sh.id)">
                     ×
                   </button>
                 </li>
               </ul>
-              <p v-else class="muted tools-empty">Noch keine Sheets — PNG / JPEG / WebP hinzufügen.</p>
+              <p v-else class="muted tools-empty">No sheets yet — add PNG / JPEG / WebP.</p>
             </div>
 
             <div v-if="step === 1" class="tools-block bone-settings-aside">
               <h3 class="bone-settings-title">
                 Bone Settings<span v-if="selectedBone" class="bone-settings-name">: {{ selectedBone.name }}</span>
               </h3>
-              <p v-if="!selectedBone" class="muted bone-settings-sub">Kein Knochen gewählt</p>
+              <p v-if="!selectedBone" class="muted bone-settings-sub">No bone selected</p>
               <p class="muted bone-settings-note">
-                <strong>2D-Bindpose</strong>, <strong>Length</strong> und <strong>3D-Bindpose</strong> (Z / Depth offset
-                / Tilt / Spin) — wie im Inspector; vor/hinter im Rig hier einstellen.
+                <strong>2D bind pose</strong>, <strong>length</strong>, and <strong>3D bind pose</strong> (Z / depth offset
+                / tilt / spin) — same as the inspector; set in-front/behind here.
               </p>
               <template v-if="selectedBone">
                 <label class="bs-lbl"
@@ -1209,8 +1187,8 @@ async function onSheetFiles(e: Event) {
                   />
                 </label>
                 <p v-if="!selectedBone.parentId" class="muted bs-root-length-hint">
-                  Wurzel: oft <strong>Length 0</strong> (nur Gelenk). Griff oder <strong>Shift+Gelenk</strong> ziehen;
-                  <strong>Esc</strong> bricht die Längen-Vorschau ab. Zug folgt der Knochenachse (Bind-Pose-Ebene).
+                  Root: often <strong>length 0</strong> (pivot only). Drag the handle or <strong>Shift+joint</strong>;
+                  <strong>Esc</strong> cancels length preview. Drag follows the bone axis (bind-pose plane).
                 </p>
                 <label class="bs-lbl"
                   >Scale X
@@ -1232,10 +1210,10 @@ async function onSheetFiles(e: Event) {
                     @change="patchSelectedBoneBind('sy', $event)"
                   />
                 </label>
-                <h4 class="bs-subtitle">3D-Bindpose (vor / hinter)</h4>
+                <h4 class="bs-subtitle">3D bind pose (in front / behind)</h4>
                 <p class="muted bs-3d-note">
-                  Bind Z und Depth offset steuern die <strong>Tiefe im Skelett</strong> (welcher Knochen näher an der
-                  Kamera liegt). Tilt / Spin drehen den Knochen im Raum. Details: <code>docs/adr/0011-editor-bone-3d-bind-pose.md</code>.
+                  Bind Z and depth offset control <strong>skeleton depth</strong> (which bone sits closer to the camera).
+                  Tilt / spin rotate the bone in space. Details: <code>docs/adr/0011-editor-bone-3d-bind-pose.md</code>.
                 </p>
                 <label class="bs-lbl"
                   >Bind Z
@@ -1278,41 +1256,41 @@ async function onSheetFiles(e: Event) {
                   />
                 </label>
                 <div v-if="selectedBone.parentId" class="bs-hybrid">
-                  <p class="muted bs-hybrid-title">Kette / Spitze</p>
+                  <p class="muted bs-hybrid-title">Chain / tip</p>
                   <label class="bs-rowchk">
                     <input
                       type="checkbox"
                       :checked="placeNewBonesAtParentTip"
                       @change="store.setPlaceNewBonesAtParentTip(($event.target as HTMLInputElement).checked)"
                     />
-                    + Neu an Parent-Spitze (wenn Length größer 0)
+                    + New at parent tip (when length > 0)
                   </label>
-                  <button type="button" class="bs-mini" @click="snapSelectedToParentTip">An Spitze schnappen</button>
+                  <button type="button" class="bs-mini" @click="snapSelectedToParentTip">Snap to parent tip</button>
                   <label class="bs-rowchk">
                     <input
                       type="checkbox"
                       :checked="!!selectedBone.followParentTip"
                       @change="setSelectedFollowParentTip($event)"
                     />
-                    Parent-Spitze folgen
+                    Follow parent tip
                   </label>
                 </div>
                 <p v-if="selectedBone.parentId && selectedBoneParentSpan !== null" class="muted bs-chain">
-                  Abstand Parent-Gelenk → dieses Gelenk: <strong>{{ selectedBoneParentSpan.toFixed(1) }}</strong>
-                  <span class="dim"> (von Bind X/Y; unabhängig von Length)</span>
+                  Distance parent joint → this joint: <strong>{{ selectedBoneParentSpan.toFixed(1) }}</strong>
+                  <span class="dim"> (from bind X/Y; independent of length)</span>
                 </p>
                 <p v-else-if="selectedBone" class="muted bs-chain">
-                  <span class="dim">Wurzel — kein Parent-Abstand.</span>
+                  <span class="dim">Root — no parent span.</span>
                 </p>
               </template>
             </div>
 
             <div v-if="showBoneColumn" class="tools-block tools-block-bones" :class="{ 'tools-divider': showSheetColumn }">
-              <h3 class="tools-title tools-title-bones">Knochen (Überblick)</h3>
+              <h3 class="tools-title tools-title-bones">Bones (overview)</h3>
               <p class="tools-hint muted">
-                Klick = Auswahl. „Kind anlegen“ = wie links „+ Neu“ (Kind des gewählten Knochens).
+                Click = select. “Add child” matches <strong>+ New</strong> on the left (child of the selected bone).
               </p>
-              <button type="button" class="primary bone-add-btn" @click="addChildBone">Kind anlegen</button>
+              <button type="button" class="primary bone-add-btn" @click="addChildBone">Add child</button>
               <div class="bone-list-wrap">
                 <ul class="bone-rail-list">
                   <li
@@ -1333,17 +1311,16 @@ async function onSheetFiles(e: Event) {
 
         <footer class="foot">
           <span class="muted">
-            Änderungen sofort im Projekt (Undo/Redo). „Fertig“ synchronisiert Rig-Meshes — nur wenn alle Teile mit Pixeln
-            gebunden sind.
+            Changes apply immediately (Undo/Redo). “Done” syncs rig meshes — only when every part with pixels is bound.
           </span>
           <button
             type="button"
             class="primary"
             :disabled="!rigBindingsComplete"
-            :title="!rigBindingsComplete ? 'Zuerst jedes Teil mit Pixeln einem Knochen zuordnen (Schritt „Binden“).' : undefined"
+            :title="!rigBindingsComplete ? 'Assign every part with pixels to a bone in the “Bind” step first.' : undefined"
             @click="finishRigAndClose"
           >
-            Fertig
+            Done
           </button>
         </footer>
       </div>
@@ -1362,7 +1339,7 @@ async function onSheetFiles(e: Event) {
       <div class="part-dialog" @click.stop>
         <header class="part-head">
           <h3 id="part-modal-title">Sprite</h3>
-          <button type="button" class="part-close" title="Schließen" @click="closePartModal">×</button>
+          <button type="button" class="part-close" title="Close" @click="closePartModal">×</button>
         </header>
         <div class="part-body">
           <div class="part-preview-wrap">
@@ -1372,18 +1349,14 @@ async function onSheetFiles(e: Event) {
               :src="thumbDataUrl(partModalSlice)"
               alt=""
             />
-            <div v-else class="part-preview-ph">Kein eingebettetes Bild</div>
+            <div v-else class="part-preview-ph">No embedded image</div>
           </div>
           <label class="part-field"
             >Name
             <input v-model="partEditName" class="part-input" type="text" />
           </label>
           <label class="part-field"
-            >View
-            <input v-model="partEditViewName" class="part-input" type="text" placeholder="Default" />
-          </label>
-          <label class="part-field"
-            >Seite
+            >Side
             <select v-model="partEditSide" class="part-input">
               <option value="front">Front</option>
               <option value="back">Back</option>
@@ -1391,8 +1364,8 @@ async function onSheetFiles(e: Event) {
           </label>
         </div>
         <footer class="part-foot">
-          <button type="button" class="ghost" @click="closePartModal">Schließen</button>
-          <button type="button" class="primary" @click="applyPartModal">Übernehmen</button>
+          <button type="button" class="ghost" @click="closePartModal">Close</button>
+          <button type="button" class="primary" @click="applyPartModal">Apply</button>
         </footer>
       </div>
     </div>
@@ -1460,7 +1433,7 @@ async function onSheetFiles(e: Event) {
 }
 .body {
   display: grid;
-  /* Mitte mindestens ~40% / 320px — verhindert „dünne“ Viewport-Spalte; rechts fest schmal */
+  /* Center column min ~40% / 320px — avoids a paper-thin viewport; right column stays narrow */
   grid-template-columns:
     minmax(180px, 240px) minmax(112px, 152px) minmax(320px, 1fr) minmax(180px, 280px);
   min-height: 0;
@@ -1496,6 +1469,7 @@ async function onSheetFiles(e: Event) {
 }
 .rail-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 0.75rem;
 }
@@ -1528,6 +1502,23 @@ async function onSheetFiles(e: Event) {
 .rail-th-drag {
   width: 1.5rem;
   padding: 0.15rem !important;
+}
+.rail-th-side {
+  width: 5.5rem;
+  min-width: 5.5rem;
+  white-space: nowrap;
+}
+.rail-col-side {
+  width: 5.5rem;
+  min-width: 5.5rem;
+  max-width: 6.5rem;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+.rail-select-side {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 .rail-drag {
   width: 1.5rem;

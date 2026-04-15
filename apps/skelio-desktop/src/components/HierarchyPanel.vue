@@ -4,7 +4,11 @@ import { computed } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 
 const store = useEditorStore();
-const { project, selectedBoneId, selectedMeshId, placeNewBonesAtParentTip } = storeToRefs(store);
+const { project, selectedBoneId, selectedMeshId, placeNewBonesAtParentTip, characterRigModalOpen } =
+  storeToRefs(store);
+
+/** Skeleton structure: add/remove bones only while Character Rig wizard is open. */
+const skeletonEditLocked = computed(() => !characterRigModalOpen.value);
 
 const rows = computed(() => {
   const out: { id: string; name: string; depth: number }[] = [];
@@ -23,6 +27,7 @@ function select(id: string) {
 }
 
 function addChild(parentId: string) {
+  if (skeletonEditLocked.value) return;
   const n = project.value.bones.filter((x) => x.parentId === parentId).length + 1;
   store.dispatch({
     type: "addBone",
@@ -33,6 +38,7 @@ function addChild(parentId: string) {
 }
 
 function remove(id: string) {
+  if (skeletonEditLocked.value) return;
   store.dispatch({ type: "removeBone", boneId: id });
 }
 
@@ -44,16 +50,38 @@ function selectMesh(id: string) {
 <template>
   <div class="panel">
     <h3 class="panel-title">Hierarchie</h3>
-    <label class="pref">
-      <input type="checkbox" :checked="placeNewBonesAtParentTip" @change="store.setPlaceNewBonesAtParentTip(($event.target as HTMLInputElement).checked)" />
+    <label class="pref" :title="skeletonEditLocked ? 'Open Character Rig to edit skeleton options.' : undefined">
+      <input
+        type="checkbox"
+        :disabled="skeletonEditLocked"
+        :checked="placeNewBonesAtParentTip"
+        @change="store.setPlaceNewBonesAtParentTip(($event.target as HTMLInputElement).checked)"
+      />
       Neu an Parent-Spitze
     </label>
     <ul class="tree">
       <li v-for="row in rows" :key="row.id">
         <div class="row" :class="{ sel: row.id === selectedBoneId }" :style="{ paddingLeft: `${0.4 + row.depth * 0.65}rem` }">
           <button type="button" class="pick" @click="select(row.id)">{{ row.name }}</button>
-          <button type="button" class="mini" title="Kind" @click="addChild(row.id)">+</button>
-          <button v-if="project.bones.find((b) => b.id === row.id)?.parentId !== null" type="button" class="mini danger" @click="remove(row.id)">×</button>
+          <button
+            type="button"
+            class="mini"
+            :disabled="skeletonEditLocked"
+            :title="skeletonEditLocked ? 'Open Character Rig to add bones.' : 'Kind'"
+            @click="addChild(row.id)"
+          >
+            +
+          </button>
+          <button
+            v-if="project.bones.find((b) => b.id === row.id)?.parentId !== null"
+            type="button"
+            class="mini danger"
+            :disabled="skeletonEditLocked"
+            :title="skeletonEditLocked ? 'Open Character Rig to remove bones.' : undefined"
+            @click="remove(row.id)"
+          >
+            ×
+          </button>
         </div>
       </li>
     </ul>

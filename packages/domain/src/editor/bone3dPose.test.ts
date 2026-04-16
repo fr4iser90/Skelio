@@ -79,6 +79,31 @@ describe("bone3dPose", () => {
     expect(tipP.y).toBeCloseTo(jointP.y, 5);
   });
 
+  it("skipPlanarChildTipSnap keeps stored child bind x/y in planar 2D (editor layout)", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones[0]!;
+    root.length = 40;
+    root.bindBone3d = { z: 0, depthOffset: 0, tilt: 0.2, spin: 0 };
+    const childId = createId("bone");
+    const child: Bone = {
+      id: childId,
+      parentId: root.id,
+      name: "arm",
+      bindPose: { x: 12, y: 7, rotation: 0, sx: 1, sy: 1 },
+      length: 30,
+    };
+    p.bones.push(child);
+
+    const wb = worldBindBoneMatrices4(p, {
+      planar2dNoTiltSpin: true,
+      skipPlanarChildTipSnap: true,
+    });
+    const joint = transformPointMat4(wb.get(childId)!, 0, 0, 0);
+    const wbSnap = worldBindBoneMatrices4(p, { planar2dNoTiltSpin: true });
+    const jointSnap = transformPointMat4(wbSnap.get(childId)!, 0, 0, 0);
+    expect(Math.hypot(joint.x - jointSnap.x, joint.y - jointSnap.y)).toBeGreaterThan(1e-3);
+  });
+
   it("planar2dNoTiltSpin does not snap when parent has multiple children (branching)", () => {
     const p = createDefaultEditorProject();
     const root = p.bones[0]!;

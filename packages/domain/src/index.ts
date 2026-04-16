@@ -18,6 +18,7 @@ export type {
   CharacterRigSliceEmbeddedImage,
   CharacterRigSpriteSheetEntry,
   CharacterRigSpriteSlice,
+  CharacterSlot,
   EditorRig,
   EditorMeta,
   EditorProject,
@@ -126,11 +127,24 @@ export { deformSkinnedMesh, validateSkinnedMesh } from "./editor/skinning.js";
 export { createDemoSkinnedMesh } from "./editor/demoMesh.js";
 export {
   characterRigBindingsComplete,
+  characterRigBindingsCompleteStrict,
   RIG_SLICE_MESH_ID_PREFIX,
   rigSliceSkinnedMeshId,
   resolveCharacterRigSliceBoundBoneId,
   skinnedMeshesFromCharacterRig,
 } from "./editor/characterRigMesh.js";
+export {
+  allCharacterRigSlices,
+  allCharacterRigSpriteSheets,
+  boneIdsInCharacterSubtree,
+  ensureCharacterRigForProject,
+  findCharacterRigBinding,
+  findSliceDepthEntry,
+  findSliceInCharacterRigs,
+  getCharacterRig,
+  iterCharacterRigs,
+  resolveDefaultCharacterId,
+} from "./editor/characterSlots.js";
 export {
   DEFAULT_RIG_SLICE_DEPTH_ON_MESH_SYNC,
   ensureMinimalSliceDepthOnMeshSync,

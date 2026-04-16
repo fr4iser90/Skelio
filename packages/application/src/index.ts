@@ -1,2 +1,2 @@
 export { RUNTIME_SCHEMA_VERSION } from "@skelio/domain";
-export { applyCommand, type Command } from "./commands.js";
+export { applyCommand, commandUsesActiveCharacter, type Command } from "./commands.js";

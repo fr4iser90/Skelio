@@ -15,7 +15,7 @@ import {
 } from "../slicePixelToolkit.js";
 
 const store = useEditorStore();
-const { project, selectedCharacterRigSliceId } = storeToRefs(store);
+const { rigEditProject, activeCharacterRig, selectedCharacterRigSliceId } = storeToRefs(store);
 
 export type SpriteEditTool = "move" | "brush" | "fill" | "eraser" | "select" | "knife";
 
@@ -31,7 +31,7 @@ let lastX = 0;
 let lastY = 0;
 
 const selectedSlice = computed(
-  () => project.value.characterRig?.slices?.find((s) => s.id === selectedCharacterRigSliceId.value) ?? null,
+  () => activeCharacterRig.value?.slices?.find((s) => s.id === selectedCharacterRigSliceId.value) ?? null,
 );
 
 /** Matches rail „Side“: only that layer is edited here. */
@@ -63,11 +63,11 @@ function setTool(t: SpriteEditTool) {
 
 async function ensureEmbeddedFromSheet(): Promise<boolean> {
   const id = selectedCharacterRigSliceId.value;
-  const s = project.value.characterRig?.slices?.find((x) => x.id === id);
+  const s = activeCharacterRig.value?.slices?.find((x) => x.id === id);
   if (!s || !id) return false;
   if (s.embedded?.dataBase64) return true;
   if (!s.sheetId) return false;
-  const r = await rasterizeSliceToImageData(project.value, id);
+  const r = await rasterizeSliceToImageData(rigEditProject.value, id);
   if (!r) return false;
   const img = imageDataToPngEmbedded(r.data);
   return store.dispatch({ type: "promoteCharacterRigSliceToEmbedded", sliceId: id, image: img });
@@ -77,7 +77,7 @@ async function loadLayerIntoBuffer(): Promise<void> {
   imageData = null;
   const id = selectedCharacterRigSliceId.value;
   if (!id) return;
-  const s = project.value.characterRig?.slices?.find((x) => x.id === id);
+  const s = activeCharacterRig.value?.slices?.find((x) => x.id === id);
   if (!s || s.width <= 0) return;
 
   if (editLayer.value === "back") {
@@ -96,7 +96,7 @@ async function loadLayerIntoBuffer(): Promise<void> {
       ctx.drawImage(img, 0, 0);
       imageData = ctx.getImageData(0, 0, s.width, s.height);
     } else {
-      const front = await rasterizeSliceToImageData(project.value, id);
+      const front = await rasterizeSliceToImageData(rigEditProject.value, id);
       if (front) {
         imageData = new ImageData(new Uint8ClampedArray(front.data.data), front.w, front.h);
         clearImageDataTransparent(imageData);
@@ -105,7 +105,7 @@ async function loadLayerIntoBuffer(): Promise<void> {
     return;
   }
 
-  const front = await rasterizeSliceToImageData(project.value, id);
+  const front = await rasterizeSliceToImageData(rigEditProject.value, id);
   if (front) {
     imageData = new ImageData(new Uint8ClampedArray(front.data.data), front.w, front.h);
   }
@@ -128,7 +128,7 @@ async function syncCanvasSize() {
 }
 
 watch(
-  [selectedCharacterRigSliceId, editLayer, () => project.value.characterRig],
+  [selectedCharacterRigSliceId, editLayer, activeCharacterRig],
   async () => {
     if (!toolNeedsCanvas.value) return;
     await loadLayerIntoBuffer();
@@ -318,7 +318,7 @@ async function opClearLayer() {
     return;
   }
   await ensureEmbeddedFromSheet();
-  const r = await rasterizeSliceToImageData(project.value, id);
+  const r = await rasterizeSliceToImageData(rigEditProject.value, id);
   if (!r) return;
   const empty = new ImageData(r.w, r.h);
   clearImageDataTransparent(empty);
@@ -333,7 +333,7 @@ async function opCopyFrontToBack() {
   const id = selectedCharacterRigSliceId.value;
   if (!id) return;
   await ensureEmbeddedFromSheet();
-  const img = await buildEmbeddedBackFromFront(project.value, id);
+  const img = await buildEmbeddedBackFromFront(rigEditProject.value, id);
   if (!img) return;
   store.dispatch({ type: "setCharacterRigSliceLayerPixels", sliceId: id, layer: "back", image: img });
   statusMsg.value = "Copied front → back.";
@@ -373,15 +373,15 @@ async function rasterizeSliceToImageDataFromLayer(
     ctx.drawImage(img, 0, 0);
     return ctx.getImageData(0, 0, s.width, s.height);
   }
-  const r = await rasterizeSliceToImageData(project.value, s.id);
+  const r = await rasterizeSliceToImageData(rigEditProject.value, s.id);
   return r?.data ?? null;
 }
 
 async function opCopyAllFrontsToBacks() {
-  const slices = project.value.characterRig?.slices ?? [];
+  const slices = activeCharacterRig.value?.slices ?? [];
   for (const s of slices) {
     if (s.width <= 0 || s.height <= 0) continue;
-    const img = await buildEmbeddedBackFromFront(project.value, s.id);
+    const img = await buildEmbeddedBackFromFront(rigEditProject.value, s.id);
     if (img) {
       store.dispatch({ type: "setCharacterRigSliceLayerPixels", sliceId: s.id, layer: "back", image: img });
     }

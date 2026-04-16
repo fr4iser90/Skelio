@@ -19,11 +19,16 @@ function emptyClip(id: string, name: string): AnimationClip {
 export function createDefaultEditorProject(): EditorProject {
   const root = rootBone();
   const clipId = createId("clip");
+  const charId = createId("char");
   return {
     editorSchemaVersion: "1.0.0",
     meta: { name: "Untitled", fps: 60, clipTransformsRelativeToBind: true },
     bones: [root],
     clips: [emptyClip(clipId, "main")],
     activeClipId: clipId,
+    characters: [{ id: charId, name: "Character", rootBoneId: root.id }],
+    characterRigs: {
+      [charId]: { spriteSheets: [], slices: [], bindings: [], sliceDepths: [] },
+    },
   };
 }

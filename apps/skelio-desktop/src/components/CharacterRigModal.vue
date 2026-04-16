@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
-  characterRigBindingsComplete,
+  boneIdsInCharacterSubtree,
+  characterRigBindingsCompleteStrict,
   mimeFromFileName,
   normalizeReferenceImageMime,
   REFERENCE_IMAGE_ACCEPT_ATTR,
@@ -19,7 +20,10 @@ import DepthTextureEditorModal from "./DepthTextureEditorModal.vue";
 
 const store = useEditorStore();
 const {
-  project,
+  rigEditProject,
+  activeCharacterId,
+  activeCharacterRig,
+  rigCharacterSlots,
   characterRigModalOpen,
   selectedCharacterRigSliceId,
   selectedBoneId,
@@ -94,7 +98,7 @@ const partModalSlice = computed(() => {
 
 watch(spriteModalSliceId, (id) => {
   if (!id) return;
-  const s = project.value.characterRig?.slices?.find((x) => x.id === id);
+  const s = activeCharacterRig.value?.slices?.find((x) => x.id === id);
   if (!s) return;
   partEditName.value = s.name;
   partEditSide.value = s.side === "back" ? "back" : "front";
@@ -114,22 +118,35 @@ const steps = [
   {
     id: "bind",
     title: "Bind",
-    hint: "Part → bone; generate rig meshes. Max depth / depth maps / regenerate in the “3D Settings” step.",
+    hint: "Part → bone; generate rig meshes. Viewport: drag joints / Shift+tip for length — same as “Bones”. Max depth in “3D Settings”.",
   },
   {
     id: "depth",
     title: "3D Settings",
-    hint: "Per part: depth UI matches **Side** in the rail (Front vs Back). Viewport shows that part only. Bone depth: “Bones” step.",
+    hint: "Per part: depth UI matches **Side** in the rail. Viewport: selected part only; Shift+drag part = extrusion; bones still draggable (joint / length).",
   },
   { id: "preview", title: "Preview", hint: "Overview — available only after binding is complete." },
 ] as const;
 
-const rig = computed(() => project.value.characterRig);
+const rig = activeCharacterRig;
 const slices = computed(() => rig.value?.slices ?? []);
 const spriteSheets = computed(() => rig.value?.spriteSheets ?? []);
 const bindings = computed(() => rig.value?.bindings ?? []);
 
-const rigBindingsComplete = computed(() => characterRigBindingsComplete(project.value));
+const rigBindingsComplete = computed(() =>
+  characterRigBindingsCompleteStrict(rigEditProject.value, activeCharacterId.value ?? undefined),
+);
+
+const activeCharacterSlot = computed(() => {
+  const id = activeCharacterId.value ?? rigEditProject.value.characters?.[0]?.id;
+  return rigEditProject.value.characters?.find((c) => c.id === id) ?? null;
+});
+
+const bonesInActiveCharacter = computed(() => {
+  const slot = activeCharacterSlot.value;
+  if (!slot) return new Set(rigEditProject.value.bones.map((b) => b.id));
+  return boneIdsInCharacterSubtree(rigEditProject.value, slot.rootBoneId);
+});
 
 function goToRigStep(i: number) {
   if ((i === 3 || i === 4) && !rigBindingsComplete.value) {
@@ -155,14 +172,18 @@ watch(characterRigModalOpen, (open) => {
 });
 
 const bonesSorted = computed(() =>
-  [...project.value.bones].sort((a, b) => a.name.localeCompare(b.name)),
+  [...rigEditProject.value.bones]
+    .filter((b) => bonesInActiveCharacter.value.has(b.id))
+    .sort((a, b) => a.name.localeCompare(b.name)),
 );
 
-/** Bones in tree order (root first, children sorted by name). */
+/** Bones in tree order (active character root first, children sorted by name). */
 const bonesHierarchy = computed(() => {
-  const bones = project.value.bones;
+  const bones = rigEditProject.value.bones;
   const byId = new Map(bones.map((b) => [b.id, b]));
-  const root = bones.find((b) => b.parentId === null);
+  const root = activeCharacterSlot.value
+    ? bones.find((b) => b.id === activeCharacterSlot.value!.rootBoneId)
+    : bones.find((b) => b.parentId === null);
   if (!root) return [] as { id: string; name: string; depth: number }[];
   const out: { id: string; name: string; depth: number }[] = [];
   function walk(id: string, depth: number) {
@@ -186,7 +207,7 @@ const showBoneColumn = computed(() => step.value >= 2);
 const selectedBoneParentSpan = computed(() => {
   const b = selectedBone.value;
   if (!b?.parentId) return null;
-  const o = worldBindOrigins(project.value);
+  const o = worldBindOrigins(rigEditProject.value);
   const p = o.get(b.parentId);
   const c = o.get(b.id);
   if (!p || !c) return null;
@@ -250,7 +271,14 @@ function depthFor(sliceId: string) {
 }
 
 function close() {
-  store.closeCharacterRigModal();
+  if (
+    !confirm(
+      "Close Character Setup? Changes stay in the draft — Animate updates only after **Done**.",
+    )
+  ) {
+    return;
+  }
+  store.discardCharacterRigModal();
 }
 
 function onKey(e: KeyboardEvent) {
@@ -344,7 +372,7 @@ async function regenerateDepthTexture(side: "front" | "back") {
   if (!id) return;
   depthRegenBusy.value = side;
   try {
-    const payload = await generateRegeneratedDepthTexturePayload(toRaw(project.value), id, side);
+    const payload = await generateRegeneratedDepthTexturePayload(toRaw(rigEditProject.value), id, side);
     if (!payload?.dataBase64) {
       alert("No sprite pixels for this part — set front art first (sheet or embedded).");
       return;
@@ -419,14 +447,15 @@ function finishRigAndClose() {
     alert("Mesh sync rejected (validation). Check bindings and parts with pixels, then try “Done” again.");
     return;
   }
-  const meshes = project.value.skinnedMeshes ?? [];
+  const meshes = rigEditProject.value.skinnedMeshes ?? [];
   const firstRig = meshes.find((m) => m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX));
-  if (firstRig) store.selectMeshOnly(firstRig.id);
-  close();
+  const meshId = firstRig?.id;
+  store.applyCharacterRigModal();
+  if (meshId) store.selectMeshOnly(meshId);
 }
 
 const rigGeneratedMeshCount = computed(
-  () => project.value.skinnedMeshes?.filter((m) => m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)).length ?? 0,
+  () => rigEditProject.value.skinnedMeshes?.filter((m) => m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)).length ?? 0,
 );
 
 function thumbDataUrl(s: CharacterRigSpriteSlice): string {
@@ -483,7 +512,7 @@ function removeSlice(sliceId: string) {
     return;
   if (!store.dispatch({ type: "removeCharacterRigSlice", sliceId })) return;
   if (selectedCharacterRigSliceId.value === sliceId) {
-    const rest = project.value.characterRig?.slices ?? [];
+    const rest = activeCharacterRig.value?.slices ?? [];
     store.selectCharacterRigSlice(rest[0]?.id ?? null);
   }
 }
@@ -532,7 +561,7 @@ function readImageFileAsPayload(file: File): Promise<{ fileName: string; mimeTyp
 function addEmptySlot() {
   const before = slices.value.length;
   if (!store.dispatch({ type: "addCharacterRigEmptyPart" })) return;
-  const next = project.value.characterRig?.slices;
+  const next = activeCharacterRig.value?.slices;
   if (next && next.length > before) {
     const id = next[next.length - 1]!.id;
     store.selectCharacterRigSlice(id);
@@ -571,7 +600,7 @@ function removeSheet(sheetId: string) {
 }
 
 function addChildBone() {
-  const bones = project.value.bones;
+  const bones = rigEditProject.value.bones;
   const root = bones.find((b) => b.parentId === null);
   const sid = selectedBoneId.value;
   const parentId =
@@ -588,7 +617,7 @@ function addChildBone() {
     })
   )
     return;
-  const nb = project.value.bones;
+  const nb = rigEditProject.value.bones;
   if (nb.length > nBefore) {
     const newId = nb[nb.length - 1]!.id;
     store.selectBone(newId);
@@ -639,7 +668,7 @@ function renameSelectedBoneFromInspector(e: Event) {
 
 function onBoneNameChange(boneId: string, e: Event) {
   const el = e.target as HTMLInputElement;
-  const previousName = project.value.bones.find((x) => x.id === boneId)?.name ?? "";
+  const previousName = rigEditProject.value.bones.find((x) => x.id === boneId)?.name ?? "";
   const v = el.value.trim();
   if (!v) {
     el.value = previousName;
@@ -653,7 +682,7 @@ function onBoneNameChange(boneId: string, e: Event) {
 }
 
 function removeBoneFromWizard(boneId: string) {
-  const b = project.value.bones.find((x) => x.id === boneId);
+  const b = rigEditProject.value.bones.find((x) => x.id === boneId);
   if (!b || b.parentId === null) return;
   if (
     !confirm(
@@ -664,8 +693,8 @@ function removeBoneFromWizard(boneId: string) {
   const parentId = b.parentId;
   if (!store.dispatch({ type: "removeBone", boneId })) return;
   if (selectedBoneId.value === boneId) {
-    const parent = project.value.bones.find((x) => x.id === parentId);
-    store.selectBone(parent?.id ?? project.value.bones[0]?.id ?? null);
+    const parent = rigEditProject.value.bones.find((x) => x.id === parentId);
+    store.selectBone(parent?.id ?? rigEditProject.value.bones[0]?.id ?? null);
   }
 }
 
@@ -711,6 +740,28 @@ async function onSheetFiles(e: Event) {
         <header class="head">
           <div class="head-title">
             <h2 id="crig-title">Character Setup</h2>
+            <div v-if="rigCharacterSlots.length" class="char-slot-picker">
+              <label class="char-slot-label">
+                <span class="muted">Editing</span>
+                <select
+                  class="char-slot-select"
+                  :value="activeCharacterId ?? ''"
+                  @change="
+                    store.setActiveCharacterId(($event.target as HTMLSelectElement).value || null)
+                  "
+                >
+                  <option v-for="c in rigCharacterSlots" :key="c.id" :value="c.id">{{ c.name }}</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="ghost char-add-btn"
+                title="Add another character (new skeleton root + empty rig)"
+                @click="store.dispatch({ type: 'addCharacter', name: '' })"
+              >
+                + Character
+              </button>
+            </div>
             <p class="head-sub">
               Guided wizard for first-time rigging: parts, bones, binding, 3D depth, preview — not your daily animation
               workspace.
@@ -968,7 +1019,7 @@ async function onSheetFiles(e: Event) {
                   <input
                     class="rig-name-input"
                     type="text"
-                    :value="project.meta.name"
+                    :value="rigEditProject.meta.name"
                     @change="setRigMetaName"
                   />
                 </label>
@@ -1224,7 +1275,7 @@ async function onSheetFiles(e: Event) {
                 <ul class="summary">
                   <li v-for="s in slices" :key="s.id">
                     {{ s.name }} →
-                    {{ project.bones.find((b) => b.id === bindingBoneId(s.id))?.name ?? "—" }}
+                    {{ rigEditProject.bones.find((b) => b.id === bindingBoneId(s.id))?.name ?? "—" }}
                   </li>
                 </ul>
               </div>
@@ -1450,7 +1501,8 @@ async function onSheetFiles(e: Event) {
 
         <footer class="foot">
           <span class="muted">
-            Changes apply immediately (Undo/Redo). “Done” syncs rig meshes — only when every part with pixels is bound.
+            Draft is local to this wizard — Animate stays unchanged until **Done** (then rig + meshes merge into the project).
+            Undo/Redo here applies to the wizard draft only. × discards the draft.
           </span>
           <button
             type="button"

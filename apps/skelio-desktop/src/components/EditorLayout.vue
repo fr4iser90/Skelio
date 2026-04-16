@@ -12,18 +12,24 @@ import ToolbarPanel from "./ToolbarPanel.vue";
 import ViewportPanel from "./ViewportPanel.vue";
 
 const store = useEditorStore();
-const { project, currentTime, playing, characterRigModalOpen } = storeToRefs(store);
+const { project, rigEditProject, workspaceMode, currentTime, playing, characterRigModalOpen } = storeToRefs(store);
+
+/** Timeline: committed project in Animate mode; in Rig mode includes Character Setup draft when the wizard is open. */
+const timelineProject = computed(() =>
+  workspaceMode.value === "animate" ? project.value : rigEditProject.value,
+);
 
 const playMax = computed(() => {
-  const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
+  const p = timelineProject.value;
+  const clip = p.clips.find((c) => c.id === p.activeClipId);
   if (!clip) return 4;
-  return Math.max(1, clipDurationSeconds(clip, project.value.bones));
+  return Math.max(1, clipDurationSeconds(clip, p.bones));
 });
 
 let raf = 0;
 function tick() {
   if (!playing.value) return;
-  const dt = 1 / Math.max(1, project.value.meta.fps);
+  const dt = 1 / Math.max(1, timelineProject.value.meta.fps);
   currentTime.value += dt;
   const max = playMax.value;
   if (currentTime.value > max) currentTime.value = 0;

@@ -21,6 +21,11 @@ export type LocalBoneState = {
 export type GetLocalBoneStateOpts = {
   /** Treat `tilt`/`spin` as 0 for this sample (2D camera / planar authoring). */
   planar2dNoTiltSpin?: boolean;
+  /**
+   * When set with {@link planar2dNoTiltSpin}, do **not** force a sole child’s local attach to `(parent.length,0)`.
+   * That snap closes FK gaps after 3D tilt; for bind authoring the stored `bindPose.x/y` must drive the joint.
+   */
+  skipPlanarChildTipSnap?: boolean;
 };
 
 function sampleChannel(keys: { t: number; v: number }[], t: number, fallback: number): number {
@@ -195,6 +200,7 @@ function snapPlanarChildTranslationToParentTip(
   opts?: GetLocalBoneStateOpts,
 ): LocalBoneState {
   if (!opts?.planar2dNoTiltSpin || bone.parentId === null) return s;
+  if (opts.skipPlanarChildTipSnap) return s;
   const parent = project.bones.find((x) => x.id === bone.parentId);
   if (!parent || parent.length <= PLANAR_TIP_SNAP_MIN_PARENT_LENGTH) return s;
   if (countBonesWithParent(project, bone.parentId) !== 1) return s;

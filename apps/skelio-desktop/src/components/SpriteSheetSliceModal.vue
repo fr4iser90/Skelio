@@ -4,7 +4,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 
 const store = useEditorStore();
-const { project, sheetSliceModalOpen, sheetSliceModalSheetId, selectedCharacterRigSliceId } =
+const { activeCharacterRig, sheetSliceModalOpen, sheetSliceModalSheetId, selectedCharacterRigSliceId } =
   storeToRefs(store);
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -16,11 +16,11 @@ const suppressNextClick = ref(false);
 const previewRect = ref<{ x: number; y: number; w: number; h: number } | null>(null);
 
 const sheet = computed(() =>
-  project.value.characterRig?.spriteSheets?.find((s) => s.id === sheetSliceModalSheetId.value),
+  activeCharacterRig.value?.spriteSheets?.find((s) => s.id === sheetSliceModalSheetId.value),
 );
 
 const activeSlice = computed(() =>
-  project.value.characterRig?.slices?.find((s) => s.id === selectedCharacterRigSliceId.value) ?? null,
+  activeCharacterRig.value?.slices?.find((s) => s.id === selectedCharacterRigSliceId.value) ?? null,
 );
 
 watch([sheetSliceModalOpen, sheet], async () => {
@@ -181,7 +181,7 @@ function accept() {
     alert("Zuerst einen Bereich wählen (Klick = zusammenhängend, oder Rahmen ziehen).");
     return;
   }
-  const sl = project.value.characterRig?.slices?.find((s) => s.id === sid);
+  const sl = activeCharacterRig.value?.slices?.find((s) => s.id === sid);
   if (sl?.embedded?.dataBase64) {
     const okReplace = window.confirm(
       `„${sl.name}“ hat bereits ein eingebettetes Bild (z. B. Import). Eine Sheet-Zuweisung ersetzt es durch den Ausschnitt (${r.w}×${r.h} px). Fortfahren?`,

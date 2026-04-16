@@ -8,6 +8,11 @@ import { transformPointMat4 } from "@skelio/domain";
 
 export type BoneShaftSeg2 = { ax: number; ay: number; bx: number; by: number };
 
+/** Optional: shaft preview while dragging bone length (single-child case normally follows child joint). */
+export type BoneShaftSegmentsOpts = {
+  lengthPreviewBoneId?: string | null;
+};
+
 function distPointToSegmentSq(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const abx = bx - ax;
   const aby = by - ay;
@@ -27,6 +32,7 @@ export function boneShaftSegmentsWorld2D(
   boneM4: ReadonlyMap<string, Mat4>,
   boneOrigins: ReadonlyMap<string, { x: number; y: number }>,
   Lvis: number,
+  opts?: BoneShaftSegmentsOpts,
 ): BoneShaftSeg2[] {
   const M4 = boneM4.get(b.id);
   if (!M4) return [];
@@ -37,6 +43,9 @@ export function boneShaftSegmentsWorld2D(
     return [{ ax: p0.x, ay: p0.y, bx: tip.x, by: tip.y }];
   }
   if (kids.length === 1) {
+    if (opts?.lengthPreviewBoneId === b.id) {
+      return [{ ax: p0.x, ay: p0.y, bx: tip.x, by: tip.y }];
+    }
     const oc = boneOrigins.get(kids[0]!.id);
     if (oc) return [{ ax: p0.x, ay: p0.y, bx: oc.x, by: oc.y }];
     return [{ ax: p0.x, ay: p0.y, bx: tip.x, by: tip.y }];

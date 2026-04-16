@@ -1,4 +1,5 @@
-import type { CharacterRigSliceDepth, EditorProject } from "./types.js";
+import type { CharacterRigConfig, CharacterRigSliceDepth, EditorProject } from "./types.js";
+import { iterCharacterRigs } from "./characterSlots.js";
 
 /**
  * Default extrusion (world units ≈ px) applied on mesh sync when a bound slice
@@ -6,14 +7,11 @@ import type { CharacterRigSliceDepth, EditorProject } from "./types.js";
  */
 export const DEFAULT_RIG_SLICE_DEPTH_ON_MESH_SYNC = 6;
 
-/**
- * For every bound slice with pixels: if `maxDepthFront` + effective back sum to ~0,
- * set a minimal symmetric depth so `skinnedMeshesFromCharacterRig` and the 3D
- * viewport produce visible thickness. Preserves existing depth textures.
- */
-export function ensureMinimalSliceDepthOnMeshSync(project: EditorProject): EditorProject {
-  const rig = project.characterRig;
-  if (!rig?.slices?.length) return project;
+function ensureMinimalSliceDepthForOneRig(
+  rig: CharacterRigConfig,
+  project: EditorProject,
+): boolean {
+  if (!rig?.slices?.length) return false;
 
   const bindingBySlice = new Map((rig.bindings ?? []).map((b) => [b.sliceId, b.boneId] as const));
   const boneIds = new Set(project.bones.map((b) => b.id));
@@ -47,13 +45,22 @@ export function ensureMinimalSliceDepthOnMeshSync(project: EditorProject): Edito
     touched = true;
   }
 
-  if (!touched) return project;
+  if (!touched) return false;
 
-  return {
-    ...project,
-    characterRig: {
-      ...rig,
-      sliceDepths: depthList,
-    },
-  };
+  rig.sliceDepths = depthList;
+  return true;
+}
+
+/**
+ * For every character rig: for each bound slice with pixels, if `maxDepthFront` + effective back sum to ~0,
+ * set a minimal symmetric depth so `skinnedMeshesFromCharacterRig` and the 3D
+ * viewport produce visible thickness. Preserves existing depth textures.
+ */
+export function ensureMinimalSliceDepthOnMeshSync(project: EditorProject): EditorProject {
+  let touched = false;
+  for (const rig of iterCharacterRigs(project)) {
+    if (ensureMinimalSliceDepthForOneRig(rig, project)) touched = true;
+  }
+  if (!touched) return project;
+  return project;
 }

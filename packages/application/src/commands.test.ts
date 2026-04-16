@@ -3,13 +3,21 @@ import {
   createDefaultEditorProject,
   createId,
   editorProjectToRuntime,
+  getCharacterRig,
   getLocalBoneState,
   meshDisplayNameFromFileName,
   normalizeEditorProjectInPlace,
   skinnedMeshFromObjText,
   validateEditorProject,
+  type EditorProject,
 } from "@skelio/domain";
 import { applyCommand } from "./commands.js";
+
+function rig(p: EditorProject) {
+  const r = getCharacterRig(p);
+  if (!r) throw new Error("expected character rig");
+  return r;
+}
 
 describe("applyCommand", () => {
   it("normalizeEditorProjectInPlace converts legacy absolute tx keys to bind-relative offsets", () => {
@@ -107,13 +115,13 @@ describe("applyCommand", () => {
       pixelWidth: 1,
       pixelHeight: 1,
     });
-    const sid = p.characterRig!.slices[0]!.id;
+    const sid = rig(p).slices[0]!.id;
     p = applyCommand(p, {
       type: "patchCharacterRigSlice",
       sliceId: sid,
       side: "back",
     });
-    expect(p.characterRig?.slices[0]?.side).toBe("back");
+    expect(rig(p).slices[0]?.side).toBe("back");
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
@@ -129,17 +137,17 @@ describe("applyCommand", () => {
       pixelWidth: 1,
       pixelHeight: 1,
     });
-    const sid = p.characterRig!.slices[0]!.id;
+    const sid = rig(p).slices[0]!.id;
     p = applyCommand(p, {
       type: "setCharacterRigSliceLayerPixels",
       sliceId: sid,
       layer: "back",
       image: { mimeType: "image/png", dataBase64: tinyPng, pixelWidth: 1, pixelHeight: 1 },
     });
-    expect(p.characterRig?.slices[0]?.embeddedBack?.pixelWidth).toBe(1);
+    expect(rig(p).slices[0]?.embeddedBack?.pixelWidth).toBe(1);
     expect(validateEditorProject(p)).toHaveLength(0);
     p = applyCommand(p, { type: "clearCharacterRigSliceEmbeddedBack", sliceId: sid });
-    expect(p.characterRig?.slices[0]?.embeddedBack).toBeUndefined();
+    expect(rig(p).slices[0]?.embeddedBack).toBeUndefined();
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
@@ -155,8 +163,8 @@ describe("applyCommand", () => {
       pixelWidth: 1,
       pixelHeight: 1,
     });
-    expect(p.characterRig?.slices).toHaveLength(1);
-    expect(p.characterRig?.slices?.[0]?.embedded?.pixelWidth).toBe(1);
+    expect(rig(p).slices).toHaveLength(1);
+    expect(rig(p).slices?.[0]?.embedded?.pixelWidth).toBe(1);
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
@@ -170,8 +178,8 @@ describe("applyCommand", () => {
       pixelWidth: 1,
       pixelHeight: 1,
     });
-    expect(p.characterRig?.spriteSheets).toHaveLength(1);
-    expect(p.characterRig?.spriteSheets?.[0]?.fileName).toBe("sheet.png");
+    expect(rig(p).spriteSheets).toHaveLength(1);
+    expect(rig(p).spriteSheets?.[0]?.fileName).toBe("sheet.png");
     p = applyCommand(p, {
       type: "addCharacterRigSlice",
       name: "head",
@@ -180,12 +188,45 @@ describe("applyCommand", () => {
       width: 1,
       height: 1,
     });
-    expect(p.characterRig?.slices).toHaveLength(1);
-    expect(p.characterRig?.bindings).toEqual([]);
+    expect(rig(p).slices).toHaveLength(1);
+    expect(rig(p).bindings).toEqual([]);
     expect(validateEditorProject(p)).toHaveLength(0);
     const root = p.bones[0]!.id;
-    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: p.characterRig!.slices[0]!.id, boneId: root });
-    expect(p.characterRig?.bindings).toHaveLength(1);
+    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: rig(p).slices[0]!.id, boneId: root });
+    expect(rig(p).bindings).toHaveLength(1);
+    expect(validateEditorProject(p)).toHaveLength(0);
+  });
+
+  it("setCharacterRigSliceWorldPosition updates binding locals when slice is bound", () => {
+    let p = createDefaultEditorProject();
+    const root = p.bones[0]!.id;
+    p = applyCommand(p, {
+      type: "setCharacterRigSpriteSheet",
+      fileName: "s.png",
+      mimeType: "image/png",
+      dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      pixelWidth: 1,
+      pixelHeight: 1,
+    });
+    p = applyCommand(p, {
+      type: "addCharacterRigSlice",
+      name: "A",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      worldCx: 5,
+      worldCy: -3,
+    });
+    const sid = rig(p).slices[0]!.id;
+    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: sid, boneId: root });
+    const locBefore = { ...rig(p).bindings![0]! };
+    p = applyCommand(p, { type: "setCharacterRigSliceWorldPosition", sliceId: sid, worldCx: 20, worldCy: 10 });
+    expect(rig(p).slices[0]!.worldCx).toBe(20);
+    expect(rig(p).slices[0]!.worldCy).toBe(10);
+    const b = rig(p).bindings![0]!;
+    expect(b.localX).not.toBe(locBefore.localX);
+    expect(b.localY).not.toBe(locBefore.localY);
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
@@ -229,11 +270,11 @@ describe("applyCommand", () => {
       worldCx: 0,
       worldCy: 0,
     });
-    const [idA, , idC] = p.characterRig!.slices.map((s) => s.id);
+    const [idA, , idC] = rig(p).slices.map((s) => s.id);
     p = applyCommand(p, { type: "reorderCharacterRigSlice", sliceId: idC, insertBeforeSliceId: idA });
-    expect(p.characterRig!.slices.map((s) => s.name).join(",")).toBe("C,A,B");
+    expect(rig(p).slices.map((s) => s.name).join(",")).toBe("C,A,B");
     p = applyCommand(p, { type: "reorderCharacterRigSlice", sliceId: idA, insertBeforeSliceId: null });
-    expect(p.characterRig!.slices.map((s) => s.name).join(",")).toBe("C,B,A");
+    expect(rig(p).slices.map((s) => s.name).join(",")).toBe("C,B,A");
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
@@ -268,7 +309,7 @@ describe("applyCommand", () => {
       worldCx: 0,
       worldCy: 0,
     });
-    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: p.characterRig!.slices[0]!.id, boneId: root });
+    p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: rig(p).slices[0]!.id, boneId: root });
     const before = p.skinnedMeshes?.length ?? 0;
     p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
     expect(p.skinnedMeshes?.length ?? 0).toBe(before);
@@ -295,15 +336,15 @@ describe("applyCommand", () => {
       worldCx: 0,
       worldCy: 0,
     });
-    const sid = p.characterRig!.slices[0]!.id;
+    const sid = rig(p).slices[0]!.id;
     p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: sid, boneId: root });
     p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
     expect(p.skinnedMeshes?.some((m) => m.id.startsWith("rig_slice_"))).toBe(true);
-    p.characterRig!.bindings = [{ sliceId: sid, boneId: "no_such_bone" }];
+    rig(p).bindings = [{ sliceId: sid, boneId: "no_such_bone" }];
     const n = p.skinnedMeshes?.length ?? 0;
-    const beforeBindings = structuredClone(p.characterRig!.bindings);
+    const beforeBindings = structuredClone(rig(p).bindings);
     p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
-    expect(p.characterRig!.bindings).toEqual(beforeBindings);
+    expect(rig(p).bindings).toEqual(beforeBindings);
     expect(p.skinnedMeshes?.length).toBe(n);
     expect(validateEditorProject(p).some((i) => i.message.includes("unknown bone id in binding"))).toBe(true);
   });
@@ -329,13 +370,13 @@ describe("applyCommand", () => {
       worldCx: 0,
       worldCy: 0,
     });
-    const sid = p.characterRig!.slices[0]!.id;
+    const sid = rig(p).slices[0]!.id;
     p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: sid, boneId: root });
     p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
     expect(p.skinnedMeshes?.length).toBe(1);
     expect(p.skinnedMeshes![0]!.id.startsWith("rig_slice_")).toBe(true);
     expect(p.skinnedMeshes![0]!.vertices.length).toBeGreaterThan(8);
-    const depth = p.characterRig!.sliceDepths.find((d) => d.sliceId === sid);
+    const depth = rig(p).sliceDepths.find((d) => d.sliceId === sid);
     expect(depth?.maxDepthFront).toBeGreaterThan(0);
     expect(validateEditorProject(p)).toHaveLength(0);
   });

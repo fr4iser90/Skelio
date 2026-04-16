@@ -11,3 +11,4 @@
    - `pnpm dev` — desktop app (Rust/Tauri for full native window)
 
 Cursor rules derivation: **`docs/13-ai-assisted-development.md`**.
+6. **Language:** Code comments, JSDoc on new/changed code, and user-facing error strings in source should be **English**. Do not add German (or other non-English) comments in application or package source unless the file already uses that language consistently for UI copy.

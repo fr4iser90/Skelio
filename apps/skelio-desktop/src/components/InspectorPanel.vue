@@ -13,7 +13,7 @@ import { useEditorStore } from "../stores/editor.js";
 const store = useEditorStore();
 const {
   selectedBone,
-  project,
+  rigEditProject,
   currentTime,
   selectedBoneId,
   selectedMeshId,
@@ -27,11 +27,11 @@ const {
   quickRigMode,
 } = storeToRefs(store);
 
-/** Bind pose / length / chain: Character Setup wizard or Quick Rig; sonst Keys + Gewichte + IK. */
+/** Bind pose / length / chain: Character Setup wizard or Quick Rig; otherwise keys + weights + IK. */
 const bindPoseLocked = computed(() => !(characterRigModalOpen.value || quickRigMode.value));
 
-const twoBoneIkChainsShown = computed(() => getTwoBoneIkChains(project.value));
-const fabrikIkChainsShown = computed(() => project.value.rig?.ik?.fabrikChains ?? []);
+const twoBoneIkChainsShown = computed(() => getTwoBoneIkChains(rigEditProject.value));
+const fabrikIkChainsShown = computed(() => rigEditProject.value.rig?.ik?.fabrikChains ?? []);
 const ikCreateError = ref<string | null>(null);
 
 /** Rechte Spalte: nur ein Bereich sichtbar → weniger Scroll, klarer als alles untereinander. */
@@ -40,7 +40,7 @@ const inspectorTab = ref<"project" | "bone" | "mesh" | "ik">("bone");
 const poseRotationAtPlayhead = computed(() => {
   const b = selectedBone.value;
   if (!b) return 0;
-  const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
+  const clip = rigEditProject.value.clips.find((c) => c.id === rigEditProject.value.activeClipId);
   return getLocalBoneState(b, clip, currentTime.value).rot;
 });
 
@@ -48,7 +48,7 @@ const weightContext = computed(() => {
   const mid = selectedMeshId.value;
   const vi = selectedVertexIndex.value;
   if (mid === null || vi === null) return null;
-  const mesh = project.value.skinnedMeshes?.find((m) => m.id === mid);
+  const mesh = rigEditProject.value.skinnedMeshes?.find((m) => m.id === mid);
   if (!mesh || vi < 0 || vi >= mesh.vertices.length) return null;
   return { mesh, vi };
 });
@@ -94,7 +94,7 @@ function bind3d(field: "z" | "depthOffset" | "tilt" | "spin"): number {
 function keyframeChannel(prop: "tz" | "tilt" | "spin" | "rot") {
   const b = selectedBone.value;
   if (!b) return;
-  const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
+  const clip = rigEditProject.value.clips.find((c) => c.id === rigEditProject.value.activeClipId);
   const s = getLocalBoneState(b, clip, currentTime.value);
   const b3 = b.bindBone3d;
   const zBase = (b3?.z ?? 0) + (b3?.depthOffset ?? 0);
@@ -194,7 +194,7 @@ function setBoneWeight(boneId: string, ev: Event) {
 function normalizeWeights() {
   const ctx = weightContext.value;
   if (!ctx) return;
-  const boneIds = new Set(project.value.bones.map((b) => b.id));
+  const boneIds = new Set(rigEditProject.value.bones.map((b) => b.id));
   const row = normalizeInfluenceRow(ctx.mesh.influences[ctx.vi] ?? [], boneIds);
   store.dispatch({
     type: "setMeshVertexInfluences",
@@ -264,13 +264,13 @@ function addFabrikIkFromSelectedTip() {
   ikCreateError.value = null;
   const id = selectedBoneId.value;
   if (!id) return;
-  const before = new Set((project.value.rig?.ik?.fabrikChains ?? []).map((c) => c.id));
+  const before = new Set((rigEditProject.value.rig?.ik?.fabrikChains ?? []).map((c) => c.id));
   const ok = store.dispatch({ type: "addFabrikIkChainFromTip", tipBoneId: id, name: "FABRIK-Kette", maxBones: 3 });
   if (!ok) {
     ikCreateError.value = "FABRIK konnte nicht erstellt werden (Kette braucht mind. 3 Knochen: Tip → Parent → Grandparent).";
     return;
   }
-  const after = project.value.rig?.ik?.fabrikChains ?? [];
+  const after = rigEditProject.value.rig?.ik?.fabrikChains ?? [];
   const created = after.find((c) => !before.has(c.id)) ?? null;
   if (!created) {
     ikCreateError.value = "FABRIK wurde nicht angelegt (unerwarteter Zustand).";
@@ -279,7 +279,7 @@ function addFabrikIkFromSelectedTip() {
 
   // Prevent any visible snap: disable → seed target at current pose tip → enable.
   store.dispatch({ type: "setFabrikIkChainEnabled", chainId: created.id, enabled: false });
-  const tipPt = worldPoseBoneTips(project.value, currentTime.value).get(id);
+  const tipPt = worldPoseBoneTips(rigEditProject.value, currentTime.value).get(id);
   if (tipPt) {
     store.dispatch({ type: "setFabrikIkChainTarget", chainId: created.id, targetX: tipPt.x, targetY: tipPt.y });
   }
@@ -290,20 +290,20 @@ function addTwoBoneIkFromSelectedTip() {
   ikCreateError.value = null;
   const tipId = selectedBoneId.value;
   if (!tipId) return;
-  const tipBone = project.value.bones.find((b) => b.id === tipId) ?? null;
-  const mid = tipBone?.parentId ? project.value.bones.find((b) => b.id === tipBone.parentId) ?? null : null;
-  const root = mid?.parentId ? project.value.bones.find((b) => b.id === mid.parentId) ?? null : null;
+  const tipBone = rigEditProject.value.bones.find((b) => b.id === tipId) ?? null;
+  const mid = tipBone?.parentId ? rigEditProject.value.bones.find((b) => b.id === tipBone.parentId) ?? null : null;
+  const root = mid?.parentId ? rigEditProject.value.bones.find((b) => b.id === mid.parentId) ?? null : null;
   if (!tipBone || !mid || !root) {
     ikCreateError.value = "2‑Bone IK braucht eine Parent-Kette aus 3 Knochen: thigh → leg → foot (wähle den Fuß als Tip).";
     return;
   }
-  const before = new Set(getTwoBoneIkChains(project.value).map((c) => c.id));
+  const before = new Set(getTwoBoneIkChains(rigEditProject.value).map((c) => c.id));
   const ok = store.dispatch({ type: "addTwoBoneIkChainFromTip", tipBoneId: tipId, name: "2-Bone IK (Leg)" });
   if (!ok) {
     ikCreateError.value = "2‑Bone IK konnte nicht erstellt werden (Chain existiert evtl. schon oder Auswahl ist kein gültiger Tip).";
     return;
   }
-  const after = getTwoBoneIkChains(project.value);
+  const after = getTwoBoneIkChains(rigEditProject.value);
   const created = after.find((c) => !before.has(c.id)) ?? null;
   if (!created) {
     ikCreateError.value = "2‑Bone IK wurde nicht angelegt (unerwarteter Zustand).";
@@ -312,16 +312,16 @@ function addTwoBoneIkFromSelectedTip() {
 
   // Prevent snap: disable → seed target to current pose tip → add control with pole → enable.
   store.dispatch({ type: "setIkChainEnabled", chainId: created.id, enabled: false });
-  const tipPt = worldPoseBoneTips(project.value, currentTime.value).get(tipId);
+  const tipPt = worldPoseBoneTips(rigEditProject.value, currentTime.value).get(tipId);
   if (tipPt) {
     store.dispatch({ type: "setIkChainTarget", chainId: created.id, targetX: tipPt.x, targetY: tipPt.y });
   }
 
   // Create a control so we can seed a pole (stable knee direction).
   store.dispatch({ type: "ensureIkTargetControl", chainId: created.id });
-  const ctl = project.value.rig?.controls?.ikTargets2d?.find((c) => c.chainId === created.id) ?? null;
+  const ctl = rigEditProject.value.rig?.controls?.ikTargets2d?.find((c) => c.chainId === created.id) ?? null;
   if (ctl) {
-    const origins = worldPoseOrigins(project.value, currentTime.value);
+    const origins = worldPoseOrigins(rigEditProject.value, currentTime.value);
     const rootO = origins.get(created.rootBoneId);
     const midO = origins.get(created.midBoneId);
     // Default pole: push "forward" from the mid joint perpendicular to the root→tip direction.
@@ -396,8 +396,8 @@ function addTwoBoneIkFromSelectedTip() {
     <div class="insp-body">
       <section v-show="inspectorTab === 'project'" class="insp-section">
         <h3 class="panel-title">Projekt</h3>
-        <label class="lbl">Name <input class="inp" :value="project.meta.name" @change="patchMeta" /></label>
-        <label class="lbl">FPS <input class="inp sm" type="number" min="1" :value="project.meta.fps" @change="patchFps" /></label>
+        <label class="lbl">Name <input class="inp" :value="rigEditProject.meta.name" @change="patchMeta" /></label>
+        <label class="lbl">FPS <input class="inp sm" type="number" min="1" :value="rigEditProject.meta.fps" @change="patchFps" /></label>
       </section>
 
       <section v-show="inspectorTab === 'bone'" class="insp-section">
@@ -565,7 +565,7 @@ function addTwoBoneIkFromSelectedTip() {
       </section>
 
       <section v-show="inspectorTab === 'mesh'" class="insp-section">
-    <template v-if="project.skinnedMeshes?.length">
+    <template v-if="rigEditProject.skinnedMeshes?.length">
       <h3 class="panel-title">Pinsel</h3>
       <label class="rowchk">
         <input v-model="weightBrushEnabled" type="checkbox" />
@@ -592,7 +592,7 @@ function addTwoBoneIkFromSelectedTip() {
           <button type="button" class="mini" title="Gewichte so skalieren, dass die Summe 1 ist" @click="normalizeWeights">Normalisieren</button>
           <button type="button" class="mini" title="100% auf den aktuell gewählten Knochen (Hierarchy)" @click="fullWeightToSelectedBone">100% Knochen</button>
         </div>
-        <div v-for="b in project.bones" :key="b.id" class="wrow">
+        <div v-for="b in rigEditProject.bones" :key="b.id" class="wrow">
           <label class="wlbl">{{ b.name }}</label>
           <input
             class="inp wnum"

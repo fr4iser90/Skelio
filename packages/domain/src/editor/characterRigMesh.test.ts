@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CharacterRigConfig, EditorProject } from "./types.js";
 import { createDefaultEditorProject } from "./projectFactory.js";
 import {
   characterRigBindingsComplete,
@@ -8,10 +9,26 @@ import {
   skinnedMeshesFromCharacterRig,
 } from "./characterRigMesh.js";
 
+function setPrimaryCharacterRig(p: EditorProject, rig: CharacterRigConfig): void {
+  const id = p.characters?.[0]?.id;
+  if (id && p.characterRigs) {
+    p.characterRigs[id] = rig;
+    delete p.characterRig;
+  } else {
+    p.characterRig = rig;
+  }
+}
+
+function primaryRig(p: EditorProject): CharacterRigConfig {
+  const id = p.characters?.[0]?.id;
+  if (id && p.characterRigs?.[id]) return p.characterRigs[id]!;
+  return p.characterRig!;
+}
+
 describe("characterRigBindingsComplete", () => {
   it("is false when a pixel slice has no binding", () => {
     const p = createDefaultEditorProject();
-    p.characterRig = {
+    setPrimaryCharacterRig(p, {
       spriteSheets: [],
       slices: [
         {
@@ -37,21 +54,21 @@ describe("characterRigBindingsComplete", () => {
       ],
       bindings: [],
       sliceDepths: [],
-    };
+    });
     expect(characterRigBindingsComplete(p)).toBe(false);
     const root = p.bones[0]!.id;
-    p.characterRig!.bindings = [{ sliceId: "a", boneId: root }];
+    primaryRig(p).bindings = [{ sliceId: "a", boneId: root }];
     expect(characterRigBindingsComplete(p)).toBe(false);
-    p.characterRig!.bindings = [
+    primaryRig(p).bindings = [
       { sliceId: "a", boneId: root },
       { sliceId: "b", boneId: root },
     ];
     expect(characterRigBindingsComplete(p)).toBe(true);
   });
 
-  it("ignores empty slots and is false when there are no pixel slices", () => {
+  it("ignores empty slots: no pixel-sized parts means nothing left to bind", () => {
     const p = createDefaultEditorProject();
-    p.characterRig = {
+    setPrimaryCharacterRig(p, {
       spriteSheets: [],
       slices: [
         {
@@ -67,8 +84,8 @@ describe("characterRigBindingsComplete", () => {
       ],
       bindings: [],
       sliceDepths: [],
-    };
-    expect(characterRigBindingsComplete(p)).toBe(false);
+    });
+    expect(characterRigBindingsComplete(p)).toBe(true);
   });
 });
 
@@ -76,7 +93,7 @@ describe("skinnedMeshesFromCharacterRig", () => {
   it("builds a subdivided flat mesh for a bound slice with size", () => {
     let p = createDefaultEditorProject();
     const root = p.bones.find((b) => b.parentId === null)!;
-    p.characterRig = {
+    setPrimaryCharacterRig(p, {
       spriteSheets: [],
       slices: [
         {
@@ -92,7 +109,7 @@ describe("skinnedMeshesFromCharacterRig", () => {
       ],
       bindings: [{ sliceId: "slice_a", boneId: root.id }],
       sliceDepths: [],
-    };
+    });
     const meshes = skinnedMeshesFromCharacterRig(p);
     expect(meshes).toHaveLength(1);
     const m = meshes[0]!;
@@ -109,7 +126,7 @@ describe("skinnedMeshesFromCharacterRig", () => {
 
   it("skips unbound slices and empty slots", () => {
     let p = createDefaultEditorProject();
-    p.characterRig = {
+    setPrimaryCharacterRig(p, {
       spriteSheets: [],
       slices: [
         {
@@ -135,14 +152,14 @@ describe("skinnedMeshesFromCharacterRig", () => {
       ],
       bindings: [],
       sliceDepths: [],
-    };
+    });
     expect(skinnedMeshesFromCharacterRig(p)).toHaveLength(0);
   });
 
   it("adds subdivided front+back vertices when depth is set", () => {
     let p = createDefaultEditorProject();
     const root = p.bones.find((b) => b.parentId === null)!;
-    p.characterRig = {
+    setPrimaryCharacterRig(p, {
       spriteSheets: [],
       slices: [
         {
@@ -160,7 +177,7 @@ describe("skinnedMeshesFromCharacterRig", () => {
       sliceDepths: [
         { sliceId: "s1", maxDepthFront: 4, maxDepthBack: 2, syncBackWithFront: false },
       ],
-    };
+    });
     const m = skinnedMeshesFromCharacterRig(p)[0]!;
     expect(m.vertices.length).toBeGreaterThan(8);
     expect(m.indices.length).toBeGreaterThan(12);
@@ -208,12 +225,12 @@ describe("resolveCharacterRigSliceBoundBoneId", () => {
   it("returns bone id when binding is valid", () => {
     const p = createDefaultEditorProject();
     const root = p.bones[0]!.id;
-    p.characterRig = {
+    setPrimaryCharacterRig(p, {
       spriteSheets: [],
       slices: [{ id: "s1", name: "A", x: 0, y: 0, width: 10, height: 10, worldCx: 0, worldCy: 0 }],
       bindings: [{ sliceId: "s1", boneId: root }],
       sliceDepths: [],
-    };
+    });
     p.skinnedMeshes = skinnedMeshesFromCharacterRig(p);
     expect(resolveCharacterRigSliceBoundBoneId(p, "s1")).toBe(root);
   });
@@ -221,28 +238,28 @@ describe("resolveCharacterRigSliceBoundBoneId", () => {
   it("returns null when bindings are empty even if rig_slice mesh exists", () => {
     const p = createDefaultEditorProject();
     const root = p.bones[0]!.id;
-    p.characterRig = {
+    setPrimaryCharacterRig(p, {
       spriteSheets: [],
       slices: [{ id: "s1", name: "A", x: 0, y: 0, width: 10, height: 10, worldCx: 0, worldCy: 0 }],
       bindings: [{ sliceId: "s1", boneId: root }],
       sliceDepths: [],
-    };
+    });
     p.skinnedMeshes = skinnedMeshesFromCharacterRig(p);
-    p.characterRig!.bindings = [];
+    primaryRig(p).bindings = [];
     expect(resolveCharacterRigSliceBoundBoneId(p, "s1")).toBe(null);
   });
 
   it("returns null when binding references a deleted bone id", () => {
     const p = createDefaultEditorProject();
     const root = p.bones[0]!.id;
-    p.characterRig = {
+    setPrimaryCharacterRig(p, {
       spriteSheets: [],
       slices: [{ id: "s1", name: "A", x: 0, y: 0, width: 10, height: 10, worldCx: 0, worldCy: 0 }],
       bindings: [{ sliceId: "s1", boneId: root }],
       sliceDepths: [],
-    };
+    });
     p.skinnedMeshes = skinnedMeshesFromCharacterRig(p);
-    p.characterRig!.bindings = [{ sliceId: "s1", boneId: "deleted_bone" }];
+    primaryRig(p).bindings = [{ sliceId: "s1", boneId: "deleted_bone" }];
     expect(resolveCharacterRigSliceBoundBoneId(p, "s1")).toBe(null);
   });
 });

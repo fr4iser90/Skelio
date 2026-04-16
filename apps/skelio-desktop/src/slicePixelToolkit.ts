@@ -1,6 +1,7 @@
 /**
  * Browser-only helpers for Character Setup wizard sprite editing.
  */
+import { findSliceInCharacterRigs } from "@skelio/domain";
 import type { CharacterRigSliceEmbeddedImage, EditorProject } from "@skelio/domain";
 
 function dataUrlToEmbedded(mime: string, dataUrl: string, w: number, h: number): CharacterRigSliceEmbeddedImage {
@@ -14,9 +15,10 @@ export async function rasterizeSliceToImageData(
   project: EditorProject,
   sliceId: string,
 ): Promise<{ w: number; h: number; data: ImageData } | null> {
-  const rig = project.characterRig;
-  const s = rig?.slices?.find((x) => x.id === sliceId);
-  if (!s || s.width <= 0 || s.height <= 0) return null;
+  const found = findSliceInCharacterRigs(project, sliceId);
+  const rig = found?.rig;
+  const s = found?.slice;
+  if (!rig || !s || s.width <= 0 || s.height <= 0) return null;
 
   if (s.embedded?.dataBase64 && s.embedded.mimeType) {
     const img = await loadImage(`data:${s.embedded.mimeType};base64,${s.embedded.dataBase64}`);
@@ -139,8 +141,8 @@ export async function rasterizeSliceBackToImageData(
   project: EditorProject,
   sliceId: string,
 ): Promise<{ w: number; h: number; data: ImageData } | null> {
-  const rig = project.characterRig;
-  const s = rig?.slices?.find((x) => x.id === sliceId);
+  const found = findSliceInCharacterRigs(project, sliceId);
+  const s = found?.slice;
   if (!s || s.width <= 0 || s.height <= 0) return null;
   if (!s.embeddedBack?.dataBase64 || !s.embeddedBack.mimeType) return null;
   const img = await loadImage(`data:${s.embeddedBack.mimeType};base64,${s.embeddedBack.dataBase64}`);

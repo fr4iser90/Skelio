@@ -236,6 +236,14 @@ export type CharacterRigSliceDepth = {
  * Character builder: sprite sheets (assets) + part slots + bindings + optional depth.
  * Legacy `spriteSheet` is migrated to `spriteSheets` in normalizeEditorProjectInPlace.
  */
+/** One playable character: a skeleton root plus its sprite/rig data in `characterRigs[id]`. */
+export type CharacterSlot = {
+  id: string;
+  name: string;
+  /** Root bone of this character’s skeleton (a tree in `bones`; multiple roots = multiple characters). */
+  rootBoneId: string;
+};
+
 export type CharacterRigConfig = {
   /** @deprecated Use `spriteSheets`; removed after migrate. */
   spriteSheet?: {
@@ -287,6 +295,13 @@ export type EditorProject = {
   ikTwoBoneChains?: IkTwoBoneChain[];
   /** Editor-only rig graph / controls (not in runtime export). */
   rig?: EditorRig;
-  /** Optional Character rig (sheet, slices, bindings). */
+  /**
+   * Optional Character rig (sheet, slices, bindings).
+   * @deprecated Prefer `characterRigs`; removed after `normalizeEditorProjectInPlace`.
+   */
   characterRig?: CharacterRigConfig;
+  /** Named character slots (multi-character projects). */
+  characters?: CharacterSlot[];
+  /** Per-character rig config keyed by {@link CharacterSlot.id}. */
+  characterRigs?: Record<string, CharacterRigConfig>;
 };

@@ -6,7 +6,11 @@
  * Note: This is a preview renderer; interaction (dragging bones to write keys) stays in the canvas animator.
  */
 import {
+  allCharacterRigSlices,
   evaluatePose,
+  findCharacterRigBinding,
+  findSliceDepthEntry,
+  findSliceInCharacterRigs,
   resolveCharacterRigSliceBoundBoneId,
   rigidCharacterRigSliceWorldPose,
   transformPointMat4,
@@ -242,7 +246,7 @@ function applyRigCameraMode(kind: RigCameraViewKind) {
 }
 
 function depthForSlice(sliceId: string): { df: number; db: number } {
-  const d = project.value.characterRig?.sliceDepths?.find((x) => x.sliceId === sliceId);
+  const d = findSliceDepthEntry(project.value, sliceId);
   const df = Math.max(0, d?.maxDepthFront ?? 0);
   const dbRaw = d?.syncBackWithFront ? df : Math.max(0, d?.maxDepthBack ?? 0);
   const db = d?.syncBackWithFront ? df : dbRaw;
@@ -251,23 +255,28 @@ function depthForSlice(sliceId: string): { df: number; db: number } {
 
 function rebuildSliceMeshes() {
   clearGroup(sliceGroup);
-  const rig = project.value.characterRig;
-  if (!rig?.slices?.length) return;
+  const slices = allCharacterRigSlices(project.value);
+  if (!slices.length) return;
 
   const poseEval = solvedPose.value;
   const poseM4 = poseEval.solvedWorld4ByBoneId;
 
   const activeSliceId = selectedCharacterRigSliceId.value;
-  for (const s of rig.slices) {
+  for (const s of slices) {
     if (s.width <= 0 || s.height <= 0) continue;
+    const found = findSliceInCharacterRigs(project.value, s.id);
+    const rig = found?.rig;
+    if (!rig) continue;
     const bid = resolveCharacterRigSliceBoundBoneId(project.value, s.id);
-    const binding = bid ? project.value.characterRig?.bindings?.find((b) => b.sliceId === s.id && b.boneId === bid) ?? null : null;
+    const binding = bid ? findCharacterRigBinding(project.value, s.id) ?? null : null;
+    const bindBoneOpts = rigCameraViewKind.value === "2d" ? ({ planar2dNoTiltSpin: true } as const) : undefined;
     const rigid = bid
       ? rigidCharacterRigSliceWorldPose(project.value, bid, s.worldCx, s.worldCy, poseM4, {
           localX: binding?.localX,
           localY: binding?.localY,
           localZ: binding?.localZ,
           rotOffset: binding?.rotOffset,
+          bindBoneOpts,
         })
       : null;
     const px = rigid?.cx ?? s.worldCx;

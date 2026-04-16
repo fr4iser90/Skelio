@@ -1,11 +1,14 @@
-import { applyCommand, type Command } from "@skelio/application";
+import { applyCommand, commandUsesActiveCharacter, type Command } from "@skelio/application";
 import {
   characterRigBindingsComplete,
+  characterRigBindingsCompleteStrict,
   createDefaultEditorProject,
   dehydrateEditorProjectForFolder,
   editorProjectToRuntime,
+  getCharacterRig,
   hydrateEditorProjectFromFolder,
   normalizeEditorProjectInPlace,
+  resolveDefaultCharacterId,
   stripMeshAssetPaths,
   validateEditorProject,
   type EditorProject,
@@ -23,11 +26,12 @@ import {
 } from "../tauriProjectFs.js";
 
 const MAX_UNDO = 80;
+const MAX_SETUP_UNDO = 80;
 
-/** Character-Rig-Viewport: 2D flach vs. leichte Y-Stauchung (kein echtes 3D). */
+/** Rig viewport camera: flat 2D vs mild Y squash (not true 3D). */
 export type RigCameraViewKind = "2d" | "2.5d" | "3d";
 
-/** Toolbar-Zeile 2: Animate / Rig / Export (alle Aktionen bleiben erreichbar). */
+/** Toolbar row 2: Animate / Rig / Export. */
 export type WorkspaceMode = "animate" | "rig" | "export";
 
 export const useEditorStore = defineStore("editor", () => {
@@ -49,55 +53,114 @@ export const useEditorStore = defineStore("editor", () => {
   const weightBrushStrength = ref(0.06);
   const weightBrushSubtract = ref(false);
 
-  /** Character Setup: geführter Wizard (Viewport + Schritte + Sprite-Import), kein Alltags-Animator. */
+  /** Character Setup modal (guided wizard); not the day-to-day animator UI. */
   const characterRigModalOpen = ref(false);
+  /**
+   * Full project clone while the wizard is open. Edits apply here until **Done** merges into `project`.
+   * Animate / timeline read the committed `project` only until then.
+   */
+  const characterRigDraftProject = ref<EditorProject | null>(null);
+  const characterRigDraftPast = ref<EditorProject[]>([]);
+  const characterRigDraftFuture = ref<EditorProject[]>([]);
 
-  /** Hauptfenster: Bind-Pose / Knochen-Struktur wie Wizard-Schritt „Bones“, ohne Assistenten. */
+  /** Main window bind-pose / skeleton editing like wizard “Bones” step, without the assistant. */
   const quickRigMode = ref(false);
 
   const workspaceMode = ref<WorkspaceMode>("animate");
 
-  /** Modal: Region aus Sprite-Sheet in gewählten Slot übernehmen. */
+  /** Modal: pick a region from a sprite sheet into the selected slot. */
   const sheetSliceModalOpen = ref(false);
   const sheetSliceModalSheetId = ref<string | null>(null);
 
-  /** Character-Setup-Assistent: aktiver Schritt (0–4), für Viewport-Logik im Wizard. */
+  /** Wizard step index (0–4); drives viewport behaviour in Character Setup. */
   const characterRigModalStep = ref(0);
-  /** Nächster Klick im Viewport setzt die Position dieses Knochens (BindPose). */
+  /** Next viewport click sets this bone’s bind-pose position. */
   const pendingBonePlacementId = ref<string | null>(null);
 
-  /** Neu angelegte Kind-Knochen: Bind X/Y an Parent-Spitze (wenn Parent `length` > 0), sonst klassisch (40,0). */
+  /** New child bones: place bind X/Y at parent tip when parent length is positive, else default offset. */
   const placeNewBonesAtParentTip = ref(false);
 
-  /** Animator-Canvas: deformierte `rig_slice_*`-Dreiecke (Skinning) einblenden (2D-Canvas). */
+  /** 2D animator canvas: show deformed `rig_slice_*` skinned triangles. */
   const animatorRigMeshDeformOverlay = ref(true);
 
   /**
-   * Character-Rig-Slices im 2D-Animator als **texturierte** skinned Meshes zeichnen (Deformation wie Spine),
-   * statt nur starrer Rechtecke — wenn `rig_slice_*`-Mesh existiert.
+   * Draw character-rig slices in the 2D animator as textured skinned meshes (Spine-like deformation)
+   * when a `rig_slice_*` mesh exists, instead of only rigid quads.
    */
   const animatorDeformMeshDraw = ref(true);
 
-  /** Nur im Character-Setup-Wizard: Kamera-Modus (2D = Ortho; 2.5D/3D = Perspektive). Beim Schließen → 2D. */
+  /** Character Setup only: rig viewport camera (2D ortho vs 2.5D/3D perspective). Reset to 2D when modal closes. */
   const rigCameraViewKind = ref<RigCameraViewKind>("2d");
-  /** Keine Welt-Y-Stauchung mehr (echtes 2.5D/3D über Kamera/Perspektive). */
+  /** World Y squash factor (legacy pseudo-depth); 1 = none. */
   const rigCameraWorldYScale = computed(() => 1);
 
-  /** Viewport: ausgewählter Character-Rig-Slice (pixelgenau verschieben). */
+  /** Selected character-rig sprite slice (for pixel-accurate drag). */
   const selectedCharacterRigSliceId = ref<string | null>(null);
 
+  /** Which character slot Character Setup / rig tools edit (`characterRigs[id]`). */
+  const activeCharacterId = ref<string | null>(null);
+
+  function syncActiveCharacterIdFromProject(p: EditorProject) {
+    const ids = p.characters?.map((c) => c.id) ?? [];
+    if (ids.length === 0) {
+      activeCharacterId.value = null;
+      return;
+    }
+    if (!activeCharacterId.value || !ids.includes(activeCharacterId.value)) {
+      activeCharacterId.value = ids[0]!;
+    }
+  }
+
+  const activeCharacterRig = computed(() => {
+    const p = characterRigDraftProject.value ?? project.value;
+    const id = activeCharacterId.value ?? resolveDefaultCharacterId(p);
+    return id ? getCharacterRig(p, id) : undefined;
+  });
+
+  /** Bones / rig / meshes: draft while Character Setup is open, else committed `project`. */
+  const rigEditProject = computed(() => characterRigDraftProject.value ?? project.value);
+
+  const rigCharacterSlots = computed(() => rigEditProject.value.characters ?? []);
+
   const selectedBone = computed(() =>
-    project.value.bones.find((b) => b.id === selectedBoneId.value) ?? null,
+    rigEditProject.value.bones.find((b) => b.id === selectedBoneId.value) ?? null,
   );
 
   function ensureSelection() {
-    if (!selectedBoneId.value || !project.value.bones.some((b) => b.id === selectedBoneId.value)) {
-      selectedBoneId.value = project.value.bones[0]?.id ?? null;
+    const p = rigEditProject.value;
+    if (!selectedBoneId.value || !p.bones.some((b) => b.id === selectedBoneId.value)) {
+      selectedBoneId.value = p.bones[0]?.id ?? null;
+    }
+  }
+
+  function augmentCommand(cmd: Command): Command {
+    if (commandUsesActiveCharacter(cmd) && activeCharacterId.value) {
+      return { ...cmd, characterId: activeCharacterId.value };
+    }
+    return cmd;
+  }
+
+  function afterProjectCommit(next: EditorProject, applied: Command) {
+    if (applied.type === "addCharacter") {
+      const chars = next.characters;
+      const last = chars?.length ? chars[chars.length - 1] : undefined;
+      if (last) activeCharacterId.value = last.id;
+    } else {
+      syncActiveCharacterIdFromProject(next);
+    }
+  }
+
+  function setActiveCharacterId(id: string | null) {
+    const p = characterRigDraftProject.value ?? project.value;
+    if (id && p.characters?.some((c) => c.id === id)) {
+      activeCharacterId.value = id;
+    } else {
+      syncActiveCharacterIdFromProject(p);
     }
   }
 
   function ensureMeshVertexSelection() {
-    const meshes = project.value.skinnedMeshes ?? [];
+    const meshes = rigEditProject.value.skinnedMeshes ?? [];
     if (!selectedMeshId.value || !meshes.some((m) => m.id === selectedMeshId.value)) {
       selectedMeshId.value = null;
       selectedVertexIndex.value = null;
@@ -111,6 +174,73 @@ export const useEditorStore = defineStore("editor", () => {
     ) {
       selectedVertexIndex.value = null;
     }
+  }
+
+  function cloneDraftPlain(): EditorProject {
+    return structuredClone(toRaw(characterRigDraftProject.value!));
+  }
+
+  function mergeCharacterRigMeshesForDraft(): void {
+    const raw = toRaw(characterRigDraftProject.value!);
+    if (!characterRigBindingsComplete(raw)) return;
+    const synced = applyCommand(raw, { type: "syncCharacterRigSkinnedMeshes" });
+    if (synced !== raw) {
+      characterRigDraftProject.value = synced;
+    }
+  }
+
+  function dispatchToDraft(cmd: Command): boolean {
+    const cur = toRaw(characterRigDraftProject.value!);
+    const toApply = augmentCommand(cmd);
+    const next = applyCommand(cur, toApply);
+    if (next === cur) return false;
+    const issues = validateEditorProject(next);
+    if (issues.length > 0) {
+      console.warn("Skelio: command rejected (Character Setup draft)", issues);
+      return false;
+    }
+    characterRigDraftPast.value.push(structuredClone(cur));
+    if (characterRigDraftPast.value.length > MAX_SETUP_UNDO) characterRigDraftPast.value.shift();
+    characterRigDraftFuture.value = [];
+    characterRigDraftProject.value = next;
+    afterProjectCommit(next, toApply);
+    ensureSelection();
+    ensureMeshVertexSelection();
+    mergeCharacterRigMeshesForDraft();
+    return true;
+  }
+
+  function draftUndo() {
+    const prev = characterRigDraftPast.value.pop();
+    if (!prev || !characterRigDraftProject.value) return;
+    characterRigDraftFuture.value.push(cloneDraftPlain());
+    characterRigDraftProject.value = prev;
+    syncActiveCharacterIdFromProject(prev);
+    ensureSelection();
+    ensureMeshVertexSelection();
+  }
+
+  function draftRedo() {
+    const nxt = characterRigDraftFuture.value.pop();
+    if (!nxt || !characterRigDraftProject.value) return;
+    characterRigDraftPast.value.push(cloneDraftPlain());
+    characterRigDraftProject.value = nxt;
+    syncActiveCharacterIdFromProject(nxt);
+    ensureSelection();
+    ensureMeshVertexSelection();
+  }
+
+  /** JSON / folder save: wizard draft if open, else committed project (with mesh sync where applicable). */
+  function activeProjectForPersistence(): EditorProject {
+    if (characterRigDraftProject.value) {
+      let p = structuredClone(toRaw(characterRigDraftProject.value));
+      if (characterRigBindingsComplete(p)) {
+        p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
+      }
+      return p;
+    }
+    mergeCharacterRigMeshesForPersist();
+    return toRaw(project.value);
   }
 
   function selectMeshVertex(meshId: string, vertexIndex: number) {
@@ -134,8 +264,8 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   /**
-   * `rig_slice_*`-Meshes aus dem Character-Rig erzeugen/aktualisieren, sobald jedes Slice mit Pixeln an einen
-   * Knochen gebunden ist. Kein Undo-Eintrag (Side-Effect nach Commands / Laden / Speichern).
+   * Generate/update `rig_slice_*` meshes from the character rig once every slice with pixels is bound.
+   * Not an undo step (side effect after commands / load / save).
    */
   function mergeCharacterRigMeshesForPersist(): void {
     const raw = toRaw(project.value);
@@ -148,8 +278,12 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function dispatch(cmd: Command): boolean {
+    if (characterRigDraftProject.value !== null) {
+      return dispatchToDraft(cmd);
+    }
     const cur = toRaw(project.value);
-    const next = applyCommand(cur, cmd);
+    const toApply = augmentCommand(cmd);
+    const next = applyCommand(cur, toApply);
     // If the command produced no changes, do not create an undo step and report failure.
     if (next === cur) return false;
     const issues = validateEditorProject(next);
@@ -161,6 +295,7 @@ export const useEditorStore = defineStore("editor", () => {
     if (past.value.length > MAX_UNDO) past.value.shift();
     future.value = [];
     project.value = next;
+    afterProjectCommit(next, toApply);
     ensureSelection();
     ensureMeshVertexSelection();
     mergeCharacterRigMeshesForPersist();
@@ -168,20 +303,30 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function undo() {
+    if (characterRigDraftProject.value !== null) {
+      draftUndo();
+      return;
+    }
     const prev = past.value.pop();
     if (!prev) return;
     future.value.push(cloneProjectPlain());
     project.value = prev;
+    syncActiveCharacterIdFromProject(prev);
     ensureSelection();
     ensureMeshVertexSelection();
     mergeCharacterRigMeshesForPersist();
   }
 
   function redo() {
+    if (characterRigDraftProject.value !== null) {
+      draftRedo();
+      return;
+    }
     const nxt = future.value.pop();
     if (!nxt) return;
     past.value.push(cloneProjectPlain());
     project.value = nxt;
+    syncActiveCharacterIdFromProject(nxt);
     ensureSelection();
     ensureMeshVertexSelection();
     mergeCharacterRigMeshesForPersist();
@@ -191,6 +336,7 @@ export const useEditorStore = defineStore("editor", () => {
     past.value = [];
     future.value = [];
     project.value = createDefaultEditorProject();
+    syncActiveCharacterIdFromProject(project.value);
     currentTime.value = 0;
     playing.value = false;
     selectedBoneId.value = project.value.bones[0]!.id;
@@ -200,6 +346,9 @@ export const useEditorStore = defineStore("editor", () => {
     weightBrushEnabled.value = false;
     placeNewBonesAtParentTip.value = true;
     projectRootPath.value = null;
+    characterRigDraftProject.value = null;
+    characterRigDraftPast.value = [];
+    characterRigDraftFuture.value = [];
   }
 
   function loadProjectData(data: EditorProject, folderRoot: string | null) {
@@ -209,9 +358,13 @@ export const useEditorStore = defineStore("editor", () => {
     past.value = [];
     future.value = [];
     project.value = data;
+    syncActiveCharacterIdFromProject(data);
     currentTime.value = 0;
     playing.value = false;
     projectRootPath.value = folderRoot;
+    characterRigDraftProject.value = null;
+    characterRigDraftPast.value = [];
+    characterRigDraftFuture.value = [];
     ensureSelection();
     ensureMeshVertexSelection();
     mergeCharacterRigMeshesForPersist();
@@ -222,10 +375,10 @@ export const useEditorStore = defineStore("editor", () => {
     loadProjectData(data, null);
   }
 
-  /** Projektordner (absoluter Pfad) und `project.skelio.json` laden — nur Tauri. */
+  /** Load project folder (absolute path) and `project.skelio.json` — desktop (Tauri) only. */
   async function openProjectFolder(): Promise<void> {
     if (!isTauriApp()) {
-      throw new Error("Ordnerprojekt nur in der Desktop-App (Tauri).");
+      throw new Error("Folder projects are only supported in the desktop app (Tauri).");
     }
     const root = await pickProjectRootFolder(projectRootPath.value);
     if (!root) return;
@@ -235,10 +388,10 @@ export const useEditorStore = defineStore("editor", () => {
     loadProjectData(data, root);
   }
 
-  /** Aktuelles Projekt speichern; ohne bekannten Pfad → Pfad abfragen. */
+  /** Save current project to its folder; prompt for folder if none is set. */
   async function saveProjectToFolder(): Promise<void> {
     if (!isTauriApp()) {
-      throw new Error("Ordnerprojekt nur in der Desktop-App (Tauri).");
+      throw new Error("Folder projects are only supported in the desktop app (Tauri).");
     }
     let root = projectRootPath.value;
     if (!root) {
@@ -249,10 +402,10 @@ export const useEditorStore = defineStore("editor", () => {
     await persistProjectToFolder(root);
   }
 
-  /** Anderen Ordnerpfad wählen und speichern. */
+  /** Pick a different folder path and save there. */
   async function saveProjectToFolderAs(): Promise<void> {
     if (!isTauriApp()) {
-      throw new Error("Ordnerprojekt nur in der Desktop-App (Tauri).");
+      throw new Error("Folder projects are only supported in the desktop app (Tauri).");
     }
     const root = await pickProjectRootFolder(projectRootPath.value);
     if (!root) return;
@@ -262,10 +415,10 @@ export const useEditorStore = defineStore("editor", () => {
 
   /** Manifest + `assets/meshes/*.skelio-mesh.json` (Tauri). */
   async function persistProjectToFolder(root: string): Promise<void> {
-    mergeCharacterRigMeshesForPersist();
-    const issues = validateEditorProject(project.value);
+    const persist = activeProjectForPersistence();
+    const issues = validateEditorProject(persist);
     if (issues.length) throw new Error(issues.map((i) => i.message).join("; "));
-    const { manifest, meshAssetFiles } = dehydrateEditorProjectForFolder(toRaw(project.value));
+    const { manifest, meshAssetFiles } = dehydrateEditorProjectForFolder(persist);
     for (const f of meshAssetFiles) {
       await writeProjectSubpath(root, f.relativePath, f.content);
     }
@@ -273,17 +426,59 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function saveEditorJson(): string {
-    mergeCharacterRigMeshesForPersist();
-    return JSON.stringify(stripMeshAssetPaths(toRaw(project.value)), null, 2);
+    const persist = activeProjectForPersistence();
+    return JSON.stringify(stripMeshAssetPaths(persist), null, 2);
   }
 
   function saveRuntimeJson(): string {
+    const persist = activeProjectForPersistence();
+    return JSON.stringify(editorProjectToRuntime(persist), null, 2);
+  }
+
+  function cleanupCharacterRigModalUi() {
+    characterRigModalOpen.value = false;
+    sheetSliceModalOpen.value = false;
+    sheetSliceModalSheetId.value = null;
+    characterRigModalStep.value = 0;
+    pendingBonePlacementId.value = null;
+    rigCameraViewKind.value = "2d";
+  }
+
+  /** Close wizard without merging into Animate (× / Esc / switch workspace to Animate). */
+  function discardCharacterRigModal() {
+    characterRigDraftProject.value = null;
+    characterRigDraftPast.value = [];
+    characterRigDraftFuture.value = [];
+    cleanupCharacterRigModalUi();
+    syncActiveCharacterIdFromProject(project.value);
+  }
+
+  /** Merge draft into committed `project` after successful wizard **Done**. */
+  function applyCharacterRigModal() {
+    const draft = characterRigDraftProject.value;
+    if (!draft) {
+      cleanupCharacterRigModalUi();
+      return;
+    }
+    past.value.push(cloneProjectPlain());
+    future.value = [];
+    project.value = structuredClone(toRaw(draft));
+    syncActiveCharacterIdFromProject(project.value);
+    characterRigDraftProject.value = null;
+    characterRigDraftPast.value = [];
+    characterRigDraftFuture.value = [];
+    cleanupCharacterRigModalUi();
+    ensureSelection();
+    ensureMeshVertexSelection();
     mergeCharacterRigMeshesForPersist();
-    return JSON.stringify(editorProjectToRuntime(toRaw(project.value)), null, 2);
   }
 
   function openCharacterRigModal() {
     quickRigMode.value = false;
+    characterRigDraftProject.value = cloneProjectPlain();
+    syncActiveCharacterIdFromProject(characterRigDraftProject.value);
+    characterRigDraftPast.value = [];
+    characterRigDraftFuture.value = [];
     characterRigModalOpen.value = true;
   }
 
@@ -291,13 +486,9 @@ export const useEditorStore = defineStore("editor", () => {
     quickRigMode.value = on;
   }
 
+  /** @deprecated Prefer `discardCharacterRigModal` or `applyCharacterRigModal`. */
   function closeCharacterRigModal() {
-    characterRigModalOpen.value = false;
-    sheetSliceModalOpen.value = false;
-    sheetSliceModalSheetId.value = null;
-    characterRigModalStep.value = 0;
-    pendingBonePlacementId.value = null;
-    rigCameraViewKind.value = "2d";
+    discardCharacterRigModal();
   }
 
   function setRigCameraViewKind(kind: RigCameraViewKind) {
@@ -319,7 +510,7 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function selectBone(boneId: string) {
-    if (!project.value.bones.some((b) => b.id === boneId)) return;
+    if (!rigEditProject.value.bones.some((b) => b.id === boneId)) return;
     selectedBoneId.value = boneId;
   }
 
@@ -349,14 +540,23 @@ export const useEditorStore = defineStore("editor", () => {
     if (m === "animate") {
       quickRigMode.value = false;
       if (characterRigModalOpen.value) {
-        closeCharacterRigModal();
+        discardCharacterRigModal();
       }
     }
     workspaceMode.value = m;
   }
 
+  syncActiveCharacterIdFromProject(project.value);
+
   return {
     project,
+    /** Bones / rig / meshes: wizard draft while Character Setup is open, else `project`. */
+    rigEditProject,
+    activeCharacterId,
+    activeCharacterRig,
+    rigCharacterSlots,
+    setActiveCharacterId,
+    characterRigBindingsCompleteStrict,
     projectRootPath,
     past,
     future,
@@ -386,6 +586,8 @@ export const useEditorStore = defineStore("editor", () => {
     saveRuntimeJson,
     characterRigModalOpen,
     openCharacterRigModal,
+    discardCharacterRigModal,
+    applyCharacterRigModal,
     closeCharacterRigModal,
     quickRigMode,
     setQuickRigMode,
@@ -412,7 +614,7 @@ export const useEditorStore = defineStore("editor", () => {
     rigCameraWorldYScale,
     setRigCameraViewKind,
     ensureSelection,
-    /** Manifest-Dateiname (für UI). */
+    /** Manifest file name (UI label). */
     projectManifestFileName: PROJECT_MANIFEST_FILE,
   };
 });

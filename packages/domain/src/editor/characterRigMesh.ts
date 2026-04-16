@@ -1,6 +1,13 @@
-import type { CharacterRigBinding, CharacterRigSpriteSlice, EditorProject, SkinnedMesh } from "./types.js";
+import type { CharacterRigBinding, CharacterRigConfig, CharacterRigSpriteSlice, EditorProject, SkinnedMesh } from "./types.js";
 import { mat4Invert, transformPointMat4 } from "./mat4.js";
 import { worldBindBoneMatrices4 } from "./bone3dPose.js";
+import {
+  bindingsCompleteLenientForRig,
+  bindingsCompleteStrictForRig,
+  getCharacterRig,
+  iterCharacterRigs,
+  resolveDefaultCharacterId,
+} from "./characterSlots.js";
 
 /** Stable id for meshes generated from Character Rig slices (`syncCharacterRigSkinnedMeshes`). */
 export const RIG_SLICE_MESH_ID_PREFIX = "rig_slice_";
@@ -9,32 +16,34 @@ export function rigSliceSkinnedMeshId(sliceId: string): string {
   return `${RIG_SLICE_MESH_ID_PREFIX}${sliceId}`;
 }
 
-/** Bound bone for a slice: only a valid `characterRig.bindings` row (no mesh inference). */
+/** Bound bone for a slice: only a valid `bindings` row on any character rig (no mesh inference). */
 export function resolveCharacterRigSliceBoundBoneId(project: EditorProject, sliceId: string): string | null {
   const boneIds = new Set(project.bones.map((b) => b.id));
-  const rig = project.characterRig;
-  const fromBinding = rig?.bindings?.find((b) => b.sliceId === sliceId)?.boneId;
-  if (fromBinding && boneIds.has(fromBinding)) return fromBinding;
+  for (const rig of iterCharacterRigs(project)) {
+    const fromBinding = rig.bindings?.find((b) => b.sliceId === sliceId)?.boneId;
+    if (fromBinding && boneIds.has(fromBinding)) return fromBinding;
+  }
   return null;
 }
 
 /**
- * True when every sprite slice that has pixels (w/h positive) has a binding to an existing bone.
- * Used to gate 3D / meshing.
+ * True when every character rig that has pixel slices has them fully bound (multi-rig safe).
+ * Used to gate automatic mesh sync / persistence.
  */
 export function characterRigBindingsComplete(project: EditorProject): boolean {
-  const rig = project.characterRig;
-  if (!rig?.slices?.length) return false;
-  const boneIds = new Set(project.bones.map((b) => b.id));
-  const bindingBySlice = new Map((rig.bindings ?? []).map((b) => [b.sliceId, b.boneId] as const));
-  let anyPixelSlice = false;
-  for (const s of rig.slices) {
-    if (s.width <= 0 || s.height <= 0) continue;
-    anyPixelSlice = true;
-    const bid = bindingBySlice.get(s.id);
-    if (!bid || !boneIds.has(bid)) return false;
+  for (const rig of iterCharacterRigs(project)) {
+    if (!bindingsCompleteLenientForRig(rig, project.bones)) return false;
   }
-  return anyPixelSlice;
+  return true;
+}
+
+/**
+ * Wizard-style completeness for one character: at least one pixel slice and every pixel slice bound.
+ */
+export function characterRigBindingsCompleteStrict(project: EditorProject, characterId?: string): boolean {
+  const rig = getCharacterRig(project, characterId ?? resolveDefaultCharacterId(project));
+  if (!rig) return false;
+  return bindingsCompleteStrictForRig(rig, project.bones);
 }
 
 function influenceRow(boneId: string): { boneId: string; weight: number }[] {
@@ -208,8 +217,7 @@ function buildSubdividedDepthSliceMesh2d(
  * Now with **directed edge extension**: mesh edges facing parent/child joints get larger
  * margins to close gaps at bends; other edges get minimal margin.
  */
-export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMesh[] {
-  const rig = project.characterRig;
+function skinnedMeshesFromOneRig(project: EditorProject, rig: CharacterRigConfig): SkinnedMesh[] {
   if (!rig?.slices?.length) return [];
 
   const bindingBySlice = new Map((rig.bindings ?? []).map((b) => [b.sliceId, b] as const));
@@ -262,6 +270,14 @@ export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMe
     out.push(mesh);
   }
 
+  return out;
+}
+
+export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMesh[] {
+  const out: SkinnedMesh[] = [];
+  for (const rig of iterCharacterRigs(project)) {
+    out.push(...skinnedMeshesFromOneRig(project, rig));
+  }
   return out;
 }
 

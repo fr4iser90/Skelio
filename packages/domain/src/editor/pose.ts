@@ -5,6 +5,7 @@ import {
   worldBindBoneMatrices4,
   mat4ToMat2dProjection,
   worldPoseBoneMatrices2D,
+  type GetLocalBoneStateOpts,
 } from "./bone3dPose.js";
 import { mat4Invert, transformPointMat4, type Mat4 } from "./mat4.js";
 import type { AnimationClip, Bone, EditorProject, Transform2D } from "./types.js";
@@ -174,13 +175,14 @@ export function localBindTranslationForWorldOrigin(
   boneId: string,
   worldX: number,
   worldY: number,
+  opts?: GetLocalBoneStateOpts,
 ): { x: number; y: number } | null {
   const bone = project.bones.find((b) => b.id === boneId);
   if (!bone) return null;
   if (bone.parentId === null) {
     return { x: worldX, y: worldY };
   }
-  const world = worldBindBoneMatrices(project);
+  const world = opts ? worldBindBoneMatrices2D(project, opts) : worldBindBoneMatrices(project);
   const parentWorld = world.get(bone.parentId);
   if (!parentWorld) return null;
   const invP = invert(parentWorld);
@@ -265,9 +267,16 @@ export function rigidCharacterRigSliceWorldPose(
   layoutWorldX: number,
   layoutWorldY: number,
   poseBoneM4: Map<string, Mat4>,
-  opts?: { localX?: number; localY?: number; localZ?: number; rotOffset?: number },
+  opts?: {
+    localX?: number;
+    localY?: number;
+    localZ?: number;
+    rotOffset?: number;
+    /** Must match how `poseBoneM4` was built (e.g. same `planar2dNoTiltSpin` as evaluatePose). */
+    bindBoneOpts?: GetLocalBoneStateOpts;
+  },
 ): { cx: number; cy: number; rot: number } | null {
-  const Wbind4 = worldBindBoneMatrices4(project).get(boneId);
+  const Wbind4 = worldBindBoneMatrices4(project, opts?.bindBoneOpts).get(boneId);
   if (!Wbind4) return null;
   const Wpose4 = poseBoneM4.get(boneId);
   if (!Wpose4) return null;

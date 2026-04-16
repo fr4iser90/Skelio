@@ -7,26 +7,26 @@ import { useEditorStore } from "../stores/editor.js";
 const emit = defineEmits<{ setPlaying: [v: boolean] }>();
 
 const store = useEditorStore();
-const { project, currentTime, playing, selectedBone } = storeToRefs(store);
+const { rigEditProject, currentTime, playing, selectedBone } = storeToRefs(store);
 
 const importClipInput = ref<HTMLInputElement | null>(null);
 
-const activeClip = computed(() => project.value.clips.find((c) => c.id === project.value.activeClipId));
+const activeClip = computed(() => rigEditProject.value.clips.find((c) => c.id === rigEditProject.value.activeClipId));
 
 const duration = computed(() => {
   const clip = activeClip.value;
   if (!clip) return 4;
-  return Math.max(1, clipDurationSeconds(clip, project.value.bones));
+  return Math.max(1, clipDurationSeconds(clip, rigEditProject.value.bones));
 });
 
-const canRemoveClip = computed(() => project.value.clips.length > 1);
+const canRemoveClip = computed(() => rigEditProject.value.clips.length > 1);
 
-const enabledIkChain = computed(() => (project.value.ikTwoBoneChains ?? []).find((c) => c.enabled) ?? null);
+const enabledIkChain = computed(() => (rigEditProject.value.ikTwoBoneChains ?? []).find((c) => c.enabled) ?? null);
 const canBakeIk = computed(() => !!enabledIkChain.value);
 const canAddIkControl = computed(() => {
   const ch = enabledIkChain.value;
   if (!ch) return false;
-  const existing = project.value.rig?.controls?.ikTargets2d?.some((c) => c.chainId === ch.id) ?? false;
+  const existing = rigEditProject.value.rig?.controls?.ikTargets2d?.some((c) => c.chainId === ch.id) ?? false;
   return !existing;
 });
 
@@ -42,7 +42,7 @@ function bakeIkToFk() {
   const clip = activeClip.value;
   if (!clip) return;
   const d = Math.max(0.001, duration.value);
-  const fps = Math.max(1, project.value.meta.fps || 60);
+  const fps = Math.max(1, rigEditProject.value.meta.fps || 60);
   const step = 1 / fps;
   const sampleTimes: number[] = [];
   for (let t = 0; t <= d + 1e-9; t += step) sampleTimes.push(Math.min(d, t));
@@ -59,7 +59,7 @@ function addKey(prop: "tx" | "ty" | "rot") {
 }
 
 function keysFor(prop: "tx" | "ty" | "rot") {
-  const clip = project.value.clips.find((c) => c.id === project.value.activeClipId);
+  const clip = rigEditProject.value.clips.find((c) => c.id === rigEditProject.value.activeClipId);
   if (!clip || !selectedBone.value) return [];
   const tr = clip.tracks.find((x) => x.boneId === selectedBone.value!.id);
   if (!tr) return [];
@@ -73,9 +73,9 @@ function onClipSelect(ev: Event) {
 }
 
 function newClip() {
-  const name = window.prompt("Name der neuen Animation:", `Clip ${project.value.clips.length + 1}`);
+  const name = window.prompt("Name der neuen Animation:", `Clip ${rigEditProject.value.clips.length + 1}`);
   if (name === null) return;
-  store.dispatch({ type: "addAnimationClip", name: name.trim() || `Clip ${project.value.clips.length + 1}` });
+  store.dispatch({ type: "addAnimationClip", name: name.trim() || `Clip ${rigEditProject.value.clips.length + 1}` });
 }
 
 function duplicateClip() {
@@ -201,8 +201,8 @@ function onImportClipFile(ev: Event) {
     <div class="tl-head">
       <div class="tl-clip">
         <span class="tl-label">Animation</span>
-        <select class="tl-clip-select" :value="project.activeClipId" @change="onClipSelect">
-          <option v-for="c in project.clips" :key="c.id" :value="c.id">{{ c.name }}</option>
+        <select class="tl-clip-select" :value="rigEditProject.activeClipId" @change="onClipSelect">
+          <option v-for="c in rigEditProject.clips" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
       </div>
       <div class="tl-clip-actions">
@@ -262,7 +262,7 @@ function onImportClipFile(ev: Event) {
       <span class="val">{{ currentTime.toFixed(2) }} / {{ duration.toFixed(2) }}</span>
     </div>
     <div class="tl-tracks" aria-label="Keyframes pro Knochen">
-      <div v-for="b in project.bones" :key="b.id" class="tl-track-row">
+      <div v-for="b in rigEditProject.bones" :key="b.id" class="tl-track-row">
         <span class="tl-bone-tag" :class="{ sel: selectedBone?.id === b.id }">{{ b.name }}</span>
         <div class="tl-rail" @click="scrubRail">
           <span class="tl-playhead" :style="{ left: keyPct(currentTime) }" />

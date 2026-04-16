@@ -1,5 +1,5 @@
 import { createId } from "./ids.js";
-import type { EditorProject } from "./types.js";
+import type { CharacterRigConfig, EditorProject } from "./types.js";
 
 /**
  * Legacy clips stored tx/ty/tz/rot/tilt/spin as **absolute** bind-local values; the editor now uses
@@ -49,38 +49,60 @@ function ensureBoneLengths(project: EditorProject): void {
   }
 }
 
-/** In-place fixups for older saved JSON (positions, legacy single sheet → spriteSheets). */
-export function normalizeEditorProjectInPlace(project: EditorProject): void {
-  ensureBoneLengths(project);
-  for (const b of project.bones) {
-    if (b.followParentTip != null && typeof b.followParentTip !== "boolean") {
-      delete b.followParentTip;
+function migrateCharacterSlots(project: EditorProject): void {
+  if (project.characters?.length) {
+    if (!project.characterRigs) project.characterRigs = {};
+    if (project.characterRig) {
+      const firstId = project.characters[0]!.id;
+      if (!project.characterRigs[firstId]) {
+        project.characterRigs[firstId] = project.characterRig;
+      }
+      delete project.characterRig;
     }
-    if (b.followParentTip && b.parentId === null) {
-      delete b.followParentTip;
-    }
-    if (b.bindBone3d) {
-      const d = b.bindBone3d;
-      const ok = (v: unknown) => typeof v === "number" && Number.isFinite(v);
-      if (!ok(d.z) || !ok(d.depthOffset) || !ok(d.tilt) || !ok(d.spin)) {
-        delete b.bindBone3d;
+    for (const c of project.characters) {
+      if (!project.characterRigs[c.id]) {
+        project.characterRigs[c.id] = {
+          spriteSheets: [],
+          slices: [],
+          bindings: [],
+          sliceDepths: [],
+        };
       }
     }
+    return;
   }
-  migrateClipTransformsToBindRelative(project);
-  // Rig model migration: legacy IK chains -> project.rig.ik.twoBoneChains (keep legacy for compatibility).
-  if (project.ikTwoBoneChains?.length && !project.rig?.ik?.twoBoneChains?.length) {
-    if (!project.rig) project.rig = {};
-    if (!project.rig.ik) project.rig.ik = {};
-    project.rig.ik.twoBoneChains = structuredClone(project.ikTwoBoneChains);
-  }
-  const rig = project.characterRig;
-  if (!rig) return;
 
+  const roots = project.bones.filter((b) => b.parentId === null);
+  if (roots.length === 0) {
+    return;
+  }
+
+  project.characters = [];
+  project.characterRigs = {};
+
+  for (let i = 0; i < roots.length; i++) {
+    const root = roots[i]!;
+    const cid = createId("char");
+    const name = roots.length === 1 ? "Character" : `Character ${i + 1}`;
+    project.characters.push({ id: cid, name, rootBoneId: root.id });
+    project.characterRigs[cid] =
+      i === 0 && project.characterRig
+        ? project.characterRig
+        : {
+            spriteSheets: [],
+            slices: [],
+            bindings: [],
+            sliceDepths: [],
+          };
+  }
+  delete project.characterRig;
+}
+
+/** Sprite sheet / slice normalization shared by legacy `characterRig` and `characterRigs`. */
+export function normalizeCharacterRigConfigInPlace(rig: CharacterRigConfig): void {
   if (!rig.spriteSheets) rig.spriteSheets = [];
   if (!rig.slices) rig.slices = [];
   if (!rig.bindings) rig.bindings = [];
-  // `rotOffset` was an experimental binding field; keep default behavior (follow bone rotation).
   for (const b of rig.bindings) {
     delete (b as { rotOffset?: number }).rotOffset;
   }
@@ -127,5 +149,42 @@ export function normalizeEditorProjectInPlace(project: EditorProject): void {
   }
 
   if (!rig.sliceDepths) rig.sliceDepths = [];
-  // Depth textures are editor-only; nothing to migrate yet. Keep existing entries.
+}
+
+/** In-place fixups for older saved JSON (positions, legacy single sheet → spriteSheets). */
+export function normalizeEditorProjectInPlace(project: EditorProject): void {
+  ensureBoneLengths(project);
+  for (const b of project.bones) {
+    if (b.followParentTip != null && typeof b.followParentTip !== "boolean") {
+      delete b.followParentTip;
+    }
+    if (b.followParentTip && b.parentId === null) {
+      delete b.followParentTip;
+    }
+    if (b.bindBone3d) {
+      const d = b.bindBone3d;
+      const ok = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+      if (!ok(d.z) || !ok(d.depthOffset) || !ok(d.tilt) || !ok(d.spin)) {
+        delete b.bindBone3d;
+      }
+    }
+  }
+  migrateClipTransformsToBindRelative(project);
+  // Rig model migration: legacy IK chains -> project.rig.ik.twoBoneChains (keep legacy for compatibility).
+  if (project.ikTwoBoneChains?.length && !project.rig?.ik?.twoBoneChains?.length) {
+    if (!project.rig) project.rig = {};
+    if (!project.rig.ik) project.rig.ik = {};
+    project.rig.ik.twoBoneChains = structuredClone(project.ikTwoBoneChains);
+  }
+
+  migrateCharacterSlots(project);
+
+  const rigs: CharacterRigConfig[] = [];
+  if (project.characterRig) rigs.push(project.characterRig);
+  if (project.characterRigs) {
+    for (const rig of Object.values(project.characterRigs)) rigs.push(rig);
+  }
+  for (const rig of rigs) {
+    normalizeCharacterRigConfigInPlace(rig);
+  }
 }

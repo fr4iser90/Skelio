@@ -5,7 +5,7 @@ import { useEditorStore } from "../stores/editor.js";
 
 const store = useEditorStore();
 const {
-  project,
+  rigEditProject,
   selectedBoneId,
   selectedMeshId,
   placeNewBonesAtParentTip,
@@ -20,7 +20,7 @@ const skeletonEditLocked = computed(() => !(characterRigModalOpen.value || quick
 const rows = computed(() => {
   const out: { id: string; name: string; depth: number }[] = [];
   const walk = (parentId: string | null, depth: number) => {
-    for (const b of project.value.bones.filter((x) => x.parentId === parentId)) {
+    for (const b of rigEditProject.value.bones.filter((x) => x.parentId === parentId)) {
       out.push({ id: b.id, name: b.name, depth });
       walk(b.id, depth + 1);
     }
@@ -35,8 +35,8 @@ function select(id: string) {
 
 function addChild(parentId: string) {
   if (skeletonEditLocked.value) return;
-  const n = project.value.bones.filter((x) => x.parentId === parentId).length + 1;
-  const nBefore = project.value.bones.length;
+  const n = rigEditProject.value.bones.filter((x) => x.parentId === parentId).length + 1;
+  const nBefore = rigEditProject.value.bones.length;
   if (
     !store.dispatch({
       type: "addBone",
@@ -49,7 +49,7 @@ function addChild(parentId: string) {
   const placePending =
     quickRigMode.value || (characterRigModalOpen.value && characterRigModalStep.value === 1);
   if (placePending) {
-    const nb = project.value.bones;
+    const nb = rigEditProject.value.bones;
     if (nb.length > nBefore) {
       const newId = nb[nb.length - 1]!.id;
       store.selectBone(newId);
@@ -105,7 +105,7 @@ function selectMesh(id: string) {
             +
           </button>
           <button
-            v-if="project.bones.find((b) => b.id === row.id)?.parentId !== null"
+            v-if="rigEditProject.bones.find((b) => b.id === row.id)?.parentId !== null"
             type="button"
             class="mini danger"
             :disabled="skeletonEditLocked"
@@ -119,10 +119,10 @@ function selectMesh(id: string) {
         </div>
       </li>
     </ul>
-    <template v-if="project.skinnedMeshes?.length">
+    <template v-if="rigEditProject.skinnedMeshes?.length">
       <h3 class="mesh-section-title">Meshes</h3>
       <ul class="tree">
-        <li v-for="m in project.skinnedMeshes" :key="m.id">
+        <li v-for="m in rigEditProject.skinnedMeshes" :key="m.id">
           <div class="row" :class="{ sel: m.id === selectedMeshId }">
             <button type="button" class="pick" @click="selectMesh(m.id)">{{ m.name }}</button>
           </div>

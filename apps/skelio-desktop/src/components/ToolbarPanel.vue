@@ -14,7 +14,7 @@ import { useEditorStore } from "../stores/editor.js";
 import { isTauriApp } from "../tauriProjectFs.js";
 
 const store = useEditorStore();
-const { workspaceMode } = storeToRefs(store);
+const { workspaceMode, rigCharacterSlots, activeCharacterId } = storeToRefs(store);
 const tauri = isTauriApp();
 
 const menubarEl = ref<HTMLElement | null>(null);
@@ -195,7 +195,9 @@ async function onSaveProjectFolderAs() {
     const root = store.projectRootPath;
     const file = store.projectManifestFileName;
     showSaveFeedback(
-      root ? `Ordner gewählt und gespeichert: ${root}/${file}` : `Projekt geschrieben (${file}).`,
+      root
+        ? `Projekt gespeichert: ${root}/${file} (Dateiname ist fest; anderen Namen nur über „Editor speichern…“.)`
+        : `Projekt geschrieben (${file}).`,
     );
   } catch (err) {
     alert(String(err));
@@ -235,7 +237,7 @@ function onObjMeshFile(e: Event) {
 }
 
 async function saveEditorProjectToFile() {
-  const suggestedName = `${store.project.meta.name || "project"}.skelio.json`;
+  const suggestedName = `${store.rigEditProject.meta.name || "project"}.skelio.json`;
   const body = store.saveEditorJson();
   // Kein Web-Fallback: Speichern muss deterministisch über den nativen Dialog laufen.
   try {
@@ -259,7 +261,7 @@ async function saveEditorProjectToFile() {
 }
 
 async function saveRuntimeExportToFile() {
-  const suggestedName = `${store.project.meta.name || "export"}-runtime.json`;
+  const suggestedName = `${store.rigEditProject.meta.name || "export"}-runtime.json`;
   const body = store.saveRuntimeJson();
   try {
     const path = await invoke<string | null>("save_text_file_with_dialog", {
@@ -296,7 +298,15 @@ async function saveRuntimeExportToFile() {
             <div class="menu-sep" />
             <button type="button" role="menuitem" @click="menuOpenFolder">Ordner…</button>
             <button type="button" role="menuitem" @click="menuSaveFolder">Ordner speichern</button>
-            <button type="button" role="menuitem" class="ghost" @click="menuSaveFolderAs">Speichern unter…</button>
+            <button
+              type="button"
+              role="menuitem"
+              class="ghost"
+              title="Ordner wählen — im Ordner heißt die Manifest-Datei immer project.skelio.json. Beliebigen Dateinamen: „Editor speichern…“."
+              @click="menuSaveFolderAs"
+            >
+              Speichern unter…
+            </button>
           </template>
           <div class="menu-sep" />
           <button type="button" role="menuitem" @click="menuSaveEditor">Editor speichern…</button>
@@ -407,6 +417,24 @@ async function saveRuntimeExportToFile() {
       </template>
 
       <template v-else-if="workspaceMode === 'rig'">
+        <label v-if="rigCharacterSlots.length" class="char-toolbar-picker">
+          <span class="muted">Character</span>
+          <select
+            :value="activeCharacterId ?? ''"
+            title="Welcher Charakter: Bones + Rig-Befehle gelten für diesen Slot"
+            @change="store.setActiveCharacterId(($event.target as HTMLSelectElement).value || null)"
+          >
+            <option v-for="c in rigCharacterSlots" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          class="ghost"
+          title="Neuer Charakter (eigener Skelett-Root + leeres Rig)"
+          @click="store.dispatch({ type: 'addCharacter', name: '' })"
+        >
+          + Character
+        </button>
         <button
           type="button"
           class="btn-character-setup"
@@ -426,7 +454,7 @@ async function saveRuntimeExportToFile() {
         </button>
         <button type="button" @click="triggerRefImage">Referenzbild…</button>
         <button
-          v-if="store.project.referenceImage"
+          v-if="store.rigEditProject.referenceImage"
           type="button"
           class="ghost"
           @click="store.dispatch({ type: 'clearReferenceImage' })"
@@ -441,7 +469,7 @@ async function saveRuntimeExportToFile() {
           Y spiegeln
         </label>
         <button
-          v-if="store.project.skinnedMeshes?.length"
+          v-if="store.rigEditProject.skinnedMeshes?.length"
           type="button"
           class="ghost"
           @click="store.dispatch({ type: 'clearSkinnedMeshes' })"
@@ -457,7 +485,14 @@ async function saveRuntimeExportToFile() {
         <template v-if="tauri">
           <button type="button" @click="onOpenProjectFolder">Ordner…</button>
           <button type="button" @click="onSaveProjectFolder">Ordner speichern</button>
-          <button type="button" class="ghost" @click="onSaveProjectFolderAs">Speichern unter…</button>
+          <button
+            type="button"
+            class="ghost"
+            title="Ordner wählen — im Ordner heißt die Manifest-Datei immer project.skelio.json. Beliebigen Dateinamen: „Editor speichern…“."
+            @click="onSaveProjectFolderAs"
+          >
+            Speichern unter…
+          </button>
         </template>
       </template>
 

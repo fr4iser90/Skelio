@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { findSliceDepthEntry, findSliceInCharacterRigs } from "@skelio/domain";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
@@ -15,7 +16,7 @@ const emit = defineEmits<{
 }>();
 
 const store = useEditorStore();
-const { project } = storeToRefs(store);
+const { rigEditProject } = storeToRefs(store);
 
 const brushRadius = ref(18);
 const brushStrength = ref(0.28);
@@ -28,13 +29,13 @@ const lastPos = ref<{ x: number; y: number } | null>(null);
 const slice = computed(() => {
   const id = props.sliceId;
   if (!id) return null;
-  return project.value.characterRig?.slices?.find((s) => s.id === id) ?? null;
+  return findSliceInCharacterRigs(rigEditProject.value, id)?.slice ?? null;
 });
 
 const depthEntry = computed(() => {
   const id = props.sliceId;
   if (!id) return null;
-  return project.value.characterRig?.sliceDepths?.find((d) => d.sliceId === id) ?? null;
+  return findSliceDepthEntry(rigEditProject.value, id) ?? null;
 });
 
 const currentTex = computed(() => {

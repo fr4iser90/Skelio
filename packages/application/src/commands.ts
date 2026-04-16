@@ -5,6 +5,8 @@ import {
   createId,
   bakeIkTwoBoneChainRotKeysAtTime,
   ensureMinimalSliceDepthOnMeshSync,
+  ensureCharacterRigForProject,
+  getCharacterRig,
   getFabrikIkChainById,
   mat4Invert,
   normalizeReferenceImageMime,
@@ -27,7 +29,8 @@ import {
   type SkinnedMesh,
 } from "@skelio/domain";
 
-export type Command =
+/** Rig-related commands accept optional `characterId` (defaults to first slot). */
+export type Command = (
   | { type: "addBone"; parentId: string | null; name: string; placeAtParentTip?: boolean }
   | { type: "removeBone"; boneId: string }
   | { type: "renameBone"; boneId: string; name: string }
@@ -168,16 +171,47 @@ export type Command =
   | { type: "renameAnimationClip"; clipId: string; name: string }
   | { type: "duplicateAnimationClip"; clipId: string }
   | { type: "setActiveClip"; clipId: string }
-  | { type: "importAnimationClip"; clip: AnimationClip };
+  | { type: "importAnimationClip"; clip: AnimationClip }
+  | { type: "addCharacter"; name: string }
+  | { type: "renameCharacterSlot"; characterId: string; name: string }
+) & { characterId?: string };
 
-function ensureCharacterRig(p: EditorProject): CharacterRigConfig {
-  if (!p.characterRig) {
-    p.characterRig = { spriteSheets: [], slices: [], bindings: [], sliceDepths: [] };
-  } else {
-    if (!p.characterRig.spriteSheets) p.characterRig.spriteSheets = [];
-    if (!p.characterRig.sliceDepths) p.characterRig.sliceDepths = [];
-  }
-  return p.characterRig;
+const CHARACTER_RIG_COMMAND_TYPES = new Set<string>([
+  "setCharacterRigSpriteSheet",
+  "addCharacterRigSpriteSheet",
+  "removeCharacterRigSpriteSheet",
+  "clearCharacterRigSpriteSheet",
+  "clearCharacterRig",
+  "addCharacterRigEmptyPart",
+  "assignCharacterRigSliceFromSheetRegion",
+  "addCharacterRigSlice",
+  "addCharacterRigImportedSprite",
+  "setCharacterRigSliceWorldPosition",
+  "patchCharacterRigSlice",
+  "renameCharacterRigSlice",
+  "removeCharacterRigSlice",
+  "reorderCharacterRigSlice",
+  "setCharacterRigBinding",
+  "clearCharacterRigBinding",
+  "setCharacterRigSliceDepth",
+  "setCharacterRigSliceDepthTexture",
+  "clearCharacterRigSliceDepthTexture",
+  "setCharacterRigSliceLayerPixels",
+  "clearCharacterRigSliceEmbeddedBack",
+  "promoteCharacterRigSliceToEmbedded",
+]);
+
+/** True when `dispatch` should attach the active character id (Character Setup / rig tools). */
+export function commandUsesActiveCharacter(cmd: Command): boolean {
+  return CHARACTER_RIG_COMMAND_TYPES.has(cmd.type);
+}
+
+function ensureCharacterRig(p: EditorProject, characterId?: string): CharacterRigConfig {
+  return ensureCharacterRigForProject(p, characterId);
+}
+
+function getRig(p: EditorProject, characterId?: string): CharacterRigConfig | undefined {
+  return getCharacterRig(p, characterId);
 }
 
 function activeClip(project: EditorProject) {
@@ -541,10 +575,40 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     return p;
   }
 
+  if (cmd.type === "addCharacter") {
+    const rootId = createId("bone");
+    const charId = createId("char");
+    const n = (p.characters?.length ?? 0) + 1;
+    const offsetX = (n - 1) * 200;
+    if (!p.characters) p.characters = [];
+    if (!p.characterRigs) p.characterRigs = {};
+    p.bones.push({
+      id: rootId,
+      parentId: null,
+      name: "root",
+      bindPose: { x: offsetX, y: 0, rotation: 0, sx: 1, sy: 1 },
+      length: 0,
+    });
+    const label = cmd.name.trim() || `Character ${n}`;
+    p.characters.push({ id: charId, name: label, rootBoneId: rootId });
+    p.characterRigs[charId] = { spriteSheets: [], slices: [], bindings: [], sliceDepths: [] };
+    delete p.characterRig;
+    return p;
+  }
+
+  if (cmd.type === "renameCharacterSlot") {
+    const c = p.characters?.find((x) => x.id === cmd.characterId);
+    if (!c) return project;
+    const name = cmd.name.trim();
+    if (!name) return project;
+    c.name = name;
+    return p;
+  }
+
   if (cmd.type === "setCharacterRigSpriteSheet") {
     const mime = normalizeReferenceImageMime(cmd.mimeType);
     if (!mime || !cmd.dataBase64) return project;
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     const id = createId("sheet");
     rig.spriteSheets = [
       {
@@ -565,7 +629,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   if (cmd.type === "addCharacterRigSpriteSheet") {
     const mime = normalizeReferenceImageMime(cmd.mimeType);
     if (!mime || !cmd.dataBase64) return project;
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     rig.spriteSheets.push({
       id: createId("sheet"),
       fileName: cmd.fileName,
@@ -578,7 +642,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "removeCharacterRigSpriteSheet") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return p;
     rig.spriteSheets = rig.spriteSheets.filter((s) => s.id !== cmd.sheetId);
     for (const s of rig.slices) {
@@ -595,11 +659,12 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "clearCharacterRigSpriteSheet") {
-    if (!p.characterRig) return p;
-    p.characterRig.spriteSheets = [];
-    p.characterRig.slices = [];
-    p.characterRig.bindings = [];
-    p.characterRig.sliceDepths = [];
+    const rig = getRig(p, cmd.characterId);
+    if (!rig) return p;
+    rig.spriteSheets = [];
+    rig.slices = [];
+    rig.bindings = [];
+    rig.sliceDepths = [];
     if (p.skinnedMeshes?.length) {
       p.skinnedMeshes = p.skinnedMeshes.filter((m) => !m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX));
       if (p.skinnedMeshes.length === 0) delete p.skinnedMeshes;
@@ -608,7 +673,12 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "clearCharacterRig") {
-    delete p.characterRig;
+    const rig = getRig(p, cmd.characterId);
+    if (!rig) return project;
+    rig.spriteSheets = [];
+    rig.slices = [];
+    rig.bindings = [];
+    rig.sliceDepths = [];
     if (p.skinnedMeshes?.length) {
       p.skinnedMeshes = p.skinnedMeshes.filter((m) => !m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX));
       if (p.skinnedMeshes.length === 0) delete p.skinnedMeshes;
@@ -617,7 +687,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "addCharacterRigEmptyPart") {
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     const n = rig.slices.length;
     const worldCx = n * 14;
     const worldCy = n * 14;
@@ -636,7 +706,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "assignCharacterRigSliceFromSheetRegion") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return project;
     const sheet = rig.spriteSheets.find((s) => s.id === cmd.sheetId);
     const slice = rig.slices.find((s) => s.id === cmd.sliceId);
@@ -652,7 +722,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "addCharacterRigSlice") {
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     if (rig.spriteSheets.length === 0) return project;
     if (!(cmd.width > 0) || !(cmd.height > 0)) return project;
     const name = cmd.name.trim() || `Part ${rig.slices.length + 1}`;
@@ -680,7 +750,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     const mime = normalizeReferenceImageMime(cmd.mimeType);
     if (!mime || !cmd.dataBase64) return project;
     if (!(cmd.pixelWidth > 0) || !(cmd.pixelHeight > 0)) return project;
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     const n = rig.slices.length;
     const worldCx = typeof cmd.worldCx === "number" && Number.isFinite(cmd.worldCx) ? cmd.worldCx : n * 14;
     const worldCy = typeof cmd.worldCy === "number" && Number.isFinite(cmd.worldCy) ? cmd.worldCy : n * 14;
@@ -706,7 +776,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "patchCharacterRigSlice") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return project;
     const s = rig.slices.find((x) => x.id === cmd.sliceId);
     if (!s) return project;
@@ -719,18 +789,32 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "setCharacterRigSliceWorldPosition") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return project;
     const s = rig.slices.find((x) => x.id === cmd.sliceId);
     if (!s) return project;
     if (!Number.isFinite(cmd.worldCx) || !Number.isFinite(cmd.worldCy)) return project;
     s.worldCx = cmd.worldCx;
     s.worldCy = cmd.worldCy;
+    /** Bound slices draw from stored bind locals; refresh so drag matches {@link setCharacterRigBinding} semantics. */
+    const b = rig.bindings.find((x) => x.sliceId === cmd.sliceId);
+    if (b) {
+      const Wbind4 = worldBindBoneMatrices4(p).get(b.boneId);
+      if (Wbind4) {
+        const inv = mat4Invert(Wbind4);
+        if (inv) {
+          const loc = transformPointMat4(inv, s.worldCx, s.worldCy, 0);
+          b.localX = loc.x;
+          b.localY = loc.y;
+          b.localZ = loc.z;
+        }
+      }
+    }
     return p;
   }
 
   if (cmd.type === "renameCharacterRigSlice") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return project;
     const s = rig.slices.find((x) => x.id === cmd.sliceId);
     if (!s) return project;
@@ -739,7 +823,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "removeCharacterRigSlice") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return project;
     rig.slices = rig.slices.filter((s) => s.id !== cmd.sliceId);
     rig.bindings = rig.bindings.filter((b) => b.sliceId !== cmd.sliceId);
@@ -753,7 +837,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "reorderCharacterRigSlice") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig?.slices?.length) return project;
     const arr = [...rig.slices];
     const from = arr.findIndex((x) => x.id === cmd.sliceId);
@@ -775,7 +859,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "setCharacterRigBinding") {
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     const slice = rig.slices.find((s) => s.id === cmd.sliceId);
     if (!slice) return project;
     if (!p.bones.some((b) => b.id === cmd.boneId)) return project;
@@ -801,14 +885,14 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "clearCharacterRigBinding") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return project;
     rig.bindings = rig.bindings.filter((b) => b.sliceId !== cmd.sliceId);
     return p;
   }
 
   if (cmd.type === "setCharacterRigSliceDepth") {
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     if (!rig.slices.some((s) => s.id === cmd.sliceId)) return project;
     const depths = [...(rig.sliceDepths ?? [])].filter((d) => d.sliceId !== cmd.sliceId);
     depths.push({
@@ -822,7 +906,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "setCharacterRigSliceDepthTexture") {
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     const s = rig.slices.find((x) => x.id === cmd.sliceId);
     if (!s) return project;
     if (!(s.width > 0) || !(s.height > 0)) return project;
@@ -850,7 +934,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "clearCharacterRigSliceDepthTexture") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return project;
     const existing = (rig.sliceDepths ?? []).find((d) => d.sliceId === cmd.sliceId);
     if (!existing) return project;
@@ -863,7 +947,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "setCharacterRigSliceLayerPixels") {
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     const s = rig.slices.find((x) => x.id === cmd.sliceId);
     if (!s) return project;
     if (!(s.width > 0) || !(s.height > 0)) return project;
@@ -886,7 +970,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "clearCharacterRigSliceEmbeddedBack") {
-    const rig = p.characterRig;
+    const rig = getRig(p, cmd.characterId);
     if (!rig) return project;
     const s = rig.slices.find((x) => x.id === cmd.sliceId);
     if (!s) return project;
@@ -895,7 +979,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "promoteCharacterRigSliceToEmbedded") {
-    const rig = ensureCharacterRig(p);
+    const rig = ensureCharacterRig(p, cmd.characterId);
     const s = rig.slices.find((x) => x.id === cmd.sliceId);
     if (!s) return project;
     if (s.embedded) return project;
@@ -914,8 +998,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   if (cmd.type === "syncCharacterRigSkinnedMeshes") {
     if (!characterRigBindingsComplete(p)) return project;
     /** Sonst bleiben Meshes / 3D-Vorschau papierflach (maxDepth 0). */
-    const depthSeeded = ensureMinimalSliceDepthOnMeshSync(p);
-    if (depthSeeded.characterRig) p.characterRig = depthSeeded.characterRig;
+    ensureMinimalSliceDepthOnMeshSync(p);
     const boneIds = new Set(p.bones.map((b) => b.id));
     const built = skinnedMeshesFromCharacterRig(p);
     for (const m of built) {
@@ -1067,6 +1150,13 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
         (c) => c.rootBoneId !== cmd.boneId && c.midBoneId !== cmd.boneId && c.tipBoneId !== cmd.boneId,
       );
       if (p.ikTwoBoneChains.length === 0) delete p.ikTwoBoneChains;
+    }
+    if (p.characterRigs) {
+      for (const rig of Object.values(p.characterRigs)) {
+        if (rig.bindings?.length) {
+          rig.bindings = rig.bindings.filter((b) => b.boneId !== cmd.boneId);
+        }
+      }
     }
     if (p.characterRig?.bindings?.length) {
       p.characterRig.bindings = p.characterRig.bindings.filter((b) => b.boneId !== cmd.boneId);

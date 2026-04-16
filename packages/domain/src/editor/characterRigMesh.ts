@@ -93,9 +93,9 @@ export function computeDirectedEdgeMargins(
   const sliceTop = sliceCy - hh;
   const sliceBottom = sliceCy + hh;
 
-  // Mindest-Extension Richtung Joint: 8% der Slice-Dimension (klein halten)
-  const minJointMarginH = sliceW * 0.08;
-  const minJointMarginV = sliceH * 0.08;
+  // Minimale Extension: 2% (nur für Overlap, kein Gap-Fill)
+  const minJointMarginH = sliceW * 0.02;
+  const minJointMarginV = sliceH * 0.02;
 
   for (const jp of jointPositions) {
     // Distanz vom Joint zu jeder Slice-Kante
@@ -104,8 +104,8 @@ export function computeDirectedEdgeMargins(
     const distToTop = sliceTop - jp.y;
     const distToBottom = jp.y - sliceBottom;
 
-    // Buffer = 10% der Distanz (kleiner für weniger Overlap)
-    const bufferFactor = 1.1;
+    // Kein Buffer - nur exakte Distanz wenn Joint außerhalb liegt
+    const bufferFactor = 1.0;
 
     // Erweitere Kante zum Joint: Distanz * 1.3 (30% Buffer)
     if (distToLeft > 0) {

@@ -178,29 +178,29 @@ describe("computeDirectedEdgeMargins (100% automatic)", () => {
     expect(margins.bottom).toBeCloseTo(0.6, 1);
   });
 
-  it("automatically scales margin based on distance to joint (10% buffer)", () => {
+  it("automatically scales margin based on distance to joint (no buffer)", () => {
     // Slice: center=100, width=50 → right edge at 125
     // Joint at x=200 → distance = 75
-    // Margin = 75 * 1.1 = 82.5
+    // Margin = 75 * 1.0 = 75
     const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 200, y: 100 }]);
-    expect(margins.right).toBeCloseTo(82.5, 1);
+    expect(margins.right).toBeCloseTo(75, 1);
   });
 
-  it("applies minimum 8% of slice dimension toward joint", () => {
-    // Slice width=100 → minJointMarginH = 8
-    // Joint inside slice but to the right → applies 8% minimum
+  it("applies minimum 2% of slice dimension toward joint", () => {
+    // Slice width=100 → minJointMarginH = 2
+    // Joint inside slice but to the right → applies 2% minimum
     const margins = computeDirectedEdgeMargins(100, 100, 100, 60, [{ x: 110, y: 100 }]);
-    expect(margins.right).toBeCloseTo(8, 1); // 100 * 0.08
+    expect(margins.right).toBeCloseTo(2, 1); // 100 * 0.02
     expect(margins.left).toBeCloseTo(2, 1);   // 100 * 0.02 base
   });
 
   it("uses larger of distance-based or minimum percentage", () => {
-    // Slice width=200 → minJointMarginH = 16
+    // Slice width=200 → minJointMarginH = 4
     // Joint far away → distance-based wins
     const margins = computeDirectedEdgeMargins(100, 100, 200, 100, [{ x: 500, y: 100 }]);
     // right edge at 200, joint at 500 → distance = 300
-    // 300 * 1.1 = 330 > 16 (8% of 200)
-    expect(margins.right).toBeCloseTo(330, 1);
+    // 300 * 1.0 = 300 > 4 (2% of 200)
+    expect(margins.right).toBeCloseTo(300, 1);
   });
 });
 

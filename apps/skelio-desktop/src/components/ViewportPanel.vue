@@ -974,7 +974,7 @@ function draw() {
         if (s.embedded) {
           const eimg = embeddedRigImages.value.get(s.id);
           if (eimg?.complete && eimg.naturalWidth > 0) {
-            // 1) Gap-Fill (erweiterte Dreiecke) - Hintergrund
+            // 1) Gap-Fill (erweiterte Mesh-Bereiche) - Hintergrund
             drawRigSliceSkinnedDeformed(ctx, s, sliceMesh, deformed, eimg, true);
             // 2) Original (nur innere Dreiecke) - Vordergrund, überdeckt Gap-Fill
             drawRigSliceSkinnedDeformedOriginalOnly(ctx, s, sliceMesh, deformed, eimg, true);

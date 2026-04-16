@@ -27,6 +27,9 @@ const MAX_UNDO = 80;
 /** Character-Rig-Viewport: 2D flach vs. leichte Y-Stauchung (kein echtes 3D). */
 export type RigCameraViewKind = "2d" | "2.5d" | "3d";
 
+/** Toolbar-Zeile 2: Animate / Rig / Export (alle Aktionen bleiben erreichbar). */
+export type WorkspaceMode = "animate" | "rig" | "export";
+
 export const useEditorStore = defineStore("editor", () => {
   const project = ref<EditorProject>(createDefaultEditorProject());
   /** Set when a folder project is open (Tauri); `project.skelio.json` lives here. */
@@ -51,6 +54,8 @@ export const useEditorStore = defineStore("editor", () => {
 
   /** Hauptfenster: Bind-Pose / Knochen-Struktur wie Wizard-Schritt „Bones“, ohne Assistenten. */
   const quickRigMode = ref(false);
+
+  const workspaceMode = ref<WorkspaceMode>("animate");
 
   /** Modal: Region aus Sprite-Sheet in gewählten Slot übernehmen. */
   const sheetSliceModalOpen = ref(false);
@@ -341,6 +346,10 @@ export const useEditorStore = defineStore("editor", () => {
     animatorDeformMeshDraw.value = v;
   }
 
+  function setWorkspaceMode(m: WorkspaceMode) {
+    workspaceMode.value = m;
+  }
+
   return {
     project,
     projectRootPath,
@@ -375,6 +384,8 @@ export const useEditorStore = defineStore("editor", () => {
     closeCharacterRigModal,
     quickRigMode,
     setQuickRigMode,
+    workspaceMode,
+    setWorkspaceMode,
     sheetSliceModalOpen,
     sheetSliceModalSheetId,
     openSheetSliceModal,

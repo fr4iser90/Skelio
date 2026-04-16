@@ -78,15 +78,19 @@ function onKey(e: KeyboardEvent) {
   display: grid;
   grid-template-rows: auto 1fr minmax(200px, 240px);
   height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   font-family: system-ui, -apple-system, sans-serif;
   background: #0f1014;
   color: #e6e6e6;
 }
 .workspace {
   display: grid;
-  grid-template-columns: 228px 1fr 272px;
+  grid-template-columns: minmax(0, 248px) minmax(0, 1fr) minmax(0, 300px);
   min-height: 0;
+  min-width: 0;
   height: 100%;
+  overflow: hidden;
   align-items: stretch;
   border-bottom: 1px solid #252830;
 }
@@ -103,12 +107,27 @@ function onKey(e: KeyboardEvent) {
   pointer-events: none;
 }
 .side {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0.45rem 0.55rem;
   border-right: 1px solid #2a2f3a;
-  overflow: auto;
-  background: linear-gradient(180deg, #1c1e26 0%, #181a20 100%);
+  overflow: hidden;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #3d4454 #15171c;
+  background: linear-gradient(165deg, #1a1c24 0%, #14161c 55%, #12141a 100%);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.25);
+}
+.side > * {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 .side.right {
   border-right: none;
   border-left: 1px solid #2a2f3a;
+  box-shadow: inset 1px 0 0 rgba(0, 0, 0, 0.25);
 }
 </style>

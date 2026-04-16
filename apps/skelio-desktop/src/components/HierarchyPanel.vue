@@ -120,7 +120,7 @@ function selectMesh(id: string) {
       </li>
     </ul>
     <template v-if="project.skinnedMeshes?.length">
-      <h3>Meshes</h3>
+      <h3 class="mesh-section-title">Meshes</h3>
       <ul class="tree">
         <li v-for="m in project.skinnedMeshes" :key="m.id">
           <div class="row" :class="{ sel: m.id === selectedMeshId }">
@@ -134,10 +134,25 @@ function selectMesh(id: string) {
 
 <style scoped>
 .panel {
-  padding: 0.55rem 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0.75rem 0.85rem 0.9rem;
+  overflow-y: auto;
 }
 .panel-title {
   margin: 0 0 0.55rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid #2d3340;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #94a3b8;
+}
+.mesh-section-title {
+  margin: 1rem 0 0.5rem;
   padding-bottom: 0.35rem;
   border-bottom: 1px solid #2d3340;
   font-size: 0.68rem;

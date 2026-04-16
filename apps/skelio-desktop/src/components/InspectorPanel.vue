@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getLocalBoneState, getTwoBoneIkChains, normalizeInfluenceRow } from "@skelio/domain";
 import { storeToRefs } from "pinia";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 
 const store = useEditorStore();
@@ -26,6 +26,9 @@ const bindPoseLocked = computed(() => !(characterRigModalOpen.value || quickRigM
 
 const twoBoneIkChainsShown = computed(() => getTwoBoneIkChains(project.value));
 const fabrikIkChainsShown = computed(() => project.value.rig?.ik?.fabrikChains ?? []);
+
+/** Rechte Spalte: nur ein Bereich sichtbar → weniger Scroll, klarer als alles untereinander. */
+const inspectorTab = ref<"project" | "bone" | "mesh" | "ik">("bone");
 
 const poseRotationAtPlayhead = computed(() => {
   const b = selectedBone.value;
@@ -259,15 +262,62 @@ function addFabrikIkFromSelectedTip() {
 
 <template>
   <div class="panel">
-    <h3 class="panel-title">Projekt</h3>
-    <label class="lbl">Name <input class="inp" :value="project.meta.name" @change="patchMeta" /></label>
-    <label class="lbl">FPS <input class="inp sm" type="number" min="1" :value="project.meta.fps" @change="patchFps" /></label>
+    <nav class="insp-tabs" role="tablist" aria-label="Eigenschaften">
+      <button
+        type="button"
+        role="tab"
+        class="insp-tab"
+        :class="{ 'insp-tab--on': inspectorTab === 'project' }"
+        :aria-selected="inspectorTab === 'project'"
+        @click="inspectorTab = 'project'"
+      >
+        Projekt
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="insp-tab"
+        :class="{ 'insp-tab--on': inspectorTab === 'bone' }"
+        :aria-selected="inspectorTab === 'bone'"
+        @click="inspectorTab = 'bone'"
+      >
+        Knochen
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="insp-tab"
+        :class="{ 'insp-tab--on': inspectorTab === 'mesh' }"
+        :aria-selected="inspectorTab === 'mesh'"
+        @click="inspectorTab = 'mesh'"
+      >
+        Mesh
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="insp-tab"
+        :class="{ 'insp-tab--on': inspectorTab === 'ik' }"
+        :aria-selected="inspectorTab === 'ik'"
+        @click="inspectorTab = 'ik'"
+      >
+        IK
+      </button>
+    </nav>
 
+    <div class="insp-body">
+      <section v-show="inspectorTab === 'project'" class="insp-section">
+        <h3 class="panel-title">Projekt</h3>
+        <label class="lbl">Name <input class="inp" :value="project.meta.name" @change="patchMeta" /></label>
+        <label class="lbl">FPS <input class="inp sm" type="number" min="1" :value="project.meta.fps" @change="patchFps" /></label>
+      </section>
+
+      <section v-show="inspectorTab === 'bone'" class="insp-section">
     <template v-if="selectedBone">
       <h3 class="panel-title">Knochen</h3>
       <p v-if="bindPoseLocked" class="bone-hint bone-hint-warn">
-        <strong>Skeleton / bind pose</strong>: Toolbar <strong>Character Setup…</strong> oder <strong>Quick Rig</strong>
-        aktivieren. Hier sonst <strong>Animation</strong> (Keys, Viewport-Ziehen), Gewichte, IK.
+        <strong>Skeleton / bind pose</strong>: Toolbar <strong>Character Setup…</strong> (immer sichtbar) oder Modus
+        <strong>Rig</strong> → <strong>Quick Rig</strong>. Sonst <strong>Animation</strong> (Keys, Viewport-Ziehen).
       </p>
       <p v-else class="bone-hint">
         <strong>Bind pose</strong> = rest skeleton. <strong>Animation</strong> uses keys at time
@@ -424,9 +474,11 @@ function addFabrikIkFromSelectedTip() {
       </template>
     </template>
     <p v-else class="muted">Kein Knochen gewählt</p>
+      </section>
 
+      <section v-show="inspectorTab === 'mesh'" class="insp-section">
     <template v-if="project.skinnedMeshes?.length">
-      <h3>Pinsel</h3>
+      <h3 class="panel-title">Pinsel</h3>
       <label class="rowchk">
         <input v-model="weightBrushEnabled" type="checkbox" />
         Pinsel-Modus
@@ -439,7 +491,7 @@ function addFabrikIkFromSelectedTip() {
       </label>
       <p class="muted small">Knochen in der Hierarchy wählen. Mesh: Eintrag unter „Meshes“ oder sonst das erste.</p>
 
-      <h3>Gewichte</h3>
+      <h3 class="panel-title">Gewichte</h3>
       <p v-if="!weightContext" class="muted small">
         Mesh in der Liste wählen, dann einen Vertex im Viewport anklicken.
       </p>
@@ -466,50 +518,104 @@ function addFabrikIkFromSelectedTip() {
         </div>
       </template>
     </template>
+    <p v-else class="muted small">Keine skinned Meshes — z. B. Demo-Mesh / OBJ unter Toolbar-Modus <strong>Rig</strong>.</p>
+      </section>
 
-    <template v-if="twoBoneIkChainsShown.length || fabrikIkChainsShown.length">
-      <h3>IK</h3>
-      <p class="muted small">
-        Zwei-Knochen-Ketten (klassisch) und optionale <strong>planare FABRIK</strong>-Ketten (mehr Segmente, z. B. Fuß
-        bis Hüfte). Knochen in der Hierarchy wählen, dann FABRIK anlegen.
-      </p>
-      <div v-if="selectedBoneId" class="btnrow">
-        <button
-          type="button"
-          class="mini"
-          title="Vom gewählten Knochen bis zur Wurzel: mindestens 3 Knochen als FABRIK-Kette (Ziel = Bind-Spitze des gewählten Knochens)"
-          @click="addFabrikIkFromSelectedTip"
-        >
-          FABRIK aus gewähltem Knochen
-        </button>
-      </div>
-      <div v-for="ch in twoBoneIkChainsShown" :key="'2b-' + ch.id" class="ikblock">
-        <div class="iktitle">{{ ch.name }} (2-Segment)</div>
-        <label class="rowchk">
-          <input type="checkbox" :checked="ch.enabled" @change="setIkEnabled(ch.id, $event)" />
-          Aktiv
-        </label>
-        <label class="lbl">Ziel X <input class="inp sm" type="number" step="1" :value="ch.targetX" @change="setIkTarget(ch.id, 'x', $event)" /></label>
-        <label class="lbl">Ziel Y <input class="inp sm" type="number" step="1" :value="ch.targetY" @change="setIkTarget(ch.id, 'y', $event)" /></label>
-        <button type="button" class="mini" @click="removeIkChain(ch.id)">Kette entfernen</button>
-      </div>
-      <div v-for="ch in fabrikIkChainsShown" :key="'fab-' + ch.id" class="ikblock">
-        <div class="iktitle">{{ ch.name }} (FABRIK · {{ ch.boneIds.length }} Knochen)</div>
-        <label class="rowchk">
-          <input type="checkbox" :checked="ch.enabled" @change="setFabrikIkEnabled(ch.id, $event)" />
-          Aktiv
-        </label>
-        <label class="lbl">Ziel X <input class="inp sm" type="number" step="1" :value="ch.targetX" @change="setFabrikIkTarget(ch.id, 'x', $event)" /></label>
-        <label class="lbl">Ziel Y <input class="inp sm" type="number" step="1" :value="ch.targetY" @change="setFabrikIkTarget(ch.id, 'y', $event)" /></label>
-        <button type="button" class="mini" @click="removeFabrikIkChain(ch.id)">Kette entfernen</button>
-      </div>
-    </template>
+      <section v-show="inspectorTab === 'ik'" class="insp-section">
+        <h3 class="panel-title">IK</h3>
+        <p class="muted small">
+          Zwei-Knochen-Ketten und <strong>FABRIK</strong>. Knochen wählen, dann FABRIK anlegen — oder <strong>IK-Demo</strong>
+          (Modus <strong>Rig</strong>).
+        </p>
+        <div v-if="selectedBoneId" class="btnrow">
+          <button
+            type="button"
+            class="mini"
+            title="Vom gewählten Knochen bis zur Wurzel: mindestens 3 Knochen als FABRIK-Kette"
+            @click="addFabrikIkFromSelectedTip"
+          >
+            FABRIK aus gewähltem Knochen
+          </button>
+        </div>
+        <p v-else class="muted small">Zuerst einen <strong>Knochen</strong> in der Hierarchy wählen.</p>
+        <template v-if="twoBoneIkChainsShown.length || fabrikIkChainsShown.length">
+          <div v-for="ch in twoBoneIkChainsShown" :key="'2b-' + ch.id" class="ikblock">
+            <div class="iktitle">{{ ch.name }} (2-Segment)</div>
+            <label class="rowchk">
+              <input type="checkbox" :checked="ch.enabled" @change="setIkEnabled(ch.id, $event)" />
+              Aktiv
+            </label>
+            <label class="lbl">Ziel X <input class="inp sm" type="number" step="1" :value="ch.targetX" @change="setIkTarget(ch.id, 'x', $event)" /></label>
+            <label class="lbl">Ziel Y <input class="inp sm" type="number" step="1" :value="ch.targetY" @change="setIkTarget(ch.id, 'y', $event)" /></label>
+            <button type="button" class="mini" @click="removeIkChain(ch.id)">Kette entfernen</button>
+          </div>
+          <div v-for="ch in fabrikIkChainsShown" :key="'fab-' + ch.id" class="ikblock">
+            <div class="iktitle">{{ ch.name }} (FABRIK · {{ ch.boneIds.length }} Knochen)</div>
+            <label class="rowchk">
+              <input type="checkbox" :checked="ch.enabled" @change="setFabrikIkEnabled(ch.id, $event)" />
+              Aktiv
+            </label>
+            <label class="lbl">Ziel X <input class="inp sm" type="number" step="1" :value="ch.targetX" @change="setFabrikIkTarget(ch.id, 'x', $event)" /></label>
+            <label class="lbl">Ziel Y <input class="inp sm" type="number" step="1" :value="ch.targetY" @change="setFabrikIkTarget(ch.id, 'y', $event)" /></label>
+            <button type="button" class="mini" @click="removeFabrikIkChain(ch.id)">Kette entfernen</button>
+          </div>
+        </template>
+        <p v-else class="muted small">Noch keine IK-Ketten im Projekt.</p>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .panel {
-  padding: 0.55rem 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0.55rem 0.65rem 0.65rem;
+}
+.insp-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  margin-bottom: 0.45rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #2d3340;
+}
+.insp-tab {
+  padding: 0.32rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border: 1px solid #3b3f48;
+  border-radius: 6px;
+  background: #1a1c22;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.insp-tab:hover {
+  color: #cbd5e1;
+  border-color: #525a6b;
+}
+.insp-tab--on {
+  border-color: #6366f1;
+  color: #e0e7ff;
+  background: linear-gradient(180deg, #312e52 0%, #252043 100%);
+}
+.insp-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.15rem;
+}
+.insp-section {
+  padding-bottom: 0.35rem;
+}
+.insp-section .panel-title:first-child {
+  margin-top: 0;
 }
 .sub-title {
   margin: 0.75rem 0 0.35rem;

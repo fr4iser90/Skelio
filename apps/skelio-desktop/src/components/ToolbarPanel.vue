@@ -8,12 +8,77 @@ import {
   skinnedMeshFromObjText,
 } from "@skelio/domain";
 import { invoke } from "@tauri-apps/api/core";
+import { storeToRefs } from "pinia";
 import { ref } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 import { isTauriApp } from "../tauriProjectFs.js";
 
 const store = useEditorStore();
+const { workspaceMode } = storeToRefs(store);
 const tauri = isTauriApp();
+
+const menubarEl = ref<HTMLElement | null>(null);
+const helpDialog = ref<HTMLDialogElement | null>(null);
+
+function closeMenus() {
+  menubarEl.value?.querySelectorAll("details.menu").forEach((el) => {
+    (el as HTMLDetailsElement).open = false;
+  });
+}
+
+function onMenuToggle(ev: Event) {
+  const d = ev.target as HTMLDetailsElement;
+  if (!d.open) return;
+  menubarEl.value?.querySelectorAll("details.menu").forEach((x) => {
+    if (x !== d) (x as HTMLDetailsElement).open = false;
+  });
+}
+
+function openHelp() {
+  closeMenus();
+  helpDialog.value?.showModal();
+}
+
+function closeHelp() {
+  helpDialog.value?.close();
+}
+
+function menuNew() {
+  closeMenus();
+  store.newProject();
+}
+function menuLoad() {
+  closeMenus();
+  triggerLoad();
+}
+function menuOpenFolder() {
+  closeMenus();
+  void onOpenProjectFolder();
+}
+function menuSaveFolder() {
+  closeMenus();
+  void onSaveProjectFolder();
+}
+function menuSaveFolderAs() {
+  closeMenus();
+  void onSaveProjectFolderAs();
+}
+function menuSaveEditor() {
+  closeMenus();
+  void saveEditorProjectToFile();
+}
+function menuExportRuntime() {
+  closeMenus();
+  void saveRuntimeExportToFile();
+}
+function menuUndo() {
+  closeMenus();
+  store.undo();
+}
+function menuRedo() {
+  closeMenus();
+  store.redo();
+}
 
 /** Kurzes Feedback nach Speichern / Ordner-Schreiben (kein stilles Download mehr). */
 const saveFeedback = ref<{ ok: boolean; text: string } | null>(null);
@@ -218,36 +283,194 @@ async function saveRuntimeExportToFile() {
 </script>
 
 <template>
-  <header class="bar">
-    <strong class="brand">Skelio</strong>
-    <button type="button" @click="store.newProject()">Neu</button>
-    <button type="button" @click="triggerLoad">Laden…</button>
+  <header class="toolbar-shell">
+    <div ref="menubarEl" class="menubar-row">
+      <strong class="brand">Skelio</strong>
+
+      <details class="menu" @toggle="onMenuToggle($event)">
+        <summary>Datei</summary>
+        <div class="menu-panel" role="menu">
+          <button type="button" role="menuitem" @click="menuNew">Neu</button>
+          <button type="button" role="menuitem" @click="menuLoad">Laden…</button>
+          <template v-if="tauri">
+            <div class="menu-sep" />
+            <button type="button" role="menuitem" @click="menuOpenFolder">Ordner…</button>
+            <button type="button" role="menuitem" @click="menuSaveFolder">Ordner speichern</button>
+            <button type="button" role="menuitem" class="ghost" @click="menuSaveFolderAs">Speichern unter…</button>
+          </template>
+          <div class="menu-sep" />
+          <button type="button" role="menuitem" @click="menuSaveEditor">Editor speichern…</button>
+          <button type="button" role="menuitem" @click="menuExportRuntime">Runtime exportieren…</button>
+        </div>
+      </details>
+
+      <details class="menu" @toggle="onMenuToggle($event)">
+        <summary>Bearbeiten</summary>
+        <div class="menu-panel" role="menu">
+          <button type="button" role="menuitem" @click="menuUndo">Rückgängig</button>
+          <button type="button" role="menuitem" @click="menuRedo">Wiederholen</button>
+        </div>
+      </details>
+
+      <details class="menu" @toggle="onMenuToggle($event)">
+        <summary>Ansicht</summary>
+        <div class="menu-panel menu-panel--wide" role="menu">
+          <label class="menu-chk">
+            <input
+              type="checkbox"
+              :checked="store.animatorRigMeshDeformOverlay"
+              @change="store.setAnimatorRigMeshDeformOverlay(($event.target as HTMLInputElement).checked)"
+            />
+            Mesh-Overlay
+          </label>
+          <label class="menu-chk">
+            <input
+              type="checkbox"
+              :checked="store.animatorDeformMeshDraw"
+              @change="store.setAnimatorDeformMeshDraw(($event.target as HTMLInputElement).checked)"
+            />
+            Deform-Mesh
+          </label>
+        </div>
+      </details>
+
+      <div class="mode-tabs" role="tablist" aria-label="Arbeitsmodus">
+        <button
+          type="button"
+          role="tab"
+          class="mode-tab"
+          :class="{ 'mode-tab--on': workspaceMode === 'animate' }"
+          :aria-selected="workspaceMode === 'animate'"
+          @click="store.setWorkspaceMode('animate')"
+        >
+          Animate
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="mode-tab"
+          :class="{ 'mode-tab--on': workspaceMode === 'rig' }"
+          :aria-selected="workspaceMode === 'rig'"
+          @click="store.setWorkspaceMode('rig')"
+        >
+          Rig
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="mode-tab"
+          :class="{ 'mode-tab--on': workspaceMode === 'export' }"
+          :aria-selected="workspaceMode === 'export'"
+          @click="store.setWorkspaceMode('export')"
+        >
+          Export
+        </button>
+      </div>
+
+      <!-- Immer sichtbar: Setup-Wizard (zusätzlich unter Modus »Rig« in Zeile 2) -->
+      <button
+        type="button"
+        class="btn-character-setup"
+        title="Character Setup — geführter Assistent (Wizard)"
+        @click="store.openCharacterRigModal()"
+      >
+        Character Setup…
+      </button>
+
+      <span class="grow" />
+
+      <button type="button" class="ghost help-btn" title="Toolbar-Überblick" @click="openHelp">?</button>
+    </div>
+
+    <div class="context-row">
+      <template v-if="workspaceMode === 'animate'">
+        <span class="ctx-hint">Viewport + Timeline · Rig-Werkzeuge auch unter <strong>Rig</strong> oder <strong>Character Setup…</strong> oben.</span>
+        <label class="chk" title="Animator: Rig-Slice-Meshes als Hilfs-Dreiecke">
+          <input
+            type="checkbox"
+            :checked="store.animatorRigMeshDeformOverlay"
+            @change="store.setAnimatorRigMeshDeformOverlay(($event.target as HTMLInputElement).checked)"
+          />
+          Mesh-Overlay
+        </label>
+        <label class="chk" title="Animator: Slices als skinned Mesh">
+          <input
+            type="checkbox"
+            :checked="store.animatorDeformMeshDraw"
+            @change="store.setAnimatorDeformMeshDraw(($event.target as HTMLInputElement).checked)"
+          />
+          Deform-Mesh
+        </label>
+        <span v-if="store.quickRigMode" class="quick-rig-pill" role="status">
+          Quick Rig an — kein Keyframe-Ziehen auf Knochen/Sprites
+        </span>
+      </template>
+
+      <template v-else-if="workspaceMode === 'rig'">
+        <button
+          type="button"
+          class="btn-character-setup"
+          title="Character Setup — Wizard öffnen"
+          @click="store.openCharacterRigModal()"
+        >
+          Character Setup…
+        </button>
+        <button
+          type="button"
+          class="ghost"
+          :class="{ 'quick-rig-toggle-on': store.quickRigMode }"
+          title="Quick Rig"
+          @click="store.setQuickRigMode(!store.quickRigMode)"
+        >
+          Quick Rig
+        </button>
+        <button type="button" @click="triggerRefImage">Referenzbild…</button>
+        <button
+          v-if="store.project.referenceImage"
+          type="button"
+          class="ghost"
+          @click="store.dispatch({ type: 'clearReferenceImage' })"
+        >
+          Referenz weg
+        </button>
+        <button type="button" @click="store.dispatch({ type: 'addDemoSkinnedMesh' })">Demo-Mesh</button>
+        <button type="button" class="ghost" @click="store.dispatch({ type: 'addDemoIkChain' })">IK-Demo</button>
+        <button type="button" @click="triggerObjMesh">OBJ import…</button>
+        <label class="chk" title="OBJ: Y spiegeln">
+          <input v-model="objImportFlipY" type="checkbox" />
+          Y spiegeln
+        </label>
+        <button
+          v-if="store.project.skinnedMeshes?.length"
+          type="button"
+          class="ghost"
+          @click="store.dispatch({ type: 'clearSkinnedMeshes' })"
+        >
+          Meshes löschen
+        </button>
+      </template>
+
+      <template v-else>
+        <span class="ctx-hint">Projekt- und Runtime-Dateien</span>
+        <button type="button" @click="saveEditorProjectToFile">Editor speichern…</button>
+        <button type="button" class="ghost" @click="saveRuntimeExportToFile">Runtime exportieren…</button>
+        <template v-if="tauri">
+          <button type="button" @click="onOpenProjectFolder">Ordner…</button>
+          <button type="button" @click="onSaveProjectFolder">Ordner speichern</button>
+          <button type="button" class="ghost" @click="onSaveProjectFolderAs">Speichern unter…</button>
+        </template>
+      </template>
+
+      <span v-if="store.projectRootPath" class="path" :title="store.projectRootPath">
+        {{ store.projectManifestFileName }} @ …{{ store.projectRootPath.slice(-24) }}
+      </span>
+      <div v-if="saveFeedback" class="save-feedback" :class="{ err: !saveFeedback.ok }" role="status">
+        <span class="save-feedback-text">{{ saveFeedback.text }}</span>
+        <button type="button" class="save-feedback-close" title="Schließen" @click="dismissSaveFeedback">×</button>
+      </div>
+    </div>
+
     <input ref="fileInput" type="file" accept=".json,application/json" class="hidden" @change="onFile" />
-    <template v-if="tauri">
-      <button type="button" title="Pfad zum Ordner mit project.skelio.json (Dialog)" @click="onOpenProjectFolder">Ordner…</button>
-      <button type="button" title="Nach project.skelio.json im gewählten Ordner speichern" @click="onSaveProjectFolder">Ordner speichern</button>
-      <button type="button" class="ghost" title="Anderen Zielordner (Pfad)" @click="onSaveProjectFolderAs">Speichern unter…</button>
-    </template>
-    <button
-      type="button"
-      title="Character Setup — geführter Assistent (kein Alltags-Animator): Parts, Bones, Binding, 3D-Tiefe, Vorschau"
-      @click="store.openCharacterRigModal()"
-    >
-      Character Setup…
-    </button>
-    <button
-      type="button"
-      class="ghost"
-      :class="{ 'quick-rig-toggle-on': store.quickRigMode }"
-      title="Quick Rig: Bind-Pose und Knochen-Struktur im Hauptfenster (Viewport wie Setup »Bones«); Animator-Ziehen auf Knochen/Sprites aus"
-      @click="store.setQuickRigMode(!store.quickRigMode)"
-    >
-      Quick Rig
-    </button>
-    <span v-if="store.quickRigMode" class="quick-rig-pill" role="status">
-      Quick Rig an — Bind/Struktur; kein Keyframe-Ziehen auf Knochen/Sprites
-    </span>
-    <button type="button" @click="triggerRefImage">Referenzbild…</button>
     <input
       ref="refImageInput"
       type="file"
@@ -255,92 +478,209 @@ async function saveRuntimeExportToFile() {
       :accept="REFERENCE_IMAGE_ACCEPT_ATTR"
       @change="onRefImageFile"
     />
-    <button
-      v-if="store.project.referenceImage"
-      type="button"
-      class="ghost"
-      @click="store.dispatch({ type: 'clearReferenceImage' })"
-    >
-      Referenz weg
-    </button>
-    <button type="button" title="Quad am Root-Knochen (Skinning-Demo)" @click="store.dispatch({ type: 'addDemoSkinnedMesh' })">
-      Demo-Mesh
-    </button>
-    <button type="button" class="ghost" title="IK: zwei Knochen unter Root + FABRIK-Ziel (Inspector)" @click="store.dispatch({ type: 'addDemoIkChain' })">
-      IK-Demo
-    </button>
-    <button type="button" title="Wavefront OBJ (2D: v x y, Dreiecke/Vierecke); Gewicht 100% auf ausgewähltem Knochen" @click="triggerObjMesh">
-      OBJ import…
-    </button>
-    <label class="chk" title="Y negieren — oft nötig wenn die Geometrie Y-up exportiert wurde (Skelio: Y nach unten)">
-      <input v-model="objImportFlipY" type="checkbox" />
-      Y spiegeln
-    </label>
     <input ref="objMeshInput" type="file" accept=".obj,text/plain" class="hidden" @change="onObjMeshFile" />
-    <button
-      v-if="store.project.skinnedMeshes?.length"
-      type="button"
-      class="ghost"
-      @click="store.dispatch({ type: 'clearSkinnedMeshes' })"
-    >
-      Meshes löschen
-    </button>
-    <button
-      type="button"
-      title="Desktop-App: nativer „Speichern unter“-Dialog. Browser: Dateiauswahl (Chrome) oder Download."
-      @click="saveEditorProjectToFile"
-    >
-      Speichern…
-    </button>
-    <button
-      type="button"
-      title="Runtime-JSON exportieren (Dateiauswahl oder Download)"
-      @click="saveRuntimeExportToFile"
-    >
-      Export Runtime
-    </button>
-    <span v-if="store.projectRootPath" class="path" :title="store.projectRootPath">{{ store.projectManifestFileName }} @ …{{ store.projectRootPath.slice(-24) }}</span>
-    <div v-if="saveFeedback" class="save-feedback" :class="{ err: !saveFeedback.ok }" role="status">
-      <span class="save-feedback-text">{{ saveFeedback.text }}</span>
-      <button type="button" class="save-feedback-close" title="Schließen" @click="dismissSaveFeedback">×</button>
-    </div>
-    <label
-      class="chk"
-      title="Animator: Rig-Slice-Meshes als Hilfs-Dreiecke (bei aktivem Deform-Mesh für rig_slice ausgeblendet, sonst doppelt)"
-    >
-      <input
-        type="checkbox"
-        :checked="store.animatorRigMeshDeformOverlay"
-        @change="store.setAnimatorRigMeshDeformOverlay(($event.target as HTMLInputElement).checked)"
-      />
-      Mesh-Overlay
-    </label>
-    <label class="chk" title="Animator (2D): Slices als texturiertes skinned Mesh zeichnen (Deformation statt nur Rechteck)">
-      <input
-        type="checkbox"
-        :checked="store.animatorDeformMeshDraw"
-        @change="store.setAnimatorDeformMeshDraw(($event.target as HTMLInputElement).checked)"
-      />
-      Deform-Mesh
-    </label>
-    <span class="sp" />
-    <button type="button" @click="store.undo()">Undo</button>
-    <button type="button" @click="store.redo()">Redo</button>
+
+    <dialog ref="helpDialog" class="help-dlg" @click.self="closeHelp">
+      <div class="help-dlg-inner">
+        <h2 class="help-dlg-title">Toolbar</h2>
+        <p>
+          <strong>Character Setup…</strong> steht <strong>immer</strong> in der ersten Zeile (violetter Button) und öffnet
+          den Wizard. Zusätzlich unter Modus <strong>Rig</strong> dieselben Rig-Werkzeuge.
+        </p>
+        <p><strong>Datei / Bearbeiten / Ansicht</strong>: alle bisherigen Aktionen; nichts entfernt.</p>
+        <button type="button" class="mini-close" @click="closeHelp">Schließen</button>
+      </div>
+    </dialog>
   </header>
 </template>
 
 <style scoped>
-.bar {
+.toolbar-shell {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.4rem 0.65rem 0.5rem;
   border-bottom: 1px solid #333;
   background: #25262b;
 }
-.brand {
-  margin-right: 0.5rem;
+.menubar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+}
+.context-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  min-height: 2rem;
+  padding-top: 0.1rem;
+  border-top: 1px solid #32333a;
+}
+.grow {
+  flex: 1;
+  min-width: 0.5rem;
+}
+.mode-tabs {
+  display: inline-flex;
+  border-radius: 8px;
+  border: 1px solid #3b3f48;
+  overflow: hidden;
+  background: #1a1b20;
+}
+.mode-tab {
+  padding: 0.28rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+}
+.mode-tab:hover {
+  color: #e5e7eb;
+  background: #2a2d36;
+}
+.mode-tab--on {
+  color: #eef2ff;
+  background: linear-gradient(180deg, #4338ca 0%, #3730a3 100%);
+}
+.mode-tab--on:hover {
+  color: #fff;
+}
+.menu {
+  position: relative;
+}
+.menu > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.3rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #2e3138;
+  font-size: 0.78rem;
+  color: #e5e7eb;
+  user-select: none;
+}
+.menu > summary::-webkit-details-marker {
+  display: none;
+}
+.menu > summary::after {
+  content: " ▾";
+  font-size: 0.65rem;
+  opacity: 0.75;
+}
+.menu[open] > summary {
+  border-color: #6366f1;
+  background: #333748;
+}
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 11rem;
+  padding: 0.35rem;
+  border-radius: 8px;
+  border: 1px solid #3b3f48;
+  background: #1e2028;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.menu-panel--wide {
+  min-width: 13rem;
+}
+.menu-panel button {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+}
+.menu-sep {
+  height: 1px;
+  margin: 0.2rem 0;
+  background: #2d3340;
+}
+.menu-chk {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.menu-chk:hover {
+  background: #2a2d36;
+}
+.ctx-hint {
+  font-size: 0.7rem;
+  color: #6b7280;
+  max-width: min(100%, 22rem);
+  line-height: 1.35;
+}
+.help-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.help-dlg {
+  max-width: 28rem;
+  padding: 0;
+  border: 1px solid #3b3f48;
+  border-radius: 10px;
+  background: #1a1b22;
+  color: #e5e7eb;
+}
+.help-dlg::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.help-dlg-inner {
+  padding: 1rem 1.1rem 1.1rem;
+}
+.help-dlg-title {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
   color: #a5b4fc;
+}
+.help-dlg-inner p {
+  margin: 0 0 0.55rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+}
+.mini-close {
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #4b5563;
+  background: #2e3138;
+  color: #e5e7eb;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.mini-close:hover {
+  background: #3d424c;
+}
+.btn-character-setup {
+  border-color: #6366f1;
+  background: linear-gradient(180deg, #3730a3 0%, #312e81 100%);
+  color: #eef2ff;
+  font-weight: 600;
+}
+.btn-character-setup:hover {
+  background: linear-gradient(180deg, #4c46c4 0%, #3730a3 100%);
+}
+.brand {
+  margin-right: 0.15rem;
+  color: #a5b4fc;
+  font-size: 0.95rem;
 }
 button {
   padding: 0.35rem 0.65rem;
@@ -373,9 +713,6 @@ button.quick-rig-toggle-on {
   max-width: min(42vw, 22rem);
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.sp {
-  flex: 1;
 }
 .path {
   font-size: 0.7rem;

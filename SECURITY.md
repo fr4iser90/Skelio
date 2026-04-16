@@ -1,5 +1,5 @@
-# Sicherheit
+# Security
 
-Wenn du eine **Sicherheitslücke** melden möchtest, nutze bitte **kein** öffentliches GitHub-Issue, sondern kontaktiere die Maintainer privat (E-Mail-Adresse im Profil des Repository-Inhabers oder eine später hier einzutragende Kontaktadresse).
+To report a **security vulnerability**, please **do not** open a public GitHub issue. Contact the maintainers privately (email on the repository owner’s profile, or a contact address added here later).
 
-Wir bestätigen den Eingang sobald möglich und koordinieren ein Release oder einen Advisory nach Bedarf.
+We will acknowledge receipt as soon as we can and coordinate a fix or advisory as appropriate.

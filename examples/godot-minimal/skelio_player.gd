@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-## Lädt Skelio-Runtime-JSON, wertet die erste Animation aus, zeichnet skinned Meshes (LBS) und Knochen-Ursprünge (y-down).
-## Siehe docs/08-godot-integration.md und docs/adr/0005-godot-referenz-runtime-gdscript.md.
+## Loads Skelio runtime JSON, evaluates the first animation, draws skinned meshes (LBS) and bone origins (y-down).
+## See docs/11-godot-integration.md and docs/adr/ when a Godot ADR exists.
 class_name SkelioPlayer
 extends Node2D
 

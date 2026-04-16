@@ -55,6 +55,7 @@ export type Command =
   | { type: "setMeshVertexInfluences"; meshId: string; vertexIndex: number; influences: SkinInfluence[] }
   | { type: "setMeshVerticesInfluences"; meshId: string; updates: { vertexIndex: number; influences: SkinInfluence[] }[] }
   | { type: "addDemoIkChain" }
+  | { type: "addTwoBoneIkChainFromTip"; tipBoneId: string; name: string; allowStretch?: boolean }
   | { type: "setIkChainTarget"; chainId: string; targetX: number; targetY: number }
   | { type: "setIkChainEnabled"; chainId: string; enabled: boolean }
   | { type: "removeIkChain"; chainId: string }
@@ -325,6 +326,36 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       tipBoneId: tip.id,
       targetX: 130,
       targetY: 35,
+    });
+    return p;
+  }
+
+  if (cmd.type === "addTwoBoneIkChainFromTip") {
+    const tip = p.bones.find((b) => b.id === cmd.tipBoneId);
+    if (!tip) return p;
+    const mid = tip.parentId ? p.bones.find((b) => b.id === tip.parentId) : null;
+    if (!mid) return p;
+    const root = mid.parentId ? p.bones.find((b) => b.id === mid.parentId) : null;
+    if (!root) return p;
+    if (!p.rig) p.rig = {};
+    if (!p.rig.ik) p.rig.ik = {};
+    if (!p.rig.ik.twoBoneChains) p.rig.ik.twoBoneChains = [];
+    // Avoid duplicates on same tip.
+    if (p.rig.ik.twoBoneChains.some((c) => c.tipBoneId === tip.id)) return p;
+    const tips = worldBindBoneTips(p);
+    const tpos = tips.get(tip.id);
+    const tx = tpos?.x ?? 0;
+    const ty = tpos?.y ?? 0;
+    p.rig.ik.twoBoneChains.push({
+      id: createId("ikchain"),
+      name: cmd.name,
+      enabled: true,
+      rootBoneId: root.id,
+      midBoneId: mid.id,
+      tipBoneId: tip.id,
+      targetX: tx,
+      targetY: ty,
+      allowStretch: cmd.allowStretch ?? false,
     });
     return p;
   }

@@ -1,12 +1,12 @@
 ---
-description: Skelio Schichten & Modulgrenzen
+description: Skelio layers and module boundaries
 globs: packages/**/*
 alwaysApply: false
 ---
 
-# Architektur
+# Architecture
 
-- Quelle: `docs/03-systemarchitektur.md`, `docs/05-modulgrenzen-schnittstellen.md`, `docs/06-designpatterns-konventionen.md`.
-- `packages/domain` ist **framework-frei**: keine Imports aus `vue`, `@tauri-apps/*`, Node-spezifischen FS-APIs in Domänentypen (reine Logik ausgenommen klar gekapselter Helfer).
-- UI (`apps/skelio-desktop`) mutiert den Projekt-Zustand nur über **Commands** / Application-API, nicht durch direktes Patchen geteilter Objekte nebenbei.
-- Runtime-Export nur über eine **Mapping**-Schicht (Anti-Corruption) in Richtung `schemas/runtime-1.0.0.json`.
+- Source: `docs/03-system-architecture.md`, `docs/05-module-boundaries.md`, `docs/06-design-patterns-and-conventions.md`.
+- `packages/domain` is **framework-free**: no imports from `vue`, `@tauri-apps/*`, or Node `fs` in domain types (pure logic except clearly scoped helpers).
+- UI (`apps/skelio-desktop`) changes project state only through **commands** / the application API, not by patching shared objects ad hoc.
+- Runtime export only through a **mapping** layer (anti-corruption) toward `schemas/runtime-1.1.0.json` (and legacy `runtime-1.0.0.json` where applicable).

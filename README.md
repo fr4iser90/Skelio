@@ -1,8 +1,8 @@
 # Skelio
 
-Quelloffener 2D-**Skeletal-Animation**-Editor mit Fokus auf **Runtime-JSON** und **Godot** (Vue + Tauri Desktop).
+Open-source **2D skeletal animation** editor focused on **runtime JSON** and **Godot** (Vue + Tauri desktop).
 
-## Schnellstart (Entwicklung)
+## Quick start (development)
 
 ```bash
 pnpm install
@@ -11,16 +11,16 @@ pnpm typecheck
 pnpm dev
 ```
 
-- **`pnpm dev`:** nur Vite (Browser `http://localhost:1420/`). **`pnpm tauri dev`** im Ordner `apps/skelio-desktop`: natives Fenster — **Rust** + [Tauri-Voraussetzungen](https://tauri.app/start/prerequisites/).
-- **`pnpm test`:** Pakete unter `packages/*`.
+- **`pnpm dev`:** Vite only (browser `http://localhost:1420/`). **`pnpm tauri dev`** in `apps/skelio-desktop`: native window — **Rust** + [Tauri prerequisites](https://tauri.app/start/prerequisites/).
+- **`pnpm test`:** packages under `packages/*`.
 
-## Dokumentation
+## Documentation
 
-- **Planung & Architektur:** [docs/README.md](docs/README.md)
+- **Planning & architecture:** [docs/README.md](docs/README.md)
 - **ADRs:** [docs/adr/README.md](docs/adr/README.md)
-- **Mitwirken:** [CONTRIBUTING.md](CONTRIBUTING.md)
-- **KI / Agenten:** [AGENTS.md](AGENTS.md)
+- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
+- **AI / agents:** [AGENTS.md](AGENTS.md)
 
-## Lizenz
+## License
 
-Siehe [LICENSE](LICENSE) (GNU GPLv3).
+See [LICENSE](LICENSE) (GNU GPLv3).

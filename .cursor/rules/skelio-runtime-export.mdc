@@ -1,11 +1,11 @@
 ---
-description: Skelio Runtime JSON & Schema
+description: Skelio runtime JSON and schema
 globs: schemas/**/* packages/**/export/**/* packages/**/serializer/**/* **/*export*
 alwaysApply: false
 ---
 
-# Runtime-Export
+# Runtime export
 
-- Vertrag: `docs/04-datenmodell-schema.md` + `schemas/runtime-1.0.0.json` + `schemas/CHANGELOG.md`.
-- Jede Änderung: **ADR** in `docs/adr/`, Schema-Version (SemVer), Fixture unter `packages/domain/test/fixtures/`, CI-/Tests anpassen.
-- Keys: **camelCase** (ADR-0008). Zeit: **Sekunden** (`t`) (ADR-0006). `coordinateSystem`: **`y-down`** im MVP (ADR-0007).
+- Contract: `docs/04-data-model-schema.md` + `schemas/runtime-1.1.0.json` (+ `runtime-1.0.0.json` legacy) + `schemas/CHANGELOG.md`.
+- Every change: **ADR** in `docs/adr/`, schema SemVer bump, fixture under `packages/domain/test/fixtures/`, update CI/tests.
+- Keys: **camelCase** (document in ADR when formalized). Time: **seconds** (`t`). `coordinateSystem`: **`y-down`** for MVP (document in ADR when formalized).

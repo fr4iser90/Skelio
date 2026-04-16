@@ -148,7 +148,10 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function dispatch(cmd: Command): boolean {
-    const next = applyCommand(toRaw(project.value), cmd);
+    const cur = toRaw(project.value);
+    const next = applyCommand(cur, cmd);
+    // If the command produced no changes, do not create an undo step and report failure.
+    if (next === cur) return false;
     const issues = validateEditorProject(next);
     if (issues.length > 0) {
       console.warn("Skelio: command rejected", issues);

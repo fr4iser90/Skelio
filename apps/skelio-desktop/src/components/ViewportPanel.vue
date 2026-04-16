@@ -24,6 +24,7 @@ import {
   sampleControlChannel,
   type CharacterRigConfig,
   type CharacterRigSpriteSlice,
+  type EditorProject,
   type Mat2D,
   type Mat4,
   type SkinInfluence,
@@ -73,13 +74,46 @@ const rigWorldYCompress = computed(() =>
 /**
  * Cached solved pose for the current reactive frame (time/project).
  * Keeps `evaluatePose` as SSoT, but avoids multiple recalcs per draw / event handler.
+ *
+ * While dragging an IK target/pole handle, feed preview coordinates into pose eval so the
+ * chain follows the handle live (otherwise the foot stays on the old IK until pointer-up).
  */
-const solvedPose = computed(() =>
-  evaluatePose(project.value, currentTime.value, {
-    applyIk: true,
-    planar2dNoTiltSpin: rigCameraViewKind.value === "2d",
-  }),
-);
+const solvedPose = computed(() => {
+  const p = project.value;
+  const t = currentTime.value;
+  const planar = rigCameraViewKind.value === "2d";
+  const opts = { applyIk: true, planar2dNoTiltSpin: planar } as const;
+  const drag = ikControlDrag.value;
+  if (!drag) return evaluatePose(p, t, opts);
+  const rig = p.rig;
+  const ctls = rig?.controls?.ikTargets2d;
+  if (!rig || !ctls?.length) return evaluatePose(p, t, opts);
+  const nextCtls = ctls.map((c) => {
+    if (c.id !== drag.controlId) return c;
+    const poleOk =
+      typeof drag.preview.poleX === "number" &&
+      typeof drag.preview.poleY === "number" &&
+      Number.isFinite(drag.preview.poleX) &&
+      Number.isFinite(drag.preview.poleY);
+    return {
+      ...c,
+      x: drag.preview.x,
+      y: drag.preview.y,
+      ...(poleOk ? { poleX: drag.preview.poleX, poleY: drag.preview.poleY } : {}),
+    };
+  });
+  const pPatch: EditorProject = {
+    ...p,
+    rig: {
+      ...rig,
+      controls: {
+        ...(rig.controls ?? {}),
+        ikTargets2d: nextCtls,
+      },
+    },
+  };
+  return evaluatePose(pPatch, t, opts);
+});
 
 /** Muss zu {@link solvedPose} passen: Skinning nutzt `pose * inv(bind)` — bind ebenfalls ohne Tilt/Spin in 2D. */
 const planarBindOpts = computed(() =>
@@ -735,6 +769,48 @@ function ikEffectorChainForBone(
   return null;
 }
 
+function enabledTwoBoneChainRoleForBone(
+  boneId: string,
+): { chainId: string; role: "root" | "mid" | "tip" } | null {
+  const p = project.value;
+  for (const ch of getTwoBoneIkChains(p)) {
+    if (!ch.enabled) continue;
+    if (ch.rootBoneId === boneId) return { chainId: ch.id, role: "root" };
+    if (ch.midBoneId === boneId) return { chainId: ch.id, role: "mid" };
+    if (ch.tipBoneId === boneId) return { chainId: ch.id, role: "tip" };
+  }
+  return null;
+}
+
+function ensureTwoBonePoleInitialized(chainId: string, controlId: string): void {
+  const ctl = project.value.rig?.controls?.ikTargets2d?.find((c) => c.id === controlId);
+  if (!ctl) return;
+  if (typeof ctl.poleX === "number" && typeof ctl.poleY === "number") return;
+
+  const chain =
+    project.value.rig?.ik?.twoBoneChains?.find((c) => c.id === chainId) ??
+    project.value.ikTwoBoneChains?.find((c) => c.id === chainId);
+  if (!chain) return;
+
+  // Default pole: near mid joint, offset to one side.
+  const ps = solvedPose.value;
+  const p0 = ps.solvedOriginByBoneId.get(chain.rootBoneId);
+  const p1 = ps.solvedOriginByBoneId.get(chain.midBoneId);
+  if (!p0 || !p1) return;
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  const l = Math.hypot(dx, dy) || 1;
+  const nx = dx / l;
+  const ny = dy / l;
+  const perpX = -ny;
+  const perpY = nx;
+  const off = 70; // world px-ish; stable default for UI/authoring
+  const poleX = p1.x + perpX * off;
+  const poleY = p1.y + perpY * off;
+
+  store.dispatch({ type: "setIkTargetControlBase", controlId, x: ctl.x, y: ctl.y, poleX, poleY });
+}
+
 function dispatchIkChainWorldTarget(chainId: string, kind: "two" | "fabrik", twx: number, twy: number) {
   if (kind === "two") {
     store.dispatch({ type: "setIkChainTarget", chainId, targetX: twx, targetY: twy });
@@ -1348,6 +1424,40 @@ function onCanvasPointerDown(e: PointerEvent) {
       e.preventDefault();
       store.selectBone(hitPose);
       const mode = e.shiftKey ? "translate" : animatorTool.value;
+
+      // Intuitive IK authoring: when 2-bone IK is enabled, dragging on root/mid should operate the pole,
+      // otherwise users "rotate" and nothing moves because IK overrides the rotations.
+      if (mode === "rotate") {
+        const role = enabledTwoBoneChainRoleForBone(hitPose);
+        if (role && (role.role === "root" || role.role === "mid")) {
+          // Ensure a visible/usable control exists.
+          store.dispatch({ type: "ensureIkTargetControl", chainId: role.chainId });
+          const ctl = project.value.rig?.controls?.ikTargets2d?.find((c) => c.chainId === role.chainId);
+          if (ctl) {
+            ensureTwoBonePoleInitialized(role.chainId, ctl.id);
+            const ctl2 = project.value.rig?.controls?.ikTargets2d?.find((c) => c.id === ctl.id);
+            if (ctl2) {
+              selectedIkControlId.value = ctl2.id;
+              const start = controlPoseNow(ctl2.id, { x: ctl2.x, y: ctl2.y, poleX: ctl2.poleX, poleY: ctl2.poleY });
+              ikControlDrag.value = {
+                controlId: ctl2.id,
+                kind: "pole",
+                pointerId: e.pointerId,
+                start,
+                preview: { ...start },
+              };
+              try {
+                c.setPointerCapture(e.pointerId);
+              } catch {
+                /* ignore */
+              }
+              draw();
+              return;
+            }
+          }
+        }
+      }
+
       boneDrag.value = {
         boneId: hitPose,
         animGrab: animatorBoneDragGrab(hitPose, wx, wy),

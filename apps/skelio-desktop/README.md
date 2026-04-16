@@ -1,14 +1,14 @@
 # Skelio Desktop (Vue + Tauri)
 
-## Ordnerprojekt (ADR-0004)
+## Folder project (ADR-0004 when documented)
 
-- Im Projektordner liegen **`project.skelio.json`** (Editor-Zustand) und **`assets/`** (für spätere Binärdateien; wird beim Speichern angelegt).
-- In der Desktop-App: **Ordner…** / **Ordner speichern** — der Pfad wird per **Eingabedialog** gesetzt (kein nativer Ordner-Picker in dieser Version, damit Linux-Builds ohne GTK-Dialog-Toolchain auskommen).
+- The project folder contains **`project.skelio.json`** (editor state) and **`assets/`** (for binary assets; created on save).
+- In the desktop app: **Open folder…** / **Save folder** — the path is set via an **input dialog** (no native folder picker in this version so Linux builds can avoid a GTK dialog toolchain).
 
-## Entwicklung
+## Development
 
 ```bash
 pnpm --filter @skelio/desktop tauri dev
 ```
 
-Voraussetzungen siehe [Tauri (Linux)](https://tauri.app/start/prerequisites/).
+Prerequisites: [Tauri (Linux and others)](https://tauri.app/start/prerequisites/).

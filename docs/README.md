@@ -1,38 +1,41 @@
-# Skelio — Planungs- und Projektdokumentation
+# Skelio documentation
 
-Diese Dokumentation ist die **verbindliche Planungsgrundlage** vor der Implementierung. Reihenfolge zum Lesen:
+Numbered guides **00–15** are the canonical developer narrative. [AGENTS.md](../AGENTS.md) summarizes what automation should read first.
 
-| Nr. | Dokument | Zweck |
-|-----|----------|--------|
-| 01 | [Vision & Strategie](01-vision-strategie.md) | Warum Skelio, Positionierung, Leitplanken |
-| 02 | [Anforderungen & MVP](02-anforderungen-mvp.md) | Funktional, nicht-funktional, MVP-Scope, später |
-| 03 | [Systemarchitektur](03-systemarchitektur.md) | Schichten, Module, Laufzeit, Tauri/Vue |
-| 04 | [Datenmodell & Export-Schema](04-datenmodell-schema.md) | Domain-Modell, JSON, Versionierung, Migration |
-| 05 | [Modulgrenzen & Schnittstellen](05-modulgrenzen-schnittstellen.md) | APIs zwischen Core, UI, I/O |
-| 06 | [Designpatterns & Konventionen](06-designpatterns-konventionen.md) | Muster, Naming, Erweiterbarkeit |
-| 07 | [UI & Workflow](07-ui-workflow.md) | Editor-Paradigmen, Panels, Interaktion |
-| 08 | [Godot-Integration](08-godot-integration.md) | Export, Konventionen, Runtime, Tests |
-| 09 | [Roadmap & Phasen](09-roadmap-phasen.md) | Meilensteine, Abhängigkeiten |
-| 10 | [Teststrategie & Qualität](10-teststrategie-qualitaet.md) | Pyramide, Golddateien, CI |
-| 11 | [Risiken & Nicht-Ziele](11-risiken-nichtziele.md) | Was wir bewusst nicht tun |
-| 12 | [Open Source & Governance](12-opensource-governance.md) | Lizenz, Beiträge, Roadmap-Kommunikation |
-| 13 | [KI-gestützte Entwicklung](13-ki-gestuetzte-entwicklung.md) | Ableitung von Cursor-Regeln aus dieser Doku |
-| 14 | [Vertical Slice 1 — Tasks](14-vertical-slice-1-tasks.md) | Konkrete Implementierungsaufgaben mit Akzeptanzkriterien |
+## Index (00–15)
 
-**Architecture Decision Records (ADRs):** [adr/README.md](adr/README.md)
+| Doc | Topic |
+|-----|--------|
+| [00-overview.md](./00-overview.md) | What Skelio is, audience, non-goals |
+| [01-vision-and-scope.md](./01-vision-and-scope.md) | Product direction and MVP boundaries |
+| [02-repository-structure.md](./02-repository-structure.md) | Monorepo layout (`apps/`, `packages/`) |
+| [03-system-architecture.md](./03-system-architecture.md) | Layers and data flow |
+| [04-data-model-schema.md](./04-data-model-schema.md) | Runtime JSON contract (with JSON Schema) |
+| [05-module-boundaries.md](./05-module-boundaries.md) | Package responsibilities and forbidden imports |
+| [06-design-patterns-and-conventions.md](./06-design-patterns-and-conventions.md) | Commands, state mutation, naming |
+| [07-testing-and-ci.md](./07-testing-and-ci.md) | Tests, typecheck, CI expectations |
+| [08-desktop-application.md](./08-desktop-application.md) | Tauri + Vue desktop app |
+| [09-domain-editor-pipeline.md](./09-domain-editor-pipeline.md) | Poses, IK/FK, rigs, meshes (domain) |
+| [10-runtime-export.md](./10-runtime-export.md) | From editor project to runtime file |
+| [11-godot-integration.md](./11-godot-integration.md) | Consuming runtime JSON in Godot (notes) |
+| [12-contributing-and-community.md](./12-contributing-and-community.md) | PRs, conduct, where to discuss |
+| [13-ai-assisted-development.md](./13-ai-assisted-development.md) | Agents, Cursor rules, safe automation |
+| [14-vertical-slice-1-tasks.md](./14-vertical-slice-1-tasks.md) | MVP slice tasks and acceptance hints |
+| [15-product-gaps-and-roadmap.md](./15-product-gaps-and-roadmap.md) | Known gaps and planned work |
 
----
+## Other material
 
-Änderungen an Architektur oder Export-Format: **ADR anlegen** und ggf. `04-datenmodell-schema.md` anpassen.
+- **ADRs:** [adr/README.md](./adr/README.md)
+- **Runtime JSON Schema (machine-readable):** `schemas/runtime-1.1.0.json` (legacy: `runtime-1.0.0.json`)
+- **Schema changelog:** `schemas/CHANGELOG.md`
 
-## Repo-Layout (Implementierung)
+## Repo commands
 
-| Pfad | Inhalt |
-|------|--------|
-| `apps/skelio-desktop/` | Vue + Tauri Desktop |
-| `packages/domain/` | Domänenlogik, Runtime-Konstanten, Fixtures |
-| `packages/application/` | Use Cases / Commands (wächst) |
-| `packages/infrastructure/` | FS, Serializer (wächst) |
-| `schemas/` | JSON Schema für Runtime-Export |
-| `examples/godot-minimal/` | Godot-4-Stub |
-| `.cursor/rules/` | KI-/Editor-Regeln |
+```bash
+pnpm install
+pnpm test
+pnpm typecheck
+pnpm dev
+```
+
+`pnpm dev` runs the desktop app filter; full Tauri window needs Rust — see [08-desktop-application.md](./08-desktop-application.md).

@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { getLocalBoneState, getTwoBoneIkChains, normalizeInfluenceRow } from "@skelio/domain";
+import {
+  getLocalBoneState,
+  getTwoBoneIkChains,
+  normalizeInfluenceRow,
+  worldPoseBoneTips,
+  worldPoseOrigins,
+} from "@skelio/domain";
 import { storeToRefs } from "pinia";
 import { computed, ref } from "vue";
 import { useEditorStore } from "../stores/editor.js";
@@ -26,6 +32,7 @@ const bindPoseLocked = computed(() => !(characterRigModalOpen.value || quickRigM
 
 const twoBoneIkChainsShown = computed(() => getTwoBoneIkChains(project.value));
 const fabrikIkChainsShown = computed(() => project.value.rig?.ik?.fabrikChains ?? []);
+const ikCreateError = ref<string | null>(null);
 
 /** Rechte Spalte: nur ein Bereich sichtbar → weniger Scroll, klarer als alles untereinander. */
 const inspectorTab = ref<"project" | "bone" | "mesh" | "ik">("bone");
@@ -254,9 +261,90 @@ function removeFabrikIkChain(chainId: string) {
 }
 
 function addFabrikIkFromSelectedTip() {
+  ikCreateError.value = null;
   const id = selectedBoneId.value;
   if (!id) return;
-  store.dispatch({ type: "addFabrikIkChainFromTip", tipBoneId: id, name: "FABRIK-Kette" });
+  const before = new Set((project.value.rig?.ik?.fabrikChains ?? []).map((c) => c.id));
+  const ok = store.dispatch({ type: "addFabrikIkChainFromTip", tipBoneId: id, name: "FABRIK-Kette", maxBones: 3 });
+  if (!ok) {
+    ikCreateError.value = "FABRIK konnte nicht erstellt werden (Kette braucht mind. 3 Knochen: Tip → Parent → Grandparent).";
+    return;
+  }
+  const after = project.value.rig?.ik?.fabrikChains ?? [];
+  const created = after.find((c) => !before.has(c.id)) ?? null;
+  if (!created) {
+    ikCreateError.value = "FABRIK wurde nicht angelegt (unerwarteter Zustand).";
+    return;
+  }
+
+  // Prevent any visible snap: disable → seed target at current pose tip → enable.
+  store.dispatch({ type: "setFabrikIkChainEnabled", chainId: created.id, enabled: false });
+  const tipPt = worldPoseBoneTips(project.value, currentTime.value).get(id);
+  if (tipPt) {
+    store.dispatch({ type: "setFabrikIkChainTarget", chainId: created.id, targetX: tipPt.x, targetY: tipPt.y });
+  }
+  store.dispatch({ type: "setFabrikIkChainEnabled", chainId: created.id, enabled: true });
+}
+
+function addTwoBoneIkFromSelectedTip() {
+  ikCreateError.value = null;
+  const tipId = selectedBoneId.value;
+  if (!tipId) return;
+  const tipBone = project.value.bones.find((b) => b.id === tipId) ?? null;
+  const mid = tipBone?.parentId ? project.value.bones.find((b) => b.id === tipBone.parentId) ?? null : null;
+  const root = mid?.parentId ? project.value.bones.find((b) => b.id === mid.parentId) ?? null : null;
+  if (!tipBone || !mid || !root) {
+    ikCreateError.value = "2‑Bone IK braucht eine Parent-Kette aus 3 Knochen: thigh → leg → foot (wähle den Fuß als Tip).";
+    return;
+  }
+  const before = new Set(getTwoBoneIkChains(project.value).map((c) => c.id));
+  const ok = store.dispatch({ type: "addTwoBoneIkChainFromTip", tipBoneId: tipId, name: "2-Bone IK (Leg)" });
+  if (!ok) {
+    ikCreateError.value = "2‑Bone IK konnte nicht erstellt werden (Chain existiert evtl. schon oder Auswahl ist kein gültiger Tip).";
+    return;
+  }
+  const after = getTwoBoneIkChains(project.value);
+  const created = after.find((c) => !before.has(c.id)) ?? null;
+  if (!created) {
+    ikCreateError.value = "2‑Bone IK wurde nicht angelegt (unerwarteter Zustand).";
+    return;
+  }
+
+  // Prevent snap: disable → seed target to current pose tip → add control with pole → enable.
+  store.dispatch({ type: "setIkChainEnabled", chainId: created.id, enabled: false });
+  const tipPt = worldPoseBoneTips(project.value, currentTime.value).get(tipId);
+  if (tipPt) {
+    store.dispatch({ type: "setIkChainTarget", chainId: created.id, targetX: tipPt.x, targetY: tipPt.y });
+  }
+
+  // Create a control so we can seed a pole (stable knee direction).
+  store.dispatch({ type: "ensureIkTargetControl", chainId: created.id });
+  const ctl = project.value.rig?.controls?.ikTargets2d?.find((c) => c.chainId === created.id) ?? null;
+  if (ctl) {
+    const origins = worldPoseOrigins(project.value, currentTime.value);
+    const rootO = origins.get(created.rootBoneId);
+    const midO = origins.get(created.midBoneId);
+    // Default pole: push "forward" from the mid joint perpendicular to the root→tip direction.
+    if (rootO && midO && tipPt) {
+      const dx = tipPt.x - rootO.x;
+      const dy = tipPt.y - rootO.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const poleX = midO.x + nx * 60;
+      const poleY = midO.y + ny * 60;
+      store.dispatch({
+        type: "setIkTargetControlBase",
+        controlId: ctl.id,
+        x: ctl.x,
+        y: ctl.y,
+        poleX,
+        poleY,
+      });
+    }
+  }
+
+  store.dispatch({ type: "setIkChainEnabled", chainId: created.id, enabled: true });
 }
 </script>
 
@@ -523,11 +611,22 @@ function addFabrikIkFromSelectedTip() {
 
       <section v-show="inspectorTab === 'ik'" class="insp-section">
         <h3 class="panel-title">IK</h3>
+        <p v-if="ikCreateError" class="muted small" style="color:#fca5a5;">
+          {{ ikCreateError }}
+        </p>
         <p class="muted small">
           Zwei-Knochen-Ketten und <strong>FABRIK</strong>. Knochen wählen, dann FABRIK anlegen — oder <strong>IK-Demo</strong>
           (Modus <strong>Rig</strong>).
         </p>
         <div v-if="selectedBoneId" class="btnrow">
+          <button
+            type="button"
+            class="mini"
+            title="2-Segment IK (3 Knochen): Tip → Parent → Grandparent. Stabiler Knie-/Ellbogen-Pole."
+            @click="addTwoBoneIkFromSelectedTip"
+          >
+            2‑Bone IK aus gewähltem Knochen
+          </button>
           <button
             type="button"
             class="mini"

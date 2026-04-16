@@ -1,4 +1,4 @@
-/** File I/O, serializers; no Vue. See docs/05-modulgrenzen-schnittstellen.md */
+/** File I/O, serializers; no Vue. See docs/05-module-boundaries.md */
 export {
   ASSETS_DIRECTORY_NAME,
   PROJECT_MANIFEST_FILE,

@@ -1,22 +1,22 @@
-# Godot-Minimalbeispiel (Skelio)
+# Godot minimal example (Skelio)
 
-Ziel: eine **Godot 4.x**-Szene, die ein **Runtime-JSON** aus Skelio lädt und eine minimale Pose animiert (siehe `docs/08-godot-integration.md`, ADR-0005 GDScript).
+Goal: a **Godot 4.x** scene that loads **runtime JSON** from Skelio and plays a minimal pose (see `docs/11-godot-integration.md`).
 
-## Voraussetzungen
+## Requirements
 
-- **Godot 4.2 oder neuer** (4.x; bei Problemen eine aktuelle 4.x-Minorversion nutzen).
+- **Godot 4.2 or newer** (4.x; if in doubt, use a current 4.x minor).
 
-## Nutzung
+## Usage
 
-1. Godot starten und **Projekt importieren** mit diesem Ordner (`project.godot`).
-2. Hauptszene starten (F5): `main.tscn` ist die Run-Szene.
-3. Standard-JSON: `fixtures/runtime-minimal.valid.json` (Root-Knochen bewegt sich auf der X-Achse über 1 s, Schleife; ein **skinned Quad** folgt dem Bone via Linear Blend Skinning).
-4. Eigenes Export-JSON: im Inspektor beim Knoten `SkelioPlayer` **Runtime Json Path** auf eine `res://…`- oder absolute Pfad-Datei setzen (JSON sollte zu `schemas/runtime-1.1.0.json` passen; `skins` ist ein Array von Dreiecks-Meshes).
+1. Start Godot and **Import** this folder as the project (`project.godot`).
+2. Run the main scene (F5): `main.tscn` is the run scene.
+3. Default JSON: `fixtures/runtime-minimal.valid.json` (root bone moves on X over 1 s, loop; one **skinned quad** follows the bone via linear blend skinning).
+4. Your own export: on the `SkelioPlayer` node, set **Runtime Json Path** to a `res://…` or absolute file (JSON should match `schemas/runtime-1.1.0.json`; `skins` is an array of triangle meshes).
 
-## Komponenten
+## Components
 
-- **`SkelioPlayer`** (`skelio_player.gd`): lädt die erste Animation, baut Welt-Matrizen (Bind/Pose) wie im Domain-Export, **deformiert** `skins[]` per Linear Blend Skinning (Gewichte × Pose·Bind⁻¹), zeichnet Meshes und einen Punkt pro Knochen-Ursprung; optional **Label** mit Root-Position, Zeit und Skin-Anzahl.
+- **`SkelioPlayer`** (`skelio_player.gd`): loads the first animation, builds world matrices (bind/pose) like the domain export, **deforms** `skins[]` with linear blend skinning (weights × pose·bind⁻¹), draws meshes and a point per bone origin; optional **label** with root position, time, and skin count.
 
 ## Status
 
-Funktionsfähiger Referenzpfad für Vertical Slice 1 (Godot-Seite); kein vollständiges Addon-Paket.
+Working reference path for Vertical Slice 1 (Godot side); not a full add-on package.

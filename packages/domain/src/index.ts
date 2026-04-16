@@ -65,6 +65,7 @@ export {
   localTranslationForWorldJointAtPoseTime,
   boneLengthFromWorldPointer,
   boneLengthAndBindRotationFromWorldTip,
+  poseBoneRotationTowardWorldPoint,
   childBindTranslationAtParentTip,
   boundSliceLocalInBindSpace,
   boundSliceWorldAtPose,

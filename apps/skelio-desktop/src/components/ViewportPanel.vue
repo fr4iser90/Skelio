@@ -10,11 +10,11 @@ import {
   boneIdsInCharacterSubtree,
   getCharacterRig,
   boneLengthAndBindRotationFromWorldTip,
+  poseBoneRotationTowardWorldPoint,
   deformSkinnedMesh,
   evaluatePose,
   findCharacterRigBinding,
   getFabrikIkChains,
-  getLocalBoneState,
   getTwoBoneIkChains,
   localBindTranslationForWorldOrigin,
   mat4Invert,
@@ -205,8 +205,8 @@ const boneDrag = ref<{
   animGrab?: { j0x: number; j0y: number; p0x: number; p0y: number };
   /** Animator interaction mode. */
   mode?: "rotate" | "translate";
-  /** Rotate drag: angle around joint on pointer down. */
-  rotGrab?: { a0: number; localRot0: number };
+  /** Rotate drag: joint at pointer-down (fixed) for aiming math. */
+  rotGrab?: { jointFix: { x: number; y: number } };
 } | null>(null);
 
 const ikControlDrag = ref<
@@ -288,7 +288,7 @@ const viewportHintText = computed(() => {
       }
       return "Quick Rig: … · Delete/Backspace = Knochen löschen (nicht Root) · Esc = Längen-Vorschau abbrechen · WASD · Rad · Alt+Pan · Rechts = drehen";
     }
-    return `Animator: tool=${animatorTool.value.toUpperCase()} · drag sprite/bone = ${animatorTool.value} keys · Shift = translate · G=translate · R=rotate · WASD = pan · wheel=zoom · Alt+left=pan · right-drag=rotate view`;
+    return `Animator: ${animatorTool.value === "rotate" ? "Linksklick = Drehen (um Gelenk)" : "Linksklick = Position (Keys)"} · Shift+Linksklick = immer Position · G/R umschalten · WASD · Rad · Alt+Links=Pan · Rechts=Ansicht drehen`;
   }
   if (characterRigModalOpen.value && rigCameraWorldYScale.value < 0.999) {
     return "Character Setup: Kamera Y gestaucht (Pseudo-Tiefe) — gleiche Logik für Klicks · Rad = Zoom";
@@ -931,18 +931,9 @@ function animatorBoneDragGrab(boneId: string, pwx: number, pwy: number): { j0x: 
   return { j0x: j.x, j0y: j.y, p0x: pwx, p0y: pwy };
 }
 
-function angleAroundJoint(boneId: string, wx: number, wy: number): number {
+function beginAnimatorRotateDrag(boneId: string): { jointFix: { x: number; y: number } } {
   const j = solvedPose.value.solvedOriginByBoneId.get(boneId);
-  const cx = j?.x ?? 0;
-  const cy = j?.y ?? 0;
-  return Math.atan2(wy - cy, wx - cx);
-}
-
-function beginAnimatorRotateDrag(boneId: string, wx: number, wy: number): { a0: number; localRot0: number } {
-  const clip = poseProject.value.clips.find((c) => c.id === poseProject.value.activeClipId);
-  const b = poseProject.value.bones.find((x) => x.id === boneId)!;
-  const s = getLocalBoneState(b, clip, currentTime.value);
-  return { a0: angleAroundJoint(boneId, wx, wy), localRot0: s.rot };
+  return { jointFix: j ? { x: j.x, y: j.y } : { x: 0, y: 0 } };
 }
 
 /** Topmost sprite rect under cursor that is bound to a bone (animator: drag drives TX/TY on that bone). */
@@ -1581,7 +1572,7 @@ function onCanvasPointerDown(e: PointerEvent) {
         boneId: hitPose,
         animGrab: animatorBoneDragGrab(hitPose, wx, wy),
         mode,
-        rotGrab: mode === "rotate" ? beginAnimatorRotateDrag(hitPose, wx, wy) : undefined,
+        rotGrab: mode === "rotate" ? beginAnimatorRotateDrag(hitPose) : undefined,
       };
       try {
         c.setPointerCapture(e.pointerId);
@@ -1601,7 +1592,7 @@ function onCanvasPointerDown(e: PointerEvent) {
         boneId: fromSprite.boneId,
         animGrab: animatorBoneDragGrab(fromSprite.boneId, wx, wy),
         mode,
-        rotGrab: mode === "rotate" ? beginAnimatorRotateDrag(fromSprite.boneId, wx, wy) : undefined,
+        rotGrab: mode === "rotate" ? beginAnimatorRotateDrag(fromSprite.boneId) : undefined,
       };
       try {
         c.setPointerCapture(e.pointerId);
@@ -1778,18 +1769,26 @@ function onCanvasPointerMove(e: PointerEvent) {
           }
         }
       } else {
-        const grab = boneDrag.value.rotGrab ?? beginAnimatorRotateDrag(boneDrag.value.boneId, wx, wy);
-        const a = angleAroundJoint(boneDrag.value.boneId, wx, wy);
-        const delta = a - grab.a0;
-        const desiredLocalRot = grab.localRot0 + delta;
-        const b = poseProject.value.bones.find((x) => x.id === boneDrag.value!.boneId);
-        if (b) {
+        const bid = boneDrag.value.boneId;
+        const rg = boneDrag.value.rotGrab ?? beginAnimatorRotateDrag(bid);
+        const poseOpts = rigCameraViewKind.value === "2d" ? ({ planar2dNoTiltSpin: true } as const) : undefined;
+        const desired = poseBoneRotationTowardWorldPoint(
+          poseProject.value,
+          currentTime.value,
+          bid,
+          wx,
+          wy,
+          rg.jointFix,
+          poseOpts,
+        );
+        const b = poseProject.value.bones.find((x) => x.id === bid);
+        if (b && desired != null) {
           store.dispatch({
             type: "addKeyframe",
             boneId: b.id,
             property: "rot",
             t: currentTime.value,
-            v: desiredLocalRot - b.bindPose.rotation,
+            v: desired - b.bindPose.rotation,
           });
         }
       }

@@ -5,6 +5,7 @@ import {
   BONE_LENGTH_HIT_MIN_LOCAL,
   boneLengthAndBindRotationFromWorldTip,
   boneLengthFromWorldPointer,
+  poseBoneRotationTowardWorldPoint,
   childBindTranslationAtParentTip,
   localBindTranslationForWorldOrigin,
   localTranslationForWorldJointAtPoseTime,
@@ -172,5 +173,27 @@ describe("bone length / tip", () => {
     child.bindPose.rotation = r.rotation;
     const W = worldBindBoneMatrices(p).get(child.id)!;
     expect(Math.atan2(W.b, W.a)).toBeCloseTo(0, 4);
+  });
+
+  it("poseBoneRotationTowardWorldPoint matches bind tip aim when no keys (t=0)", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones.find((b) => b.parentId === null)!;
+    root.bindPose = { x: 0, y: 0, rotation: Math.PI / 2, sx: 1, sy: 1 };
+    root.length = 10;
+    p.bones.push({
+      id: "child_pose_aim",
+      parentId: root.id,
+      name: "child",
+      bindPose: { x: 10, y: 0, rotation: 0, sx: 1, sy: 1 },
+      length: 20,
+    });
+    const child = p.bones.find((b) => b.id === "child_pose_aim")!;
+    const J = worldBindOrigins(p).get(child.id)!;
+    const wx = J.x + 35;
+    const wy = J.y;
+    const bindAim = boneLengthAndBindRotationFromWorldTip(p, child.id, wx, wy, undefined, J)!.rotation;
+    const poseAim = poseBoneRotationTowardWorldPoint(p, 0, child.id, wx, wy, J, { planar2dNoTiltSpin: true });
+    expect(poseAim).not.toBeNull();
+    expect(poseAim!).toBeCloseTo(bindAim, 5);
   });
 });

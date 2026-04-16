@@ -1,5 +1,6 @@
 import { apply, invert, type Mat2D } from "./mat2d.js";
 import {
+  getLocalBoneState,
   worldBindBoneMatrices2D,
   worldBindBoneMatrices2DOverridingBindPose,
   worldBindBoneMatrices4,
@@ -151,6 +152,64 @@ export function boneLengthAndBindRotationFromWorldTip(
     }
   }
   return { length: L, rotation };
+}
+
+/**
+ * Animator viewport: absolute local Z rotation (same convention as {@link getLocalBoneState} `.rot`)
+ * so the bone’s +X axis aims toward a **world** point — matches {@link boneLengthAndBindRotationFromWorldTip}
+ * for child bones (parent inverse), instead of adding raw world angle deltas to local rot.
+ */
+export function poseBoneRotationTowardWorldPoint(
+  project: EditorProject,
+  time: number,
+  boneId: string,
+  worldX: number,
+  worldY: number,
+  jointWorld: { x: number; y: number },
+  opts?: GetLocalBoneStateOpts,
+): number | null {
+  const bone = project.bones.find((b) => b.id === boneId);
+  if (!bone) return null;
+  const mats = worldPoseBoneMatrices2D(project, time, opts);
+  const dx = worldX - jointWorld.x;
+  const dy = worldY - jointWorld.y;
+  const tgt = Math.atan2(dy, dx);
+  const ux = Math.cos(tgt);
+  const uy = Math.sin(tgt);
+  const clip = project.clips.find((c) => c.id === project.activeClipId);
+
+  if (bone.parentId === null) {
+    const W = mats.get(boneId);
+    if (!W) return null;
+    const cur = Math.atan2(W.b, W.a);
+    const s = getLocalBoneState(bone, clip, time, opts);
+    let dr = tgt - cur;
+    while (dr > Math.PI) dr -= 2 * Math.PI;
+    while (dr < -Math.PI) dr += 2 * Math.PI;
+    return s.rot + dr;
+  }
+
+  const P = mats.get(bone.parentId);
+  if (!P) return null;
+  const det = P.a * P.d - P.b * P.c;
+  if (Math.abs(det) < 1e-14) {
+    const W = mats.get(boneId);
+    if (!W) return null;
+    const cur = Math.atan2(W.b, W.a);
+    const s = getLocalBoneState(bone, clip, time, opts);
+    let dr = tgt - cur;
+    while (dr > Math.PI) dr -= 2 * Math.PI;
+    while (dr < -Math.PI) dr += 2 * Math.PI;
+    return s.rot + dr;
+  }
+  const invDet = 1 / det;
+  const ia = P.d * invDet;
+  const ib = -P.b * invDet;
+  const ic = -P.c * invDet;
+  const id = P.a * invDet;
+  const hx = ia * ux + ic * uy;
+  const hy = ib * ux + id * uy;
+  return Math.atan2(hy, hx);
 }
 
 /**

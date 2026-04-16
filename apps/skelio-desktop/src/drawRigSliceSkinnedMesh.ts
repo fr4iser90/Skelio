@@ -42,9 +42,8 @@ export function drawRigSliceSkinnedDeformed(
   img: CanvasImageSource,
   embedded: boolean,
 ): void {
-  // Spine-style: add a tiny deterministic overlap so seams between adjacent parts don't show background.
-  // This does not change rig math; it only inflates the drawn triangles in screen space.
-  const OVERLAP_PX = 1.25;
+  // Spine-style: inflate drawn triangles slightly so seams between adjacent parts overlap.
+  const OVERLAP_PX = 3;
   const iw = "naturalWidth" in img && img.naturalWidth > 0 ? img.naturalWidth : s.width;
   const ih = "naturalHeight" in img && img.naturalHeight > 0 ? img.naturalHeight : s.height;
   const idx = mesh.indices;

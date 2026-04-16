@@ -51,24 +51,107 @@ function gridSegmentCount(span: number): number {
   return Math.max(3, Math.min(14, cells));
 }
 
+/**
+ * Minimal margin for edges not facing a joint.
+ */
+const MESH_EDGE_MARGIN_MIN = 4;
+
+/**
+ * Larger margin for edges that face a parent or child joint — closes gaps at bends.
+ * This needs to be large enough to cover gaps when bones rotate significantly.
+ */
+const MESH_EDGE_MARGIN_JOINT = 40;
+
+export type EdgeMargins = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+/**
+ * Determines which edge(s) of a slice should be extended based on joint positions.
+ * Returns per-edge margins: large margin toward joints, minimal elsewhere.
+ */
+export function computeDirectedEdgeMargins(
+  sliceCx: number,
+  sliceCy: number,
+  sliceW: number,
+  sliceH: number,
+  jointPositions: { x: number; y: number }[],
+): EdgeMargins {
+  const margins: EdgeMargins = {
+    left: MESH_EDGE_MARGIN_MIN,
+    right: MESH_EDGE_MARGIN_MIN,
+    top: MESH_EDGE_MARGIN_MIN,
+    bottom: MESH_EDGE_MARGIN_MIN,
+  };
+
+  if (jointPositions.length === 0) return margins;
+
+  const hw = sliceW / 2;
+  const hh = sliceH / 2;
+  const left = sliceCx - hw;
+  const right = sliceCx + hw;
+  const top = sliceCy - hh;
+  const bottom = sliceCy + hh;
+
+  for (const jp of jointPositions) {
+    const dx = jp.x - sliceCx;
+    const dy = jp.y - sliceCy;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+
+    if (adx < 1e-6 && ady < 1e-6) continue;
+
+    const insideX = jp.x >= left && jp.x <= right;
+    const insideY = jp.y >= top && jp.y <= bottom;
+
+    if (insideX && insideY) {
+      if (adx > ady) {
+        if (dx < 0) margins.left = MESH_EDGE_MARGIN_JOINT;
+        else margins.right = MESH_EDGE_MARGIN_JOINT;
+      } else {
+        if (dy < 0) margins.top = MESH_EDGE_MARGIN_JOINT;
+        else margins.bottom = MESH_EDGE_MARGIN_JOINT;
+      }
+    } else if (adx > ady) {
+      if (dx < 0) margins.left = MESH_EDGE_MARGIN_JOINT;
+      else margins.right = MESH_EDGE_MARGIN_JOINT;
+    } else {
+      if (dy < 0) margins.top = MESH_EDGE_MARGIN_JOINT;
+      else margins.bottom = MESH_EDGE_MARGIN_JOINT;
+    }
+  }
+
+  return margins;
+}
+
 function buildSubdividedRectMesh2d(
   cx: number,
   cy: number,
   hw: number,
   hh: number,
   boneId: string,
+  margins: EdgeMargins,
   yOffset = 0,
 ): Pick<SkinnedMesh, "vertices" | "indices" | "influences"> {
-  const su = gridSegmentCount(hw * 2);
-  const sv = gridSegmentCount(hh * 2);
+  const xMin = cx - hw - margins.left;
+  const xMax = cx + hw + margins.right;
+  const yMin = cy - hh - margins.top;
+  const yMax = cy + hh + margins.bottom;
+  const spanX = xMax - xMin;
+  const spanY = yMax - yMin;
+  const su = gridSegmentCount(spanX);
+  const sv = gridSegmentCount(spanY);
   const infl = influenceRow(boneId);
   const verts: { x: number; y: number }[] = [];
   for (let j = 0; j <= sv; j++) {
     const v = j / sv;
-    const y = cy - hh + v * (2 * hh) + yOffset;
+    const y = yMin + v * spanY + yOffset;
     for (let i = 0; i <= su; i++) {
       const u = i / su;
-      const x = cx - hw + u * (2 * hw);
+      const x = xMin + u * spanX;
       verts.push({ x, y });
     }
   }
@@ -94,11 +177,12 @@ function buildSubdividedDepthSliceMesh2d(
   hw: number,
   hh: number,
   boneId: string,
+  margins: EdgeMargins,
   fy: number,
   by: number,
 ): Pick<SkinnedMesh, "vertices" | "indices" | "influences"> {
-  const front = buildSubdividedRectMesh2d(cx, cy, hw, hh, boneId, fy);
-  const back = buildSubdividedRectMesh2d(cx, cy, hw, hh, boneId, by);
+  const front = buildSubdividedRectMesh2d(cx, cy, hw, hh, boneId, margins, fy);
+  const back = buildSubdividedRectMesh2d(cx, cy, hw, hh, boneId, margins, by);
   const base = front.vertices.length;
   const vertices = [...front.vertices, ...back.vertices];
   const influences = [...front.influences, ...back.influences];
@@ -111,6 +195,9 @@ function buildSubdividedDepthSliceMesh2d(
  * Flat slices: **subdivided grid** on the slice AABB (Spine-like first step vs a single quad).
  * If `maxDepthFront` / `maxDepthBack` are set (see {@link CharacterRigSliceDepth}), uses two subdivided
  * faces (front/back offset in Y), same grid density as flat slices — not a bare 8-vertex box.
+ *
+ * Now with **directed edge extension**: mesh edges facing parent/child joints get larger
+ * margins to close gaps at bends; other edges get minimal margin.
  */
 export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMesh[] {
   const rig = project.characterRig;
@@ -119,6 +206,16 @@ export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMe
   const bindingBySlice = new Map((rig.bindings ?? []).map((b) => [b.sliceId, b] as const));
   const out: SkinnedMesh[] = [];
   const Wbind4 = worldBindBoneMatrices4(project);
+
+  const boneById = new Map(project.bones.map((b) => [b.id, b] as const));
+  const childBoneIds = new Map<string, string[]>();
+  for (const b of project.bones) {
+    if (b.parentId) {
+      const arr = childBoneIds.get(b.parentId) ?? [];
+      arr.push(b.id);
+      childBoneIds.set(b.parentId, arr);
+    }
+  }
 
   for (const s of rig.slices) {
     if (s.width <= 0 || s.height <= 0) continue;
@@ -131,7 +228,28 @@ export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMe
     const dbRaw = depth?.syncBackWithFront ? df : Math.max(0, depth?.maxDepthBack ?? 0);
     const db = depth?.syncBackWithFront ? df : dbRaw;
 
-    const mesh = sliceToSkinnedMesh(s, binding, Wbind4.get(boneId) ?? null, df, db);
+    const bone = boneById.get(boneId);
+    const jointPositions: { x: number; y: number }[] = [];
+
+    if (bone?.parentId) {
+      const parentM = Wbind4.get(bone.parentId);
+      const parentBone = boneById.get(bone.parentId);
+      if (parentM && parentBone) {
+        const parentTip = transformPointMat4(parentM, parentBone.length, 0, 0);
+        jointPositions.push({ x: parentTip.x, y: parentTip.y });
+      }
+    }
+
+    const children = childBoneIds.get(boneId) ?? [];
+    for (const cid of children) {
+      const childM = Wbind4.get(cid);
+      if (childM) {
+        const childJoint = transformPointMat4(childM, 0, 0, 0);
+        jointPositions.push({ x: childJoint.x, y: childJoint.y });
+      }
+    }
+
+    const mesh = sliceToSkinnedMesh(s, binding, Wbind4.get(boneId) ?? null, df, db, jointPositions);
     out.push(mesh);
   }
 
@@ -144,6 +262,7 @@ function sliceToSkinnedMesh(
   Wbind4: Float64Array | null,
   maxDepthFront: number,
   maxDepthBack: number,
+  jointPositions: { x: number; y: number }[],
 ): SkinnedMesh {
   // Use the same anchor semantics as rigidCharacterRigSliceWorldPose:
   // center the mesh at the binding anchor in bind-local space (default sliceCenter).
@@ -171,10 +290,12 @@ function sliceToSkinnedMesh(
   const id = rigSliceSkinnedMeshId(s.id);
   const name = `rig_${s.name.replace(/\s+/g, "_")}`;
 
+  const margins = computeDirectedEdgeMargins(cx, cy, s.width, s.height, jointPositions);
+
   const hasDepth = maxDepthFront > 1e-6 || maxDepthBack > 1e-6;
 
   if (!hasDepth) {
-    const grid = buildSubdividedRectMesh2d(cx, cy, hw, hh, binding.boneId);
+    const grid = buildSubdividedRectMesh2d(cx, cy, hw, hh, binding.boneId, margins);
     return {
       id,
       name,
@@ -186,7 +307,7 @@ function sliceToSkinnedMesh(
 
   const fy = -maxDepthFront;
   const by = maxDepthBack;
-  const depthMesh = buildSubdividedDepthSliceMesh2d(cx, cy, hw, hh, binding.boneId, fy, by);
+  const depthMesh = buildSubdividedDepthSliceMesh2d(cx, cy, hw, hh, binding.boneId, margins, fy, by);
   return {
     id,
     name,

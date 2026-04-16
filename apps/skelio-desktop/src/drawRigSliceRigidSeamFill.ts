@@ -1,9 +1,9 @@
 import type { CharacterRigSpriteSlice } from "@skelio/domain";
 
 /** World-space thickness of edge color extrusion (same units as bone layout). */
-export const DEFAULT_SEAM_EXTRUDE_WORLD = 14;
-/** Slight destination scale-up so texture bleeds past the nominal rect (reduces hairline gaps). */
-export const DEFAULT_DEST_PAD_WORLD = 4;
+export const DEFAULT_SEAM_EXTRUDE_WORLD = 28;
+/** Slight destination scale-up so texture bleeds past the nominal rect. */
+export const DEFAULT_DEST_PAD_WORLD = 8;
 
 const colorCache = new Map<string, { n: string; s: string; e: string; w: string }>();
 

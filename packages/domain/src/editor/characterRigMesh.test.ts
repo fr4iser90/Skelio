@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDefaultEditorProject } from "./projectFactory.js";
 import {
   characterRigBindingsComplete,
+  computeDirectedEdgeMargins,
   resolveCharacterRigSliceBoundBoneId,
   rigSliceSkinnedMeshId,
   skinnedMeshesFromCharacterRig,
@@ -98,9 +99,12 @@ describe("skinnedMeshesFromCharacterRig", () => {
     expect(m.id).toBe(rigSliceSkinnedMeshId("slice_a"));
     expect(m.vertices.length).toBeGreaterThan(4);
     expect(m.indices.length).toBeGreaterThan(6);
-    expect(m.vertices[0]).toEqual({ x: 80, y: 190 });
+    const first = m.vertices[0]!;
     const last = m.vertices[m.vertices.length - 1]!;
-    expect(last).toEqual({ x: 120, y: 210 });
+    expect(first.x).toBeLessThan(80);
+    expect(first.y).toBeLessThan(190);
+    expect(last.x).toBeGreaterThan(120);
+    expect(last.y).toBeGreaterThan(210);
   });
 
   it("skips unbound slices and empty slots", () => {
@@ -160,6 +164,82 @@ describe("skinnedMeshesFromCharacterRig", () => {
     const m = skinnedMeshesFromCharacterRig(p)[0]!;
     expect(m.vertices.length).toBeGreaterThan(8);
     expect(m.indices.length).toBeGreaterThan(12);
+  });
+});
+
+describe("computeDirectedEdgeMargins (gap filling)", () => {
+  it("returns minimal margins when no joints provided", () => {
+    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, []);
+    expect(margins.left).toBe(4);
+    expect(margins.right).toBe(4);
+    expect(margins.top).toBe(4);
+    expect(margins.bottom).toBe(4);
+  });
+
+  it("extends RIGHT edge when joint is to the right of slice", () => {
+    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 200, y: 100 }]);
+    expect(margins.right).toBe(40);
+    expect(margins.left).toBe(4);
+    expect(margins.top).toBe(4);
+    expect(margins.bottom).toBe(4);
+  });
+
+  it("extends LEFT edge when joint is to the left of slice", () => {
+    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 0, y: 100 }]);
+    expect(margins.left).toBe(40);
+    expect(margins.right).toBe(4);
+  });
+
+  it("extends TOP edge when joint is above slice", () => {
+    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 100, y: 0 }]);
+    expect(margins.top).toBe(40);
+    expect(margins.bottom).toBe(4);
+  });
+
+  it("extends BOTTOM edge when joint is below slice", () => {
+    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 100, y: 200 }]);
+    expect(margins.bottom).toBe(40);
+    expect(margins.top).toBe(4);
+  });
+
+  it("extends MULTIPLE edges when multiple joints", () => {
+    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [
+      { x: 200, y: 100 },
+      { x: 0, y: 100 },
+    ]);
+    expect(margins.right).toBe(40);
+    expect(margins.left).toBe(40);
+    expect(margins.top).toBe(4);
+    expect(margins.bottom).toBe(4);
+  });
+});
+
+describe("directed edge margins integration", () => {
+  it("applies larger margin when slice is near a child bone joint", () => {
+    const sliceCx = 50;
+    const sliceCy = 0;
+    const sliceW = 60;
+    const sliceH = 40;
+    const childJoint = { x: 100, y: 0 };
+
+    const margins = computeDirectedEdgeMargins(sliceCx, sliceCy, sliceW, sliceH, [childJoint]);
+    expect(margins.right).toBe(40);
+    expect(margins.left).toBe(4);
+  });
+
+  it("applies larger margin on BOTH sides when parent and child joints exist", () => {
+    const sliceCx = 100;
+    const sliceCy = 0;
+    const sliceW = 50;
+    const sliceH = 30;
+    const parentTip = { x: 50, y: 0 };
+    const childJoint = { x: 150, y: 0 };
+
+    const margins = computeDirectedEdgeMargins(sliceCx, sliceCy, sliceW, sliceH, [parentTip, childJoint]);
+    expect(margins.left).toBe(40);
+    expect(margins.right).toBe(40);
+    expect(margins.top).toBe(4);
+    expect(margins.bottom).toBe(4);
   });
 });
 

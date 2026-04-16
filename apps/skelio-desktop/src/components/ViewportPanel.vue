@@ -34,7 +34,7 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 import { boneShaftSegmentsWorld2D, minDistPointToBoneShaftSegmentsSq } from "../boneShaftSegments.js";
-import { drawRigSliceSkinnedDeformed } from "../drawRigSliceSkinnedMesh.js";
+import { drawRigSliceSkinnedDeformed, drawRigSliceSkinnedDeformedOriginalOnly } from "../drawRigSliceSkinnedMesh.js";
 import { drawRigSliceRigidWithSeamFill } from "../drawRigSliceRigidSeamFill.js";
 import { isTypingInEditableField } from "../viewportWasd.js";
 import AnimatorThreeViewport from "./AnimatorThreeViewport.vue";
@@ -974,13 +974,17 @@ function draw() {
         if (s.embedded) {
           const eimg = embeddedRigImages.value.get(s.id);
           if (eimg?.complete && eimg.naturalWidth > 0) {
+            // 1) Gap-Fill (erweiterte Dreiecke) - Hintergrund
             drawRigSliceSkinnedDeformed(ctx, s, sliceMesh, deformed, eimg, true);
+            // 2) Original (nur innere Dreiecke) - Vordergrund, überdeckt Gap-Fill
+            drawRigSliceSkinnedDeformedOriginalOnly(ctx, s, sliceMesh, deformed, eimg, true);
             drewSkinned = true;
           }
         } else if (s.sheetId) {
           const rigImg = rigSheetBitmaps.value.get(s.sheetId);
           if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
             drawRigSliceSkinnedDeformed(ctx, s, sliceMesh, deformed, rigImg, false);
+            drawRigSliceSkinnedDeformedOriginalOnly(ctx, s, sliceMesh, deformed, rigImg, false);
             drewSkinned = true;
           }
         }
@@ -994,12 +998,16 @@ function draw() {
           if (s.embedded) {
             const eimg = embeddedRigImages.value.get(s.id);
             if (eimg?.complete && eimg.naturalWidth > 0) {
+              // Gap-Fill zuerst
               drawRigSliceRigidWithSeamFill(ctx, s, eimg, true);
+              // Original darüber (exakte Größe)
+              ctx.drawImage(eimg, -s.width / 2, -s.height / 2, s.width, s.height);
             }
           } else if (s.sheetId) {
             const rigImg = rigSheetBitmaps.value.get(s.sheetId);
             if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
               drawRigSliceRigidWithSeamFill(ctx, s, rigImg, false);
+              ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, -s.width / 2, -s.height / 2, s.width, s.height);
             }
           }
         } else {

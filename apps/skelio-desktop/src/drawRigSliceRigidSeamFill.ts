@@ -15,22 +15,22 @@ function averageStripRgba(data: Uint8ClampedArray, pick: (byteIndex: number) => 
   let r = 0,
     g = 0,
     b = 0,
-    a = 0,
     n = 0;
+  const ALPHA_THRESHOLD = 128;
   for (let i = 0; i < data.length; i += 4) {
     if (!pick(i)) continue;
+    const alpha = data[i + 3]!;
+    if (alpha < ALPHA_THRESHOLD) continue;
     r += data[i]!;
     g += data[i + 1]!;
     b += data[i + 2]!;
-    a += data[i + 3]!;
     n++;
   }
   if (n === 0) return "rgba(40,40,44,0.96)";
   r = Math.round(r / n);
   g = Math.round(g / n);
   b = Math.round(b / n);
-  const alpha = Math.min(1, (a / n / 255) * 1.02);
-  return `rgba(${r},${g},${b},${alpha})`;
+  return `rgba(${r},${g},${b},0.98)`;
 }
 
 /** Average RGBA for each sprite edge (same sampling as seam-fill bands). */
@@ -62,26 +62,61 @@ export function rigidSliceEdgeAverageColors(
   }
   const data = xctx.getImageData(0, 0, sw, sh).data;
 
-  const north = averageStripRgba(data, (i) => {
-    const p = i / 4;
-    const y = Math.floor(p / sw);
-    return y === 0;
-  });
-  const south = averageStripRgba(data, (i) => {
-    const p = i / 4;
-    const y = Math.floor(p / sw);
-    return y === sh - 1;
-  });
-  const east = averageStripRgba(data, (i) => {
-    const p = i / 4;
-    const x = p % sw;
-    return x === sw - 1;
-  });
-  const west = averageStripRgba(data, (i) => {
-    const p = i / 4;
-    const x = p % sw;
-    return x === 0;
-  });
+  const SEARCH_DEPTH = Math.min(10, Math.floor(Math.min(sw, sh) / 3));
+  const ALPHA_THRESHOLD = 128;
+
+  const findNorthStrip = (): string => {
+    for (let row = 0; row < SEARCH_DEPTH; row++) {
+      const color = averageStripRgba(data, (i) => {
+        const p = i / 4;
+        const y = Math.floor(p / sw);
+        return y === row && data[i + 3]! >= ALPHA_THRESHOLD;
+      });
+      if (!color.includes("40,40,44")) return color;
+    }
+    return averageStripRgba(data, (i) => Math.floor((i / 4) / sw) === 0);
+  };
+
+  const findSouthStrip = (): string => {
+    for (let row = sh - 1; row >= sh - SEARCH_DEPTH; row--) {
+      const color = averageStripRgba(data, (i) => {
+        const p = i / 4;
+        const y = Math.floor(p / sw);
+        return y === row && data[i + 3]! >= ALPHA_THRESHOLD;
+      });
+      if (!color.includes("40,40,44")) return color;
+    }
+    return averageStripRgba(data, (i) => Math.floor((i / 4) / sw) === sh - 1);
+  };
+
+  const findEastStrip = (): string => {
+    for (let col = sw - 1; col >= sw - SEARCH_DEPTH; col--) {
+      const color = averageStripRgba(data, (i) => {
+        const p = i / 4;
+        const x = p % sw;
+        return x === col && data[i + 3]! >= ALPHA_THRESHOLD;
+      });
+      if (!color.includes("40,40,44")) return color;
+    }
+    return averageStripRgba(data, (i) => (i / 4) % sw === sw - 1);
+  };
+
+  const findWestStrip = (): string => {
+    for (let col = 0; col < SEARCH_DEPTH; col++) {
+      const color = averageStripRgba(data, (i) => {
+        const p = i / 4;
+        const x = p % sw;
+        return x === col && data[i + 3]! >= ALPHA_THRESHOLD;
+      });
+      if (!color.includes("40,40,44")) return color;
+    }
+    return averageStripRgba(data, (i) => (i / 4) % sw === 0);
+  };
+
+  const north = findNorthStrip();
+  const south = findSouthStrip();
+  const east = findEastStrip();
+  const west = findWestStrip();
 
   const o = { n: north, s: south, e: east, w: west };
   colorCache.set(key, o);

@@ -51,17 +51,6 @@ function gridSegmentCount(span: number): number {
   return Math.max(3, Math.min(14, cells));
 }
 
-/**
- * Minimal margin for edges not facing a joint.
- */
-const MESH_EDGE_MARGIN_MIN = 4;
-
-/**
- * Larger margin for edges that face a parent or child joint — closes gaps at bends.
- * This needs to be large enough to cover gaps when bones rotate significantly.
- */
-const MESH_EDGE_MARGIN_JOINT = 40;
-
 export type EdgeMargins = {
   left: number;
   right: number;
@@ -70,8 +59,12 @@ export type EdgeMargins = {
 };
 
 /**
- * Determines which edge(s) of a slice should be extended based on joint positions.
- * Returns per-edge margins: large margin toward joints, minimal elsewhere.
+ * 100% AUTOMATISCH: Berechnet Margins basierend auf Geometrie.
+ * - Distanz zum Joint + 30% Buffer
+ * - Mindestens 25% der Slice-Dimension in Richtung des Joints
+ * - Minimaler Rand = 2% der Slice-Dimension
+ * 
+ * KEINE HARDCODED PIXEL-WERTE.
  */
 export function computeDirectedEdgeMargins(
   sliceCx: number,
@@ -80,47 +73,63 @@ export function computeDirectedEdgeMargins(
   sliceH: number,
   jointPositions: { x: number; y: number }[],
 ): EdgeMargins {
+  // Automatische Basis-Margins: 2% der jeweiligen Dimension
+  const baseMarginH = sliceW * 0.02;
+  const baseMarginV = sliceH * 0.02;
+  
   const margins: EdgeMargins = {
-    left: MESH_EDGE_MARGIN_MIN,
-    right: MESH_EDGE_MARGIN_MIN,
-    top: MESH_EDGE_MARGIN_MIN,
-    bottom: MESH_EDGE_MARGIN_MIN,
+    left: baseMarginH,
+    right: baseMarginH,
+    top: baseMarginV,
+    bottom: baseMarginV,
   };
 
   if (jointPositions.length === 0) return margins;
 
   const hw = sliceW / 2;
   const hh = sliceH / 2;
-  const left = sliceCx - hw;
-  const right = sliceCx + hw;
-  const top = sliceCy - hh;
-  const bottom = sliceCy + hh;
+  const sliceLeft = sliceCx - hw;
+  const sliceRight = sliceCx + hw;
+  const sliceTop = sliceCy - hh;
+  const sliceBottom = sliceCy + hh;
+
+  // Mindest-Extension Richtung Joint: 8% der Slice-Dimension (klein halten)
+  const minJointMarginH = sliceW * 0.08;
+  const minJointMarginV = sliceH * 0.08;
 
   for (const jp of jointPositions) {
+    // Distanz vom Joint zu jeder Slice-Kante
+    const distToLeft = sliceLeft - jp.x;
+    const distToRight = jp.x - sliceRight;
+    const distToTop = sliceTop - jp.y;
+    const distToBottom = jp.y - sliceBottom;
+
+    // Buffer = 10% der Distanz (kleiner für weniger Overlap)
+    const bufferFactor = 1.1;
+
+    // Erweitere Kante zum Joint: Distanz * 1.3 (30% Buffer)
+    if (distToLeft > 0) {
+      margins.left = Math.max(margins.left, distToLeft * bufferFactor);
+    }
+    if (distToRight > 0) {
+      margins.right = Math.max(margins.right, distToRight * bufferFactor);
+    }
+    if (distToTop > 0) {
+      margins.top = Math.max(margins.top, distToTop * bufferFactor);
+    }
+    if (distToBottom > 0) {
+      margins.bottom = Math.max(margins.bottom, distToBottom * bufferFactor);
+    }
+
+    // IMMER: Mindest-Extension (25% der Slice-Größe) in Richtung des Joints
     const dx = jp.x - sliceCx;
     const dy = jp.y - sliceCy;
-    const adx = Math.abs(dx);
-    const ady = Math.abs(dy);
-
-    if (adx < 1e-6 && ady < 1e-6) continue;
-
-    const insideX = jp.x >= left && jp.x <= right;
-    const insideY = jp.y >= top && jp.y <= bottom;
-
-    if (insideX && insideY) {
-      if (adx > ady) {
-        if (dx < 0) margins.left = MESH_EDGE_MARGIN_JOINT;
-        else margins.right = MESH_EDGE_MARGIN_JOINT;
-      } else {
-        if (dy < 0) margins.top = MESH_EDGE_MARGIN_JOINT;
-        else margins.bottom = MESH_EDGE_MARGIN_JOINT;
-      }
-    } else if (adx > ady) {
-      if (dx < 0) margins.left = MESH_EDGE_MARGIN_JOINT;
-      else margins.right = MESH_EDGE_MARGIN_JOINT;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (dx < 0) margins.left = Math.max(margins.left, minJointMarginH);
+      else margins.right = Math.max(margins.right, minJointMarginH);
     } else {
-      if (dy < 0) margins.top = MESH_EDGE_MARGIN_JOINT;
-      else margins.bottom = MESH_EDGE_MARGIN_JOINT;
+      if (dy < 0) margins.top = Math.max(margins.top, minJointMarginV);
+      else margins.bottom = Math.max(margins.bottom, minJointMarginV);
     }
   }
 

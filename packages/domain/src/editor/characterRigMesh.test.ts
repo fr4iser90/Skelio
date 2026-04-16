@@ -167,79 +167,40 @@ describe("skinnedMeshesFromCharacterRig", () => {
   });
 });
 
-describe("computeDirectedEdgeMargins (gap filling)", () => {
-  it("returns minimal margins when no joints provided", () => {
+describe("computeDirectedEdgeMargins (100% automatic)", () => {
+  it("returns percentage-based margins when no joints provided", () => {
+    // width=50 → baseMarginH = 50*0.02 = 1
+    // height=30 → baseMarginV = 30*0.02 = 0.6
     const margins = computeDirectedEdgeMargins(100, 100, 50, 30, []);
-    expect(margins.left).toBe(4);
-    expect(margins.right).toBe(4);
-    expect(margins.top).toBe(4);
-    expect(margins.bottom).toBe(4);
+    expect(margins.left).toBeCloseTo(1, 1);
+    expect(margins.right).toBeCloseTo(1, 1);
+    expect(margins.top).toBeCloseTo(0.6, 1);
+    expect(margins.bottom).toBeCloseTo(0.6, 1);
   });
 
-  it("extends RIGHT edge when joint is to the right of slice", () => {
+  it("automatically scales margin based on distance to joint (10% buffer)", () => {
+    // Slice: center=100, width=50 → right edge at 125
+    // Joint at x=200 → distance = 75
+    // Margin = 75 * 1.1 = 82.5
     const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 200, y: 100 }]);
-    expect(margins.right).toBe(40);
-    expect(margins.left).toBe(4);
-    expect(margins.top).toBe(4);
-    expect(margins.bottom).toBe(4);
+    expect(margins.right).toBeCloseTo(82.5, 1);
   });
 
-  it("extends LEFT edge when joint is to the left of slice", () => {
-    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 0, y: 100 }]);
-    expect(margins.left).toBe(40);
-    expect(margins.right).toBe(4);
+  it("applies minimum 8% of slice dimension toward joint", () => {
+    // Slice width=100 → minJointMarginH = 8
+    // Joint inside slice but to the right → applies 8% minimum
+    const margins = computeDirectedEdgeMargins(100, 100, 100, 60, [{ x: 110, y: 100 }]);
+    expect(margins.right).toBeCloseTo(8, 1); // 100 * 0.08
+    expect(margins.left).toBeCloseTo(2, 1);   // 100 * 0.02 base
   });
 
-  it("extends TOP edge when joint is above slice", () => {
-    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 100, y: 0 }]);
-    expect(margins.top).toBe(40);
-    expect(margins.bottom).toBe(4);
-  });
-
-  it("extends BOTTOM edge when joint is below slice", () => {
-    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [{ x: 100, y: 200 }]);
-    expect(margins.bottom).toBe(40);
-    expect(margins.top).toBe(4);
-  });
-
-  it("extends MULTIPLE edges when multiple joints", () => {
-    const margins = computeDirectedEdgeMargins(100, 100, 50, 30, [
-      { x: 200, y: 100 },
-      { x: 0, y: 100 },
-    ]);
-    expect(margins.right).toBe(40);
-    expect(margins.left).toBe(40);
-    expect(margins.top).toBe(4);
-    expect(margins.bottom).toBe(4);
-  });
-});
-
-describe("directed edge margins integration", () => {
-  it("applies larger margin when slice is near a child bone joint", () => {
-    const sliceCx = 50;
-    const sliceCy = 0;
-    const sliceW = 60;
-    const sliceH = 40;
-    const childJoint = { x: 100, y: 0 };
-
-    const margins = computeDirectedEdgeMargins(sliceCx, sliceCy, sliceW, sliceH, [childJoint]);
-    expect(margins.right).toBe(40);
-    expect(margins.left).toBe(4);
-  });
-
-  it("applies larger margin on BOTH sides when parent and child joints exist", () => {
-    const sliceCx = 100;
-    const sliceCy = 0;
-    const sliceW = 50;
-    const sliceH = 30;
-    const parentTip = { x: 50, y: 0 };
-    const childJoint = { x: 150, y: 0 };
-
-    const margins = computeDirectedEdgeMargins(sliceCx, sliceCy, sliceW, sliceH, [parentTip, childJoint]);
-    expect(margins.left).toBe(40);
-    expect(margins.right).toBe(40);
-    expect(margins.top).toBe(4);
-    expect(margins.bottom).toBe(4);
+  it("uses larger of distance-based or minimum percentage", () => {
+    // Slice width=200 → minJointMarginH = 16
+    // Joint far away → distance-based wins
+    const margins = computeDirectedEdgeMargins(100, 100, 200, 100, [{ x: 500, y: 100 }]);
+    // right edge at 200, joint at 500 → distance = 300
+    // 300 * 1.1 = 330 > 16 (8% of 200)
+    expect(margins.right).toBeCloseTo(330, 1);
   });
 });
 

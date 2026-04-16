@@ -33,7 +33,8 @@ function averageStripRgba(data: Uint8ClampedArray, pick: (byteIndex: number) => 
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function edgeColorsFromSlice(
+/** Average RGBA for each sprite edge (same sampling as seam-fill bands). */
+export function rigidSliceEdgeAverageColors(
   img: CanvasImageSource,
   s: CharacterRigSpriteSlice,
   embedded: boolean,
@@ -104,7 +105,7 @@ export function drawRigSliceRigidWithSeamFill(
   const hw = s.width / 2 + pad;
   const hh = s.height / 2 + pad;
 
-  const { n, s: cs, e, w } = edgeColorsFromSlice(img, s, embedded);
+  const { n, s: cs, e, w } = rigidSliceEdgeAverageColors(img, s, embedded);
 
   ctx.fillStyle = n;
   ctx.fillRect(-hw, -hh - extrude, 2 * hw, extrude);

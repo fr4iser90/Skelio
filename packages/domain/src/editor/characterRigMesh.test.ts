@@ -72,7 +72,7 @@ describe("characterRigBindingsComplete", () => {
 });
 
 describe("skinnedMeshesFromCharacterRig", () => {
-  it("builds a flat quad for a bound slice with size", () => {
+  it("builds a subdivided flat mesh for a bound slice with size", () => {
     let p = createDefaultEditorProject();
     const root = p.bones.find((b) => b.parentId === null)!;
     p.characterRig = {
@@ -96,10 +96,11 @@ describe("skinnedMeshesFromCharacterRig", () => {
     expect(meshes).toHaveLength(1);
     const m = meshes[0]!;
     expect(m.id).toBe(rigSliceSkinnedMeshId("slice_a"));
-    expect(m.vertices).toHaveLength(4);
-    expect(m.indices).toEqual([0, 1, 2, 0, 2, 3]);
+    expect(m.vertices.length).toBeGreaterThan(4);
+    expect(m.indices.length).toBeGreaterThan(6);
     expect(m.vertices[0]).toEqual({ x: 80, y: 190 });
-    expect(m.vertices[2]).toEqual({ x: 120, y: 210 });
+    const last = m.vertices[m.vertices.length - 1]!;
+    expect(last).toEqual({ x: 120, y: 210 });
   });
 
   it("skips unbound slices and empty slots", () => {
@@ -134,7 +135,7 @@ describe("skinnedMeshesFromCharacterRig", () => {
     expect(skinnedMeshesFromCharacterRig(p)).toHaveLength(0);
   });
 
-  it("adds eight vertices when depth is set", () => {
+  it("adds subdivided front+back vertices when depth is set", () => {
     let p = createDefaultEditorProject();
     const root = p.bones.find((b) => b.parentId === null)!;
     p.characterRig = {
@@ -157,8 +158,8 @@ describe("skinnedMeshesFromCharacterRig", () => {
       ],
     };
     const m = skinnedMeshesFromCharacterRig(p)[0]!;
-    expect(m.vertices).toHaveLength(8);
-    expect(m.indices.length).toBe(12);
+    expect(m.vertices.length).toBeGreaterThan(8);
+    expect(m.indices.length).toBeGreaterThan(12);
   });
 });
 

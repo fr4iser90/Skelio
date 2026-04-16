@@ -42,10 +42,75 @@ function influenceRow(boneId: string): { boneId: string; weight: number }[] {
 }
 
 /**
+ * Adaptive grid density along one axis (world px). Spine/Smack use dense meshes; we start from a
+ * uniform grid so deformation is not a single stretched quad.
+ */
+function gridSegmentCount(span: number): number {
+  if (!Number.isFinite(span) || span <= 0) return 3;
+  const cells = Math.ceil(span / 44);
+  return Math.max(3, Math.min(14, cells));
+}
+
+function buildSubdividedRectMesh2d(
+  cx: number,
+  cy: number,
+  hw: number,
+  hh: number,
+  boneId: string,
+  yOffset = 0,
+): Pick<SkinnedMesh, "vertices" | "indices" | "influences"> {
+  const su = gridSegmentCount(hw * 2);
+  const sv = gridSegmentCount(hh * 2);
+  const infl = influenceRow(boneId);
+  const verts: { x: number; y: number }[] = [];
+  for (let j = 0; j <= sv; j++) {
+    const v = j / sv;
+    const y = cy - hh + v * (2 * hh) + yOffset;
+    for (let i = 0; i <= su; i++) {
+      const u = i / su;
+      const x = cx - hw + u * (2 * hw);
+      verts.push({ x, y });
+    }
+  }
+  const influences = verts.map(() => infl);
+  const indices: number[] = [];
+  const row = su + 1;
+  for (let j = 0; j < sv; j++) {
+    for (let i = 0; i < su; i++) {
+      const bl = i + j * row;
+      const br = bl + 1;
+      const tl = bl + row;
+      const tr = tl + 1;
+      indices.push(bl, br, tr, bl, tr, tl);
+    }
+  }
+  return { vertices: verts, indices, influences };
+}
+
+/** Zwei parallele Unterflächen (front/back) wie bisher 8 Vertices — jetzt jeweils unterteilt. */
+function buildSubdividedDepthSliceMesh2d(
+  cx: number,
+  cy: number,
+  hw: number,
+  hh: number,
+  boneId: string,
+  fy: number,
+  by: number,
+): Pick<SkinnedMesh, "vertices" | "indices" | "influences"> {
+  const front = buildSubdividedRectMesh2d(cx, cy, hw, hh, boneId, fy);
+  const back = buildSubdividedRectMesh2d(cx, cy, hw, hh, boneId, by);
+  const base = front.vertices.length;
+  const vertices = [...front.vertices, ...back.vertices];
+  const influences = [...front.influences, ...back.influences];
+  const indices = [...front.indices, ...back.indices.map((i) => i + base)];
+  return { vertices, indices, influences };
+}
+
+/**
  * Builds one skinned mesh per slice that has pixel size and a bone binding.
- * Flat quad in bind/world space on the slice AABB (center `worldCx`/`worldCy`).
- * If `maxDepthFront` / `maxDepthBack` are set (see {@link CharacterRigSliceDepth}), adds a second quad
- * offset on Y (2.5D “thickness” in screen space).
+ * Flat slices: **subdivided grid** on the slice AABB (Spine-like first step vs a single quad).
+ * If `maxDepthFront` / `maxDepthBack` are set (see {@link CharacterRigSliceDepth}), uses two subdivided
+ * faces (front/back offset in Y), same grid density as flat slices — not a bare 8-vertex box.
  */
 export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMesh[] {
   const rig = project.characterRig;
@@ -109,40 +174,24 @@ function sliceToSkinnedMesh(
   const hasDepth = maxDepthFront > 1e-6 || maxDepthBack > 1e-6;
 
   if (!hasDepth) {
-    const infl = influenceRow(binding.boneId);
+    const grid = buildSubdividedRectMesh2d(cx, cy, hw, hh, binding.boneId);
     return {
       id,
       name,
-      vertices: [
-        { x: cx - hw, y: cy - hh },
-        { x: cx + hw, y: cy - hh },
-        { x: cx + hw, y: cy + hh },
-        { x: cx - hw, y: cy + hh },
-      ],
-      indices: [0, 1, 2, 0, 2, 3],
-      influences: [infl, infl, infl, infl],
+      vertices: grid.vertices,
+      indices: grid.indices,
+      influences: grid.influences,
     };
   }
 
   const fy = -maxDepthFront;
   const by = maxDepthBack;
-  const infl = influenceRow(binding.boneId);
-  const infl8 = [infl, infl, infl, infl, infl, infl, infl, infl];
-
+  const depthMesh = buildSubdividedDepthSliceMesh2d(cx, cy, hw, hh, binding.boneId, fy, by);
   return {
     id,
     name,
-    vertices: [
-      { x: cx - hw, y: cy - hh + fy },
-      { x: cx + hw, y: cy - hh + fy },
-      { x: cx + hw, y: cy + hh + fy },
-      { x: cx - hw, y: cy + hh + fy },
-      { x: cx - hw, y: cy - hh + by },
-      { x: cx + hw, y: cy - hh + by },
-      { x: cx + hw, y: cy + hh + by },
-      { x: cx - hw, y: cy + hh + by },
-    ],
-    indices: [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7],
-    influences: infl8,
+    vertices: depthMesh.vertices,
+    indices: depthMesh.indices,
+    influences: depthMesh.influences,
   };
 }

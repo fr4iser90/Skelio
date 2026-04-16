@@ -334,7 +334,7 @@ describe("applyCommand", () => {
     p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
     expect(p.skinnedMeshes?.length).toBe(1);
     expect(p.skinnedMeshes![0]!.id.startsWith("rig_slice_")).toBe(true);
-    expect(p.skinnedMeshes![0]!.vertices.length).toBe(8);
+    expect(p.skinnedMeshes![0]!.vertices.length).toBeGreaterThan(8);
     const depth = p.characterRig!.sliceDepths.find((d) => d.sliceId === sid);
     expect(depth?.maxDepthFront).toBeGreaterThan(0);
     expect(validateEditorProject(p)).toHaveLength(0);

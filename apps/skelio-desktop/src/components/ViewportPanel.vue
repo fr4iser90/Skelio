@@ -35,6 +35,7 @@ import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 import { boneShaftSegmentsWorld2D, minDistPointToBoneShaftSegmentsSq } from "../boneShaftSegments.js";
 import { drawRigSliceSkinnedDeformed } from "../drawRigSliceSkinnedMesh.js";
+import { drawRigidSliceGapBridges } from "../drawRigidSliceGapBridges.js";
 import { drawRigSliceRigidWithSeamFill } from "../drawRigSliceRigidSeamFill.js";
 import { isTypingInEditableField } from "../viewportWasd.js";
 import AnimatorThreeViewport from "./AnimatorThreeViewport.vue";
@@ -955,6 +956,37 @@ function draw() {
 
   const rig = project.value.characterRig;
   if (rig?.slices?.length) {
+    if (rigCameraViewKind.value === "2d") {
+      drawRigidSliceGapBridges(ctx, {
+        bones: project.value.bones,
+        rig,
+        getSliceCenter: effectiveSliceCenter,
+        getSliceRigid: (s) => {
+          const { cx, cy } = effectiveSliceCenter(s);
+          return rigidSliceWorldPose(s, rig, cx, cy, boneM4);
+        },
+        getSliceImage: (s) => {
+          if (s.embedded) {
+            const eimg = embeddedRigImages.value.get(s.id);
+            if (eimg?.complete && eimg.naturalWidth > 0) return { img: eimg, embedded: true };
+          } else if (s.sheetId) {
+            const rigImg = rigSheetBitmaps.value.get(s.sheetId);
+            if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) return { img: rigImg, embedded: false };
+          }
+          return null;
+        },
+        getBridgePickPoints: (parentBoneId, childBoneId) => {
+          const pBone = project.value.bones.find((b) => b.id === parentBoneId);
+          const Mp = boneM4.get(parentBoneId);
+          const Mc = boneM4.get(childBoneId);
+          if (!pBone || !Mp || !Mc) return null;
+          const L = lengthForBoneDraw(pBone);
+          const tip = transformPointMat4(Mp, L, 0, 0);
+          const joint = transformPointMat4(Mc, 0, 0, 0);
+          return { parentTip: { x: tip.x, y: tip.y }, childJoint: { x: joint.x, y: joint.y } };
+        },
+      });
+    }
     const activeSliceId = selectedCharacterRigSliceId.value;
     for (const s of rig.slices) {
       if (s.width <= 0 || s.height <= 0) continue;

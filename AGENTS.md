@@ -1,6 +1,6 @@
 # Agents / AI — Short briefing
 
-1. Read **`docs/README.md`** (full index **00–15**) and, for architecture decisions, **`docs/adr/`**.
+1. Read **`docs/README.md`** (index **00–16**, including **`docs/16-character-setup-animate-boundary.md`**) and, for architecture decisions, **`docs/adr/`**. **Never mix Character Setup (rigging) with Animate (keyframes)** — see that doc.
 2. **Runtime export** is contractual: **`docs/04-data-model-schema.md`** + **`schemas/runtime-1.1.0.json`** (older: `runtime-1.0.0.json`). Change it only with an **ADR** and fixture/test updates.
 3. **Layers:** No Vue or Tauri imports in `packages/domain`. UI talks to **`packages/application`** via commands — see **`docs/05-module-boundaries.md`**, **`docs/06-design-patterns-and-conventions.md`**.
 4. Delivery phases / MVP checklist: **`docs/14-vertical-slice-1-tasks.md`**.

@@ -80,7 +80,7 @@ function menuRedo() {
   store.redo();
 }
 
-/** Kurzes Feedback nach Speichern / Ordner-Schreiben (kein stilles Download mehr). */
+/** Short feedback after save / folder writes (not silent). */
 const saveFeedback = ref<{ ok: boolean; text: string } | null>(null);
 let saveFeedbackTimer = 0;
 
@@ -196,8 +196,8 @@ async function onSaveProjectFolderAs() {
     const file = store.projectManifestFileName;
     showSaveFeedback(
       root
-        ? `Projekt gespeichert: ${root}/${file} (Dateiname ist fest; anderen Namen nur über „Editor speichern…“.)`
-        : `Projekt geschrieben (${file}).`,
+        ? `Saved project folder: ${root}/${file} (manifest name is fixed; custom filename: use Save project as file…)`
+        : `Project written (${file}).`,
     );
   } catch (err) {
     alert(String(err));
@@ -237,23 +237,22 @@ function onObjMeshFile(e: Event) {
 }
 
 async function saveEditorProjectToFile() {
-  const suggestedName = `${store.rigEditProject.meta.name || "project"}.skelio.json`;
+  const suggestedName = `${store.rigEditProject.meta.name || "untitled"}.skelio.json`;
   const body = store.saveEditorJson();
-  // Kein Web-Fallback: Speichern muss deterministisch über den nativen Dialog laufen.
   try {
     const path = await invoke<string | null>("save_text_file_with_dialog", {
       defaultName: suggestedName,
       contents: body,
     });
     if (path == null || path === "") {
-      showSaveFeedback("Speichern abgebrochen.", false);
+      showSaveFeedback("Save canceled.", false);
       return;
     }
-    showSaveFeedback(`Editor-Projekt gespeichert: ${path}`);
+    showSaveFeedback(`Saved project file: ${path}`);
     return;
   } catch (e) {
     showSaveFeedback(
-      `Speichern nicht möglich: ${String(e)}. (Desktop-App benötigt nativen Dialog; unter Linux: zenity/kdialog).`,
+      `Save failed: ${String(e)}. (Desktop app needs native dialog; on Linux: zenity/kdialog).`,
       false,
     );
     return;
@@ -269,14 +268,14 @@ async function saveRuntimeExportToFile() {
       contents: body,
     });
     if (path == null || path === "") {
-      showSaveFeedback("Export abgebrochen.", false);
+      showSaveFeedback("Export canceled.", false);
       return;
     }
-    showSaveFeedback(`Runtime-Export gespeichert: ${path}`);
+    showSaveFeedback(`Runtime export saved: ${path}`);
     return;
   } catch (e) {
     showSaveFeedback(
-      `Export nicht möglich: ${String(e)}. (Desktop-App benötigt nativen Dialog; unter Linux: zenity/kdialog).`,
+      `Export failed: ${String(e)}. (Desktop app needs native dialog; on Linux: zenity/kdialog).`,
       false,
     );
     return;
@@ -290,40 +289,67 @@ async function saveRuntimeExportToFile() {
       <strong class="brand">Skelio</strong>
 
       <details class="menu" @toggle="onMenuToggle($event)">
-        <summary>Datei</summary>
+        <summary>File</summary>
         <div class="menu-panel" role="menu">
-          <button type="button" role="menuitem" @click="menuNew">Neu</button>
-          <button type="button" role="menuitem" @click="menuLoad">Laden…</button>
+          <button type="button" role="menuitem" @click="menuNew">New project</button>
+          <button type="button" role="menuitem" @click="menuLoad">Open…</button>
           <template v-if="tauri">
             <div class="menu-sep" />
-            <button type="button" role="menuitem" @click="menuOpenFolder">Ordner…</button>
-            <button type="button" role="menuitem" @click="menuSaveFolder">Ordner speichern</button>
             <button
               type="button"
               role="menuitem"
-              class="ghost"
-              title="Ordner wählen — im Ordner heißt die Manifest-Datei immer project.skelio.json. Beliebigen Dateinamen: „Editor speichern…“."
+              title="Load a folder project: project.skelio.json and assets/ in that folder."
+              @click="menuOpenFolder"
+            >
+              Open project folder…
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              title="Save into the current project folder (no dialog if a folder is already set)."
+              @click="menuSaveFolder"
+            >
+              Save project
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              title="Pick a new folder; the manifest file is always project.skelio.json inside it. For a custom .skelio.json filename, use Save project as file…"
               @click="menuSaveFolderAs"
             >
-              Speichern unter…
+              Save project to different folder…
             </button>
           </template>
           <div class="menu-sep" />
-          <button type="button" role="menuitem" @click="menuSaveEditor">Editor speichern…</button>
-          <button type="button" role="menuitem" @click="menuExportRuntime">Runtime exportieren…</button>
+          <button
+            type="button"
+            role="menuitem"
+            title="Save a single .skelio.json file — file dialog with path and filename."
+            @click="menuSaveEditor"
+          >
+            Save project as file…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            title="Export runtime JSON for engine / game use."
+            @click="menuExportRuntime"
+          >
+            Export runtime…
+          </button>
         </div>
       </details>
 
       <details class="menu" @toggle="onMenuToggle($event)">
-        <summary>Bearbeiten</summary>
+        <summary>Edit</summary>
         <div class="menu-panel" role="menu">
-          <button type="button" role="menuitem" @click="menuUndo">Rückgängig</button>
-          <button type="button" role="menuitem" @click="menuRedo">Wiederholen</button>
+          <button type="button" role="menuitem" @click="menuUndo">Undo</button>
+          <button type="button" role="menuitem" @click="menuRedo">Redo</button>
         </div>
       </details>
 
       <details class="menu" @toggle="onMenuToggle($event)">
-        <summary>Ansicht</summary>
+        <summary>View</summary>
         <div class="menu-panel menu-panel--wide" role="menu">
           <label class="menu-chk">
             <input
@@ -331,7 +357,7 @@ async function saveRuntimeExportToFile() {
               :checked="store.animatorRigMeshDeformOverlay"
               @change="store.setAnimatorRigMeshDeformOverlay(($event.target as HTMLInputElement).checked)"
             />
-            Mesh-Overlay
+            Mesh overlay
           </label>
           <label class="menu-chk">
             <input
@@ -339,12 +365,12 @@ async function saveRuntimeExportToFile() {
               :checked="store.animatorDeformMeshDraw"
               @change="store.setAnimatorDeformMeshDraw(($event.target as HTMLInputElement).checked)"
             />
-            Deform-Mesh
+            Deform mesh
           </label>
         </div>
       </details>
 
-      <div class="mode-tabs" role="tablist" aria-label="Arbeitsmodus">
+      <div class="mode-tabs" role="tablist" aria-label="Workspace mode">
         <button
           type="button"
           role="tab"
@@ -377,7 +403,7 @@ async function saveRuntimeExportToFile() {
         </button>
       </div>
 
-      <!-- Immer sichtbar: Setup-Wizard (zusätzlich unter Modus »Rig« in Zeile 2) -->
+      <!-- Character Setup: single entry in the top row (always visible in every mode). -->
       <button
         type="button"
         class="btn-character-setup"
@@ -389,19 +415,21 @@ async function saveRuntimeExportToFile() {
 
       <span class="grow" />
 
-      <button type="button" class="ghost help-btn" title="Toolbar-Überblick" @click="openHelp">?</button>
+      <button type="button" class="ghost help-btn" title="Toolbar overview" @click="openHelp">?</button>
     </div>
 
     <div class="context-row">
       <template v-if="workspaceMode === 'animate'">
-        <span class="ctx-hint">Viewport + Timeline · Rig-Werkzeuge auch unter <strong>Rig</strong> oder <strong>Character Setup…</strong> oben.</span>
+        <span class="ctx-hint">
+          Viewport + timeline · Rig tools also under <strong>Rig</strong> or <strong>Character Setup…</strong> above.
+        </span>
         <label class="chk" title="Animator: Rig-Slice-Meshes als Hilfs-Dreiecke">
           <input
             type="checkbox"
             :checked="store.animatorRigMeshDeformOverlay"
             @change="store.setAnimatorRigMeshDeformOverlay(($event.target as HTMLInputElement).checked)"
           />
-          Mesh-Overlay
+          Mesh overlay
         </label>
         <label class="chk" title="Animator: Slices als skinned Mesh">
           <input
@@ -409,10 +437,10 @@ async function saveRuntimeExportToFile() {
             :checked="store.animatorDeformMeshDraw"
             @change="store.setAnimatorDeformMeshDraw(($event.target as HTMLInputElement).checked)"
           />
-          Deform-Mesh
+          Deform mesh
         </label>
         <span v-if="store.quickRigMode" class="quick-rig-pill" role="status">
-          Quick Rig an — kein Keyframe-Ziehen auf Knochen/Sprites
+          Quick Rig on — no keyframe drag on bones/sprites
         </span>
       </template>
 
@@ -434,14 +462,6 @@ async function saveRuntimeExportToFile() {
           @click="store.dispatch({ type: 'addCharacter', name: '' })"
         >
           + Character
-        </button>
-        <button
-          type="button"
-          class="btn-character-setup"
-          title="Character Setup — Wizard öffnen"
-          @click="store.openCharacterRigModal()"
-        >
-          Character Setup…
         </button>
         <button
           type="button"
@@ -479,19 +499,38 @@ async function saveRuntimeExportToFile() {
       </template>
 
       <template v-else>
-        <span class="ctx-hint">Projekt- und Runtime-Dateien</span>
-        <button type="button" @click="saveEditorProjectToFile">Editor speichern…</button>
-        <button type="button" class="ghost" @click="saveRuntimeExportToFile">Runtime exportieren…</button>
+        <span class="ctx-hint">Folder = manifest + assets/ · File = one .skelio.json with a custom name</span>
+        <button
+          type="button"
+          title="Single .skelio.json — choose path and filename in the dialog."
+          @click="saveEditorProjectToFile"
+        >
+          Save project as file…
+        </button>
+        <button type="button" class="ghost" title="Runtime JSON for engine use." @click="saveRuntimeExportToFile">
+          Export runtime…
+        </button>
         <template v-if="tauri">
-          <button type="button" @click="onOpenProjectFolder">Ordner…</button>
-          <button type="button" @click="onSaveProjectFolder">Ordner speichern</button>
           <button
             type="button"
-            class="ghost"
-            title="Ordner wählen — im Ordner heißt die Manifest-Datei immer project.skelio.json. Beliebigen Dateinamen: „Editor speichern…“."
+            title="Load folder project (project.skelio.json + assets/)."
+            @click="onOpenProjectFolder"
+          >
+            Open folder…
+          </button>
+          <button
+            type="button"
+            title="Save into the current project folder."
+            @click="onSaveProjectFolder"
+          >
+            Save project
+          </button>
+          <button
+            type="button"
+            title="Pick a new folder; manifest is always project.skelio.json there."
             @click="onSaveProjectFolderAs"
           >
-            Speichern unter…
+            Other folder…
           </button>
         </template>
       </template>
@@ -501,7 +540,7 @@ async function saveRuntimeExportToFile() {
       </span>
       <div v-if="saveFeedback" class="save-feedback" :class="{ err: !saveFeedback.ok }" role="status">
         <span class="save-feedback-text">{{ saveFeedback.text }}</span>
-        <button type="button" class="save-feedback-close" title="Schließen" @click="dismissSaveFeedback">×</button>
+        <button type="button" class="save-feedback-close" title="Close" @click="dismissSaveFeedback">×</button>
       </div>
     </div>
 
@@ -519,11 +558,16 @@ async function saveRuntimeExportToFile() {
       <div class="help-dlg-inner">
         <h2 class="help-dlg-title">Toolbar</h2>
         <p>
-          <strong>Character Setup…</strong> steht <strong>immer</strong> in der ersten Zeile (violetter Button) und öffnet
-          den Wizard. Zusätzlich unter Modus <strong>Rig</strong> dieselben Rig-Werkzeuge.
+          <strong>Character Setup…</strong> is only on the first row (purple) and opens the wizard. Under
+          <strong>Rig</strong> you get slot picker, Quick Rig, reference image, mesh import, etc.
         </p>
-        <p><strong>Datei / Bearbeiten / Ansicht</strong>: alle bisherigen Aktionen; nichts entfernt.</p>
-        <button type="button" class="mini-close" @click="closeHelp">Schließen</button>
+        <p>
+          <strong>File</strong>:
+          <strong>Open project folder</strong> / <strong>Save project</strong> use a <em>folder</em> on disk (manifest
+          <code>project.skelio.json</code> + <code>assets/</code>).
+          <strong>Save project as file…</strong> saves <em>one</em> <code>.skelio.json</code> with a name you choose.
+        </p>
+        <button type="button" class="mini-close" @click="closeHelp">Close</button>
       </div>
     </dialog>
   </header>

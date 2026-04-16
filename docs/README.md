@@ -1,6 +1,6 @@
 # Skelio documentation
 
-Numbered guides **00–15** are the canonical developer narrative. [AGENTS.md](../AGENTS.md) summarizes what automation should read first.
+Numbered guides **00–16** are the canonical developer narrative. [AGENTS.md](../AGENTS.md) summarizes what automation should read first.
 
 ## Index (00–15)
 
@@ -22,6 +22,7 @@ Numbered guides **00–15** are the canonical developer narrative. [AGENTS.md](.
 | [13-ai-assisted-development.md](./13-ai-assisted-development.md) | Agents, Cursor rules, safe automation |
 | [14-vertical-slice-1-tasks.md](./14-vertical-slice-1-tasks.md) | MVP slice tasks and acceptance hints |
 | [15-product-gaps-and-roadmap.md](./15-product-gaps-and-roadmap.md) | Known gaps and planned work |
+| [16-character-setup-animate-boundary.md](./16-character-setup-animate-boundary.md) | **Character Setup vs Animate** — non-negotiable separation (rigging vs animation) |
 
 ## Other material
 

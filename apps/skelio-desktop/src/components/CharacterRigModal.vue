@@ -1,3 +1,7 @@
+<!--
+  Character Setup — rigging wizard only (sprites, bones, bind, depth).
+  Not the Animate workspace. Contract: docs/16-character-setup-animate-boundary.md
+-->
 <script setup lang="ts">
 import {
   boneIdsInCharacterSubtree,

@@ -3,7 +3,7 @@ import { clipDurationSeconds } from "@skelio/domain";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted } from "vue";
 import { useEditorStore } from "../stores/editor.js";
-import HierarchyPanel from "./HierarchyPanel.vue";
+import LeftSidebarPanel from "./LeftSidebarPanel.vue";
 import InspectorPanel from "./InspectorPanel.vue";
 import TimelinePanel from "./TimelinePanel.vue";
 import CharacterRigModal from "./CharacterRigModal.vue";
@@ -64,7 +64,9 @@ function onKey(e: KeyboardEvent) {
     <ToolbarPanel />
     <div class="workspace">
       <aside class="side">
-        <HierarchyPanel />
+        <div class="left-col">
+          <LeftSidebarPanel />
+        </div>
       </aside>
       <div class="viewport-slot" :class="{ 'viewport-slot--setup-wizard-open': characterRigModalOpen }">
         <ViewportPanel />
@@ -126,10 +128,16 @@ function onKey(e: KeyboardEvent) {
   background: linear-gradient(165deg, #1a1c24 0%, #14161c 55%, #12141a 100%);
   box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.25);
 }
-.side > * {
+.left-col {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   min-width: 0;
+}
+.left-col > :first-child {
+  flex: 1;
+  min-height: 0;
 }
 .side.right {
   border-right: none;

@@ -23,6 +23,10 @@ cd apps/skelio-desktop && pnpm tauri dev
 
 The editor exposes **rig camera** modes such as `2d`, `2.5d`, and `3d` (see store and viewport components). **2D orthographic** mode may pass `planar2dNoTiltSpin` into pose evaluation so planar IK assumptions match the view.
 
+## Character Setup vs Animate (do not mix)
+
+**Character Setup** is **rigging only** (wizard + draft project). **Animate** is **keyframes / playback** on the committed project. They share one `EditorProject` on disk but **must not** share UI state: opening Setup forces **Rig** mode; switching to **Animate** closes the wizard. Full rules and file map: [16-character-setup-animate-boundary.md](./16-character-setup-animate-boundary.md).
+
 ## Related
 
 - Domain pose behavior: [09-domain-editor-pipeline.md](./09-domain-editor-pipeline.md)

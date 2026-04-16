@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { boneIdsInCharacterSubtree } from "@skelio/domain";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useEditorStore } from "../stores/editor.js";
@@ -12,15 +13,29 @@ const {
   characterRigModalOpen,
   characterRigModalStep,
   quickRigMode,
+  activeCharacterId,
+  rigCharacterSlots,
+  workspaceMode,
 } = storeToRefs(store);
 
 /** Skeleton structure: add/remove while Character Setup wizard or Quick Rig. */
 const skeletonEditLocked = computed(() => !(characterRigModalOpen.value || quickRigMode.value));
 
 const rows = computed(() => {
+  const p = rigEditProject.value;
+  const slots = rigCharacterSlots.value;
+  let allowed: Set<string> | null = null;
+  /** Multi-character: Animate = full scene; Rig/Export/Setup = active character only. */
+  const focusActiveSubtree = slots.length > 1 && workspaceMode.value !== "animate";
+  if (focusActiveSubtree) {
+    const aid = activeCharacterId.value;
+    const slot = aid ? slots.find((s) => s.id === aid) : slots[0];
+    if (slot) allowed = boneIdsInCharacterSubtree(p, slot.rootBoneId);
+  }
   const out: { id: string; name: string; depth: number }[] = [];
   const walk = (parentId: string | null, depth: number) => {
-    for (const b of rigEditProject.value.bones.filter((x) => x.parentId === parentId)) {
+    for (const b of p.bones.filter((x) => x.parentId === parentId)) {
+      if (allowed && !allowed.has(b.id)) continue;
       out.push({ id: b.id, name: b.name, depth });
       walk(b.id, depth + 1);
     }

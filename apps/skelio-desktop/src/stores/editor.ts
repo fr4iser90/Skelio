@@ -1,5 +1,6 @@
 import { applyCommand, commandUsesActiveCharacter, type Command } from "@skelio/application";
 import {
+  boneIdsInCharacterSubtree,
   characterRigBindingsComplete,
   characterRigBindingsCompleteStrict,
   createDefaultEditorProject,
@@ -53,11 +54,15 @@ export const useEditorStore = defineStore("editor", () => {
   const weightBrushStrength = ref(0.06);
   const weightBrushSubtract = ref(false);
 
-  /** Character Setup modal (guided wizard); not the day-to-day animator UI. */
+  /**
+   * Character Setup (rigging wizard) — see `docs/16-character-setup-animate-boundary.md`.
+   * Boundaries: Setup edits `characterRigDraftProject` only; Animate uses committed `project`.
+   * Opening the wizard forces `workspaceMode === "rig"`. Switching to Animate discards the wizard.
+   */
   const characterRigModalOpen = ref(false);
   /**
-   * Full project clone while the wizard is open. Edits apply here until **Done** merges into `project`.
-   * Animate / timeline read the committed `project` only until then.
+   * Draft project while Character Setup is open. Merged into `project` on **Done** only.
+   * Animate / timeline must read committed `project`, not this draft, until merge.
    */
   const characterRigDraftProject = ref<EditorProject | null>(null);
   const characterRigDraftPast = ref<EditorProject[]>([]);
@@ -154,6 +159,13 @@ export const useEditorStore = defineStore("editor", () => {
     const p = characterRigDraftProject.value ?? project.value;
     if (id && p.characters?.some((c) => c.id === id)) {
       activeCharacterId.value = id;
+      const slot = p.characters!.find((c) => c.id === id)!;
+      if ((p.characters?.length ?? 0) > 1) {
+        const allow = boneIdsInCharacterSubtree(p, slot.rootBoneId);
+        if (selectedBoneId.value && !allow.has(selectedBoneId.value)) {
+          selectedBoneId.value = slot.rootBoneId;
+        }
+      }
     } else {
       syncActiveCharacterIdFromProject(p);
     }
@@ -475,6 +487,10 @@ export const useEditorStore = defineStore("editor", () => {
 
   function openCharacterRigModal() {
     quickRigMode.value = false;
+    /** Setup is rigging, not animation — avoid viewport/timeline coupling from Animate mode. */
+    if (workspaceMode.value !== "rig") {
+      workspaceMode.value = "rig";
+    }
     characterRigDraftProject.value = cloneProjectPlain();
     syncActiveCharacterIdFromProject(characterRigDraftProject.value);
     characterRigDraftPast.value = [];

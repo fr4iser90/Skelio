@@ -1,8 +1,14 @@
+<!--
+  Main 2D canvas: Character Setup (bind/rig wizard) vs Animate (timeline pose) are split here.
+  Contract: docs/16-character-setup-animate-boundary.md — never drive Setup from Animate pose.
+-->
 <script setup lang="ts">
 import {
   addBoneWeightDelta,
   allCharacterRigSlices,
   allCharacterRigSpriteSheets,
+  boneIdsInCharacterSubtree,
+  getCharacterRig,
   boneLengthAndBindRotationFromWorldTip,
   deformSkinnedMesh,
   evaluatePose,
@@ -70,6 +76,8 @@ const {
   rigCameraViewKind,
   animatorRigMeshDeformOverlay,
   animatorDeformMeshDraw,
+  rigCharacterSlots,
+  activeCharacterId,
 } = storeToRefs(store);
 
 /** Y squash in Character Setup wizard only (pseudo 2.5D / 3D). */
@@ -77,10 +85,53 @@ const rigWorldYCompress = computed(() =>
   characterRigModalOpen.value ? rigCameraWorldYScale.value : 1,
 );
 
-/** Rig/bones: wizard draft while Character Setup is open, else committed project. Animate playback always uses committed `project`. */
+/**
+ * Pose source for this viewport: **Animate** → always committed `project` (no draft).
+ * **Rig / Export** → `rigEditProject` (draft while Character Setup is open). Do not merge these concerns.
+ * See docs/16-character-setup-animate-boundary.md.
+ */
 const poseProject = computed(() => {
   const committed = project.value;
   return workspaceMode.value === "animate" ? committed : rigEditProject.value;
+});
+
+/**
+ * Multi-character: in Rig / Export / Setup / Quick Rig, show only the **active** slot's rig.
+ * Animate mode shows the full scene (all characters).
+ */
+const filterViewportToActiveCharacter = computed(
+  () => rigCharacterSlots.value.length > 1 && workspaceMode.value !== "animate",
+);
+
+/**
+ * Bones to show / pick when {@link filterViewportToActiveCharacter}: active subtree only.
+ */
+const viewportBones = computed(() => {
+  const p = poseProject.value;
+  if (!filterViewportToActiveCharacter.value) return p.bones;
+  const slots = rigCharacterSlots.value;
+  const aid = activeCharacterId.value;
+  const slot = aid ? slots.find((s) => s.id === aid) : slots[0];
+  if (!slot) return p.bones;
+  const allow = boneIdsInCharacterSubtree(p, slot.rootBoneId);
+  return p.bones.filter((b) => allow.has(b.id));
+});
+
+/** Sprite slices to draw / hit-test (same filter as bones). */
+const viewportRigSlices = computed(() => {
+  const p = poseProject.value;
+  if (!filterViewportToActiveCharacter.value) return allCharacterRigSlices(p);
+  const aid = activeCharacterId.value ?? rigCharacterSlots.value[0]?.id;
+  const rig = aid ? getCharacterRig(p, aid) : undefined;
+  return rig?.slices ?? [];
+});
+
+const viewportRigSpriteSheets = computed(() => {
+  const p = poseProject.value;
+  if (!filterViewportToActiveCharacter.value) return allCharacterRigSpriteSheets(p);
+  const aid = activeCharacterId.value ?? rigCharacterSlots.value[0]?.id;
+  const rig = aid ? getCharacterRig(p, aid) : undefined;
+  return rig?.spriteSheets ?? [];
 });
 
 /**
@@ -92,7 +143,8 @@ const poseProject = computed(() => {
  */
 const solvedPose = computed(() => {
   const p = poseProject.value;
-  const t = currentTime.value;
+  /** Character Setup: pose eval must not follow Animate timeline — use bind time only. */
+  const t = characterRigModalOpen.value ? 0 : currentTime.value;
   const planar = rigCameraViewKind.value === "2d";
   const opts = { applyIk: true, planar2dNoTiltSpin: planar } as const;
   const drag = ikControlDrag.value;
@@ -188,12 +240,10 @@ const rigModalBoneStep = computed(
 );
 
 /**
- * Character-Rig-Wizard (alle Tabs): Viewport immer in Bind-Pose zeichnen, damit Sprites/Bones/Bind
- * identisch aussehen und nicht mit der Animations-Timeline „springen“.
+ * Character Setup: viewport always bind-pose for the wizard (never the animator timeline pose),
+ * regardless of which workspace tab was active before opening.
  */
-const rigWizardBindLayoutViewport = computed(
-  () => characterRigModalOpen.value && workspaceMode.value !== "animate",
-);
+const rigWizardBindLayoutViewport = computed(() => characterRigModalOpen.value);
 
 /**
  * Wizard-Schritte 0–2 (Sprites / Bones / Bind): Slices immer wie „starre“ Quads zeichnen (rigid),
@@ -201,24 +251,20 @@ const rigWizardBindLayoutViewport = computed(
  * sehen in Bind anders aus als in Sprites/Bones.
  */
 const rigModalRigidSlicesThroughBindStep = computed(
-  () =>
-    characterRigModalOpen.value &&
-    workspaceMode.value !== "animate" &&
-    characterRigModalStep.value <= 2,
+  () => characterRigModalOpen.value && characterRigModalStep.value <= 2,
 );
 
 /** Bind-pose interactions on canvas: wizard Bones step or Quick Rig (main window). */
-const bindPoseViewportEditing = computed(() =>
-  // In Animate mode we must only write animation keys, never edit bind pose.
-  workspaceMode.value !== "animate" && (rigModalBoneStep.value || quickRigMode.value),
-);
+const bindPoseViewportEditing = computed(() => {
+  // Animate mode: only animation keys — unless Character Setup Bones step is active.
+  if (characterRigModalOpen.value && rigModalBoneStep.value) return true;
+  return workspaceMode.value !== "animate" && (rigModalBoneStep.value || quickRigMode.value);
+});
 
 /** Muss zu {@link solvedPose} passen: Skinning nutzt `pose * inv(bind)` — bind ebenfalls ohne Tilt/Spin in 2D. */
 const planarBindOpts = computed(() => {
   if (rigCameraViewKind.value !== "2d") return undefined;
-  const skipTipSnap =
-    bindPoseViewportEditing.value ||
-    (characterRigModalOpen.value && workspaceMode.value !== "animate");
+  const skipTipSnap = bindPoseViewportEditing.value || characterRigModalOpen.value;
   return skipTipSnap
     ? ({ planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } as const)
     : ({ planar2dNoTiltSpin: true } as const);
@@ -240,7 +286,7 @@ const viewportHintText = computed(() => {
       if (pendingBonePlacementId.value) {
         return "Quick Rig: Klick in die Fläche = neuen Knochen platzieren (orange Kreis) · WASD = Ansicht · Rad = Zoom";
       }
-      return "Quick Rig: Spitze/Shift+Gelenk … · Knochen ziehen = Bind X/Y · WASD = Ansicht · Esc = Längen-Vorschau abbrechen · Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
+      return "Quick Rig: … · Delete/Backspace = Knochen löschen (nicht Root) · Esc = Längen-Vorschau abbrechen · WASD · Rad · Alt+Pan · Rechts = drehen";
     }
     return `Animator: tool=${animatorTool.value.toUpperCase()} · drag sprite/bone = ${animatorTool.value} keys · Shift = translate · G=translate · R=rotate · WASD = pan · wheel=zoom · Alt+left=pan · right-drag=rotate view`;
   }
@@ -251,9 +297,9 @@ const viewportHintText = computed(() => {
     if (pendingBonePlacementId.value) {
       return "Character Setup — Bones: Klick in die Fläche = neuen Knochen platzieren (orange Kreis) · Rad = Zoom";
     }
-    return "Character Setup — Bones: Spitze/Shift+Gelenk ziehen (Richtung + Länge) · Loslassen = übernehmen · Esc = abbrechen · Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
+    return "Character Setup — Bones: Spitze/Shift+Gelenk ziehen · Esc = abbrechen · Delete/Backspace = Knochen löschen (nicht Root) · Rad = Zoom · Alt+Pan · Rechts = drehen";
   }
-  if (allCharacterRigSlices(poseProject.value).length > 0) {
+  if (viewportRigSlices.value.length > 0) {
     if (!mainViewSliceDragEnabled.value) {
       return "Character Setup: Rig-Meshes aktiv — Knochen ziehen (Keys), keine freien Slices. Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
     }
@@ -271,7 +317,7 @@ function hitTestBoneTip(wx: number, wy: number, radiusWorld: number): string | n
   const r2 = r * r;
   const tieEps2 = (28 * sc) ** 2 * 0.85;
   const sel = selectedBoneId.value;
-  const bones = poseProject.value.bones;
+  const bones = viewportBones.value;
   const hits: { id: string; d2: number; len: number; idx: number }[] = [];
   bones.forEach((b, idx) => {
     const M = mats.get(b.id);
@@ -369,7 +415,7 @@ function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null
   const r = radiusWorld * sc;
   const r2 = r * r;
   const sel = selectedBoneId.value;
-  const bones = poseProject.value.bones;
+  const bones = viewportBones.value;
   const hits: { id: string; d2: number; len: number; idx: number }[] = [];
   bones.forEach((b, idx) => {
     const o = origins.get(b.id);
@@ -402,7 +448,7 @@ function hitTestBoneAnimator(wx: number, wy: number): string | null {
   const segMaxD2 = segR * segR;
   const rigStep = bindPoseViewportEditing.value;
   const sel = selectedBoneId.value;
-  const bones = poseProject.value.bones;
+  const bones = viewportBones.value;
   const cands: { id: string; score: number; len: number; idx: number }[] = [];
   bones.forEach((b, idx) => {
     const joint = origins.get(b.id);
@@ -563,7 +609,7 @@ watch(
 );
 
 watch(
-  () => allCharacterRigSpriteSheets(poseProject.value),
+  () => viewportRigSpriteSheets.value,
   (sheets) => {
     const m = new Map(rigSheetBitmaps.value);
     const keep = new Set((sheets ?? []).map((s) => s.id));
@@ -592,7 +638,7 @@ watch(
 );
 
 watch(
-  () => allCharacterRigSlices(poseProject.value),
+  () => viewportRigSlices.value,
   (slices) => {
     const m = new Map(embeddedRigImages.value);
     const keep = new Set<string>();
@@ -717,9 +763,8 @@ function rigidSliceWorldPose(
   const bid = resolveCharacterRigSliceBoundBoneId(poseProject.value, s.id);
   if (!bid) return null;
   const binding = findCharacterRigBinding(poseProject.value, s.id) ?? null;
-  /** Character-Setup (nicht Animate): Layout-Welt ist führend — sonst driftet die Pose gegen gespeicherte Binding-Locals. */
-  const layoutOnlyRig =
-    characterRigModalOpen.value && workspaceMode.value !== "animate" && bid;
+  /** Character Setup: layout world leads — else pose drifts vs stored binding locals. */
+  const layoutOnlyRig = characterRigModalOpen.value && bid;
 
   // Hard guarantee: 2D animator rigid slices use 2D bind/pose matrices only.
   if (rigCameraViewKind.value === "2d") {
@@ -773,7 +818,7 @@ function pointInRotatedSliceRect(
 }
 
 function hitTestRigSlice(wx: number, wy: number): string | null {
-  const slices = allCharacterRigSlices(poseProject.value);
+  const slices = viewportRigSlices.value;
   if (!slices.length) return null;
   const { boneM4 } = viewportBoneBindPoseAndDrawState();
   for (let i = slices.length - 1; i >= 0; i--) {
@@ -781,8 +826,7 @@ function hitTestRigSlice(wx: number, wy: number): string | null {
     if (s.width <= 0 || s.height <= 0) continue;
     const { cx, cy } = effectiveSliceCenter(s);
     const bidHit = resolveCharacterRigSliceBoundBoneId(poseProject.value, s.id);
-    const layoutHit =
-      characterRigModalOpen.value && workspaceMode.value !== "animate" && bidHit;
+    const layoutHit = characterRigModalOpen.value && bidHit;
     const rigid = rigidSliceWorldPose(s, {} as CharacterRigConfig, cx, cy, boneM4);
     if (rigid) {
       const tcx = layoutHit ? cx : rigid.cx;
@@ -1015,7 +1059,7 @@ function draw() {
   const skinMeshes = poseProject.value.skinnedMeshes ?? [];
   const { bindM4, poseM4Draw, boneM4, boneO } = viewportBoneBindPoseAndDrawState();
 
-  const rigSlices = allCharacterRigSlices(poseProject.value);
+  const rigSlices = viewportRigSlices.value;
   if (rigSlices.length) {
     const activeSliceId = selectedCharacterRigSliceId.value;
     for (const s of rigSlices) {
@@ -1118,10 +1162,20 @@ function draw() {
   }
 
   if (animatorRigMeshDeformOverlay.value && skinMeshes.length > 0) {
+    const sliceIdsForOverlay = new Set(viewportRigSlices.value.map((s) => s.id));
     const overlayMeshes = skinMeshes.filter((m) => {
-      if (!m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)) return true;
-      /** Kein doppeltes „blaues Gitter“: Deform-Mesh zeigt dieselbe Geometrie schon texturiert. */
-      return !animatorDeformMeshDraw.value;
+      if (m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)) {
+        if (
+          filterViewportToActiveCharacter.value &&
+          !sliceIdsForOverlay.has(m.id.slice(RIG_SLICE_MESH_ID_PREFIX.length))
+        ) {
+          return false;
+        }
+        /** Kein doppeltes „blaues Gitter“: Deform-Mesh zeigt dieselbe Geometrie schon texturiert. */
+        return !animatorDeformMeshDraw.value;
+      }
+      if (filterViewportToActiveCharacter.value) return false;
+      return true;
     });
     if (overlayMeshes.length > 0) {
       ctx.save();
@@ -1153,7 +1207,7 @@ function draw() {
     }
   }
 
-  const bones = poseProject.value.bones;
+  const bones = viewportBones.value;
   /** 2D „Zylinder“-Schaft: dicke Stroke + runde Kappen. */
   const BONE_SHAFT_W = 7;
   const BONE_SHAFT_W_SEL = 9;
@@ -1562,7 +1616,7 @@ function onCanvasPointerDown(e: PointerEvent) {
   const hitSlice = mainViewSliceDragEnabled.value ? hitTestRigSlice(wx, wy) : null;
   if (hitSlice) {
     e.preventDefault();
-    const s = allCharacterRigSlices(poseProject.value).find((x) => x.id === hitSlice);
+    const s = viewportRigSlices.value.find((x) => x.id === hitSlice);
     if (!s) return;
     const { cx, cy } = effectiveSliceCenter(s);
     rigSliceDrag.value = { sliceId: hitSlice, grabDx: wx - cx, grabDy: wy - cy };
@@ -1868,6 +1922,7 @@ onMounted(() => {
   window.addEventListener("keydown", onAnimatorToolKeyDown, true);
   window.addEventListener("keydown", onIkControlKeyDown, true);
   window.addEventListener("keydown", onViewportWasdKeyDown, true);
+  window.addEventListener("keydown", onBoneDeleteKeyDown, true);
   const c = canvas.value;
   if (!c) return;
   const ro = new ResizeObserver(() => {
@@ -1885,6 +1940,7 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onAnimatorToolKeyDown, true);
   window.removeEventListener("keydown", onIkControlKeyDown, true);
   window.removeEventListener("keydown", onViewportWasdKeyDown, true);
+  window.removeEventListener("keydown", onBoneDeleteKeyDown, true);
 });
 
 function onAnimatorToolKeyDown(e: KeyboardEvent) {
@@ -1910,6 +1966,23 @@ function onIkControlKeyDown(e: KeyboardEvent) {
   draw();
 }
 
+/** Character Setup / Quick Rig: Delete or Backspace removes selected bone (same rules as hierarchy). */
+function onBoneDeleteKeyDown(e: KeyboardEvent) {
+  if (e.key !== "Delete" && e.key !== "Backspace") return;
+  if (isTypingInEditableField(e.target)) return;
+  if (weightBrushEnabled.value) return;
+  if (viewDrag.value || boneLengthDrag.value || boneDrag.value || rigSliceDrag.value || ikControlDrag.value) return;
+  if (!characterRigModalOpen.value && !quickRigMode.value) return;
+  const bid = selectedBoneId.value;
+  if (!bid) return;
+  const b = poseProject.value.bones.find((x) => x.id === bid);
+  if (!b || b.parentId === null) return;
+  e.preventDefault();
+  e.stopPropagation();
+  store.dispatch({ type: "removeBone", boneId: bid });
+  draw();
+}
+
 /** Nur 2D-Canvas: WASD wie OrbitControls (2.5D / Setup-WebGL) — vorherige Achsen waren dazu invertiert. */
 function onViewportWasdKeyDown(e: KeyboardEvent) {
   if (characterRigModalOpen.value) return;
@@ -1930,6 +2003,9 @@ function onViewportWasdKeyDown(e: KeyboardEvent) {
 watch(
   [
     project,
+    workspaceMode,
+    activeCharacterId,
+    rigCharacterSlots,
     currentTime,
     selectedBoneId,
     selectedMeshId,

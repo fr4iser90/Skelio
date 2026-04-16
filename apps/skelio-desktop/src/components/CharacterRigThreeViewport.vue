@@ -4,6 +4,7 @@
  */
 import {
   addBoneWeightDelta,
+  boneIdsInCharacterSubtree,
   boneLengthAndBindRotationFromWorldTip,
   deformSkinnedMesh,
   evaluatePose,
@@ -42,8 +43,9 @@ type BrushStroke = {
 const store = useEditorStore();
 const {
   rigEditProject,
+  rigCharacterSlots,
+  activeCharacterId,
   activeCharacterRig,
-  currentTime,
   selectedBoneId,
   selectedMeshId,
   selectedCharacterRigSliceId,
@@ -132,6 +134,21 @@ const depthAdjustDrag = ref<{
 const rigModalBoneStep = computed(() => characterRigModalStep.value === 1);
 /** Schritt 0–1 (Sprites / Bones): immer Bind-Pose — sonst wirkt die Figur „gestaucht“ (Timeline-Pose vs. Bind). */
 const rigModalSpritesOrBonesUseBindLayout = computed(() => characterRigModalStep.value <= 1);
+
+/**
+ * Multi-character: nur den aktiven Slot zeigen/picken (wie ViewportPanel), sonst wirken leere Rigs noch mit
+ * fremden Knochen im Setup.
+ */
+const rigSetupViewportBones = computed(() => {
+  const p = rigEditProject.value;
+  const slots = rigCharacterSlots.value;
+  if (slots.length <= 1) return p.bones;
+  const aid = activeCharacterId.value ?? slots[0]?.id;
+  const slot = aid ? slots.find((s) => s.id === aid) : undefined;
+  if (!slot) return p.bones;
+  const allow = boneIdsInCharacterSubtree(p, slot.rootBoneId);
+  return p.bones.filter((b) => allow.has(b.id));
+});
 const zoomLabel = ref("100%");
 
 let textureCache = new Map<string, THREE.Texture>();
@@ -143,11 +160,11 @@ const depthDataCache = new Map<DepthKey, { w: number; h: number; data: Uint8Clam
 const depthLoadPromises = new Map<DepthKey, Promise<void>>();
 
 /**
- * Cached solved pose for current reactive frame/time.
- * Keeps `evaluatePose` as SSoT, but avoids multiple recalcs per rebuild().
+ * Bind / rest pose only — never the Animate timeline (`currentTime`).
+ * This component lives only inside Character Setup; animation keys must not affect Bind or 3D steps.
  */
 const solvedPose = computed(() =>
-  evaluatePose(rigEditProject.value, currentTime.value, {
+  evaluatePose(rigEditProject.value, 0, {
     applyIk: true,
     planar2dNoTiltSpin: rigCameraViewKind.value === "2d",
   }),
@@ -435,7 +452,7 @@ function resolveRigBoneStepHit(
 
   const cands: RigBonePickCand[] = [];
 
-  rigEditProject.value.bones.forEach((b, boneIdx) => {
+  rigSetupViewportBones.value.forEach((b, boneIdx) => {
     const o = origins.get(b.id);
     const M = mats.get(b.id);
     const Lhit = Math.max(lengthForBoneDraw(b), BONE_LENGTH_HIT_MIN_LOCAL);
@@ -478,7 +495,7 @@ function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null
   const r = radiusWorld * sc;
   const r2 = r * r;
   const sel = selectedBoneId.value;
-  const bones = rigEditProject.value.bones;
+  const bones = rigSetupViewportBones.value;
   const hits: { id: string; d2: number; len: number; idx: number }[] = [];
   bones.forEach((b, idx) => {
     const o = origins.get(b.id);
@@ -1057,7 +1074,7 @@ function rebuildBones() {
 
   const selBid = selectedBoneId.value;
 
-  const bonesList = rigEditProject.value.bones;
+  const bonesList = rigSetupViewportBones.value;
   for (const b of bonesList) {
     const Lvis = lengthForBoneVisual(b, selBid, rigBoneInteractive);
     if (Lvis <= 1e-9) continue;
@@ -1086,7 +1103,7 @@ function rebuildBones() {
     }
   }
 
-  for (const b of rigEditProject.value.bones) {
+  for (const b of rigSetupViewportBones.value) {
     const M4 = boneM4.get(b.id);
     if (!M4) continue;
     const p0 = transformPointMat4(M4, 0, 0, 0);
@@ -1754,7 +1771,7 @@ onMounted(() => {
 });
 
 watch(
-  () => activeCharacterRig.value,
+  () => [activeCharacterRig.value, activeCharacterId.value] as const,
   () => {
     if (renderer) fullRebuild();
   },

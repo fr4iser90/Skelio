@@ -1,5 +1,6 @@
 import { applyCommand, type Command } from "@skelio/application";
 import {
+  characterRigBindingsComplete,
   createDefaultEditorProject,
   dehydrateEditorProjectForFolder,
   editorProjectToRuntime,
@@ -63,6 +64,15 @@ export const useEditorStore = defineStore("editor", () => {
   /** Neu angelegte Kind-Knochen: Bind X/Y an Parent-Spitze (wenn Parent `length` > 0), sonst klassisch (40,0). */
   const placeNewBonesAtParentTip = ref(false);
 
+  /** Animator-Canvas: deformierte `rig_slice_*`-Dreiecke (Skinning) einblenden (2D-Canvas). */
+  const animatorRigMeshDeformOverlay = ref(true);
+
+  /**
+   * Character-Rig-Slices im 2D-Animator als **texturierte** skinned Meshes zeichnen (Deformation wie Spine),
+   * statt nur starrer Rechtecke — wenn `rig_slice_*`-Mesh existiert.
+   */
+  const animatorDeformMeshDraw = ref(true);
+
   /** Nur im Character-Setup-Wizard: Kamera-Modus (2D = Ortho; 2.5D/3D = Perspektive). Beim Schließen → 2D. */
   const rigCameraViewKind = ref<RigCameraViewKind>("2d");
   /** Keine Welt-Y-Stauchung mehr (echtes 2.5D/3D über Kamera/Perspektive). */
@@ -118,6 +128,20 @@ export const useEditorStore = defineStore("editor", () => {
     return structuredClone(toRaw(project.value));
   }
 
+  /**
+   * `rig_slice_*`-Meshes aus dem Character-Rig erzeugen/aktualisieren, sobald jedes Slice mit Pixeln an einen
+   * Knochen gebunden ist. Kein Undo-Eintrag (Side-Effect nach Commands / Laden / Speichern).
+   */
+  function mergeCharacterRigMeshesForPersist(): void {
+    const raw = toRaw(project.value);
+    if (!characterRigBindingsComplete(raw)) return;
+    const synced = applyCommand(raw, { type: "syncCharacterRigSkinnedMeshes" });
+    if (synced !== raw) {
+      project.value = synced;
+      ensureMeshVertexSelection();
+    }
+  }
+
   function dispatch(cmd: Command): boolean {
     const next = applyCommand(toRaw(project.value), cmd);
     const issues = validateEditorProject(next);
@@ -131,6 +155,7 @@ export const useEditorStore = defineStore("editor", () => {
     project.value = next;
     ensureSelection();
     ensureMeshVertexSelection();
+    mergeCharacterRigMeshesForPersist();
     return true;
   }
 
@@ -141,6 +166,7 @@ export const useEditorStore = defineStore("editor", () => {
     project.value = prev;
     ensureSelection();
     ensureMeshVertexSelection();
+    mergeCharacterRigMeshesForPersist();
   }
 
   function redo() {
@@ -150,6 +176,7 @@ export const useEditorStore = defineStore("editor", () => {
     project.value = nxt;
     ensureSelection();
     ensureMeshVertexSelection();
+    mergeCharacterRigMeshesForPersist();
   }
 
   function newProject() {
@@ -179,6 +206,7 @@ export const useEditorStore = defineStore("editor", () => {
     projectRootPath.value = folderRoot;
     ensureSelection();
     ensureMeshVertexSelection();
+    mergeCharacterRigMeshesForPersist();
   }
 
   function loadFromJson(text: string) {
@@ -232,6 +260,7 @@ export const useEditorStore = defineStore("editor", () => {
 
   /** Manifest + `assets/meshes/*.skelio-mesh.json` (Tauri). */
   async function persistProjectToFolder(root: string): Promise<void> {
+    mergeCharacterRigMeshesForPersist();
     const issues = validateEditorProject(project.value);
     if (issues.length) throw new Error(issues.map((i) => i.message).join("; "));
     const { manifest, meshAssetFiles } = dehydrateEditorProjectForFolder(toRaw(project.value));
@@ -242,10 +271,12 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function saveEditorJson(): string {
+    mergeCharacterRigMeshesForPersist();
     return JSON.stringify(stripMeshAssetPaths(toRaw(project.value)), null, 2);
   }
 
   function saveRuntimeJson(): string {
+    mergeCharacterRigMeshesForPersist();
     return JSON.stringify(editorProjectToRuntime(toRaw(project.value)), null, 2);
   }
 
@@ -302,6 +333,14 @@ export const useEditorStore = defineStore("editor", () => {
     placeNewBonesAtParentTip.value = v;
   }
 
+  function setAnimatorRigMeshDeformOverlay(v: boolean) {
+    animatorRigMeshDeformOverlay.value = v;
+  }
+
+  function setAnimatorDeformMeshDraw(v: boolean) {
+    animatorDeformMeshDraw.value = v;
+  }
+
   return {
     project,
     projectRootPath,
@@ -349,6 +388,10 @@ export const useEditorStore = defineStore("editor", () => {
     setPendingBonePlacement,
     placeNewBonesAtParentTip,
     setPlaceNewBonesAtParentTip,
+    animatorRigMeshDeformOverlay,
+    setAnimatorRigMeshDeformOverlay,
+    animatorDeformMeshDraw,
+    setAnimatorDeformMeshDraw,
     rigCameraViewKind,
     rigCameraWorldYScale,
     setRigCameraViewKind,

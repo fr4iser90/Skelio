@@ -4,12 +4,16 @@ import {
   boneLengthAndBindRotationFromWorldTip,
   deformSkinnedMesh,
   evaluatePose,
+  getFabrikIkChains,
   getLocalBoneState,
+  getTwoBoneIkChains,
   localBindTranslationForWorldOrigin,
   mat4Invert,
   mat4ToMat2dProjection,
   resolveCharacterRigSliceBoundBoneId,
+  RIG_SLICE_MESH_ID_PREFIX,
   rigidCharacterRigSliceWorldPose,
+  rigSliceSkinnedMeshId,
   transformPointMat4,
   worldBindBoneMatrices4,
   worldBindBoneMatrices4OverridingBindPose,
@@ -27,6 +31,7 @@ import {
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
+import { drawRigSliceSkinnedDeformed } from "../drawRigSliceSkinnedMesh.js";
 import { isTypingInEditableField } from "../viewportWasd.js";
 import AnimatorThreeViewport from "./AnimatorThreeViewport.vue";
 
@@ -54,6 +59,8 @@ const {
   quickRigMode,
   rigCameraWorldYScale,
   rigCameraViewKind,
+  animatorRigMeshDeformOverlay,
+  animatorDeformMeshDraw,
 } = storeToRefs(store);
 
 /** Y-Stauchung nur im Character-Setup-Wizard (Pseudo-2.5D/3D). */
@@ -566,12 +573,11 @@ function rigidSliceWorldPose(
   layoutCx: number,
   layoutCy: number,
   boneM4: Map<string, Mat4>,
-  boneO: Map<string, { x: number; y: number }>,
 ): { cx: number; cy: number; rot: number } | null {
   const bid = resolveCharacterRigSliceBoundBoneId(project.value, s.id);
   if (!bid) return null;
   const binding = project.value.characterRig?.bindings?.find((b) => b.sliceId === s.id && b.boneId === bid) ?? null;
-  return rigidCharacterRigSliceWorldPose(project.value, bid, layoutCx, layoutCy, boneM4, boneO, {
+  return rigidCharacterRigSliceWorldPose(project.value, bid, layoutCx, layoutCy, boneM4, {
     localX: binding?.localX,
     localY: binding?.localY,
     localZ: binding?.localZ,
@@ -601,12 +607,12 @@ function hitTestRigSlice(wx: number, wy: number): string | null {
   const slices = project.value.characterRig?.slices;
   if (!slices?.length) return null;
   const rig = project.value.characterRig!;
-  const { boneM4, boneO } = viewportBoneBindPoseAndDrawState();
+  const { boneM4 } = viewportBoneBindPoseAndDrawState();
   for (let i = slices.length - 1; i >= 0; i--) {
     const s = slices[i]!;
     if (s.width <= 0 || s.height <= 0) continue;
     const { cx, cy } = effectiveSliceCenter(s);
-    const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4, boneO);
+    const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4);
     if (rigid) {
       if (pointInRotatedSliceRect(wx, wy, rigid.cx, rigid.cy, s.width, s.height, rigid.rot)) return s.id;
     } else {
@@ -620,6 +626,44 @@ function hitTestRigSlice(wx: number, wy: number): string | null {
 
 function bindingBoneIdForSlice(sliceId: string): string | null {
   return resolveCharacterRigSliceBoundBoneId(project.value, sliceId);
+}
+
+/**
+ * If `boneId` is the IK-driven tip of an enabled chain, dragging translation must move the
+ * chain target — not tx/ty on the bone (those fight the solver and detach sprites).
+ */
+function ikEffectorChainForBone(
+  boneId: string,
+): { kind: "two" | "fabrik"; chainId: string } | null {
+  const p = project.value;
+  for (const ch of getTwoBoneIkChains(p)) {
+    if (ch.enabled && ch.tipBoneId === boneId) return { kind: "two", chainId: ch.id };
+  }
+  for (const ch of getFabrikIkChains(p)) {
+    const last = ch.boneIds[ch.boneIds.length - 1];
+    if (ch.enabled && last === boneId) return { kind: "fabrik", chainId: ch.id };
+  }
+  return null;
+}
+
+function dispatchIkChainWorldTarget(chainId: string, kind: "two" | "fabrik", twx: number, twy: number) {
+  if (kind === "two") {
+    store.dispatch({ type: "setIkChainTarget", chainId, targetX: twx, targetY: twy });
+  } else {
+    store.dispatch({ type: "setFabrikIkChainTarget", chainId, targetX: twx, targetY: twy });
+  }
+  const ctl = project.value.rig?.controls?.ikTargets2d?.find((c) => c.chainId === chainId);
+  if (ctl) {
+    store.dispatch({
+      type: "setIkTargetControlBase",
+      controlId: ctl.id,
+      x: twx,
+      y: twy,
+      ...(typeof ctl.poleX === "number" && typeof ctl.poleY === "number"
+        ? { poleX: ctl.poleX, poleY: ctl.poleY }
+        : {}),
+    });
+  }
 }
 
 function animatorBoneDragGrab(boneId: string, pwx: number, pwy: number): { j0x: number; j0y: number; p0x: number; p0y: number } {
@@ -754,7 +798,7 @@ function draw() {
   }
 
   const skinMeshes = project.value.skinnedMeshes ?? [];
-  const { bindM4, poseM4, boneM4, boneM, boneO } = viewportBoneBindPoseAndDrawState();
+  const { bindM4, poseM4, boneM4 } = viewportBoneBindPoseAndDrawState();
 
   const rig = project.value.characterRig;
   if (rig?.slices?.length) {
@@ -766,33 +810,58 @@ function draw() {
       const alpha = activeSliceId === null ? 1 : isActive ? 1 : 0.44;
       ctx.save();
       ctx.globalAlpha = alpha;
-      const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4, boneO);
-      if (rigid) {
-        ctx.translate(rigid.cx, rigid.cy);
-        ctx.rotate(rigid.rot);
+
+      const sliceMesh =
+        animatorDeformMeshDraw.value && bindingBoneIdForSlice(s.id)
+          ? skinMeshes.find((m) => m.id === rigSliceSkinnedMeshId(s.id))
+          : undefined;
+      let drewSkinned = false;
+      if (sliceMesh) {
+        const deformed = deformSkinnedMesh(sliceMesh, bindM4, poseM4);
         if (s.embedded) {
           const eimg = embeddedRigImages.value.get(s.id);
           if (eimg?.complete && eimg.naturalWidth > 0) {
-            ctx.drawImage(eimg, -s.width / 2, -s.height / 2, s.width, s.height);
+            drawRigSliceSkinnedDeformed(ctx, s, sliceMesh, deformed, eimg, true);
+            drewSkinned = true;
           }
         } else if (s.sheetId) {
           const rigImg = rigSheetBitmaps.value.get(s.sheetId);
           if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
-            ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, -s.width / 2, -s.height / 2, s.width, s.height);
+            drawRigSliceSkinnedDeformed(ctx, s, sliceMesh, deformed, rigImg, false);
+            drewSkinned = true;
           }
         }
-      } else {
-        const dx = cx - s.width / 2;
-        const dy = cy - s.height / 2;
-        if (s.embedded) {
-          const eimg = embeddedRigImages.value.get(s.id);
-          if (eimg?.complete && eimg.naturalWidth > 0) {
-            ctx.drawImage(eimg, dx, dy, s.width, s.height);
+      }
+
+      if (!drewSkinned) {
+        const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4);
+        if (rigid) {
+          ctx.translate(rigid.cx, rigid.cy);
+          ctx.rotate(rigid.rot);
+          if (s.embedded) {
+            const eimg = embeddedRigImages.value.get(s.id);
+            if (eimg?.complete && eimg.naturalWidth > 0) {
+              ctx.drawImage(eimg, -s.width / 2, -s.height / 2, s.width, s.height);
+            }
+          } else if (s.sheetId) {
+            const rigImg = rigSheetBitmaps.value.get(s.sheetId);
+            if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
+              ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, -s.width / 2, -s.height / 2, s.width, s.height);
+            }
           }
-        } else if (s.sheetId) {
-          const rigImg = rigSheetBitmaps.value.get(s.sheetId);
-          if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
-            ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, dx, dy, s.width, s.height);
+        } else {
+          const dx = cx - s.width / 2;
+          const dy = cy - s.height / 2;
+          if (s.embedded) {
+            const eimg = embeddedRigImages.value.get(s.id);
+            if (eimg?.complete && eimg.naturalWidth > 0) {
+              ctx.drawImage(eimg, dx, dy, s.width, s.height);
+            }
+          } else if (s.sheetId) {
+            const rigImg = rigSheetBitmaps.value.get(s.sheetId);
+            if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
+              ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, dx, dy, s.width, s.height);
+            }
           }
         }
       }
@@ -807,7 +876,7 @@ function draw() {
       ctx.lineWidth = 2;
       ctx.setLineDash([4, 3]);
       ctx.save();
-      const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4, boneO);
+      const rigid = rigidSliceWorldPose(s, rig, cx, cy, boneM4);
       if (rigid) {
         ctx.translate(rigid.cx, rigid.cy);
         ctx.rotate(rigid.rot);
@@ -823,6 +892,42 @@ function draw() {
     ctx.restore();
   }
 
+  if (animatorRigMeshDeformOverlay.value && skinMeshes.length > 0) {
+    const overlayMeshes = skinMeshes.filter((m) => {
+      if (!m.id.startsWith(RIG_SLICE_MESH_ID_PREFIX)) return true;
+      /** Kein doppeltes „blaues Gitter“: Deform-Mesh zeigt dieselbe Geometrie schon texturiert. */
+      return !animatorDeformMeshDraw.value;
+    });
+    if (overlayMeshes.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+      ctx.fillStyle = "rgba(56, 189, 248, 0.14)";
+      ctx.lineWidth = Math.max(0.75, 1 / viewZoom.value);
+      ctx.setLineDash([]);
+      for (const mesh of overlayMeshes) {
+        const deformed = deformSkinnedMesh(mesh, bindM4, poseM4);
+        const idx = mesh.indices;
+        for (let ti = 0; ti + 2 < idx.length; ti += 3) {
+          const ia = idx[ti]!;
+          const ib = idx[ti + 1]!;
+          const ic = idx[ti + 2]!;
+          const va = deformed[ia];
+          const vb = deformed[ib];
+          const vc = deformed[ic];
+          if (!va || !vb || !vc) continue;
+          ctx.beginPath();
+          ctx.moveTo(va.x, va.y);
+          ctx.lineTo(vb.x, vb.y);
+          ctx.lineTo(vc.x, vc.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+  }
+
   const bones = project.value.bones;
   /** 2D „Zylinder“-Schaft: dicke Stroke + runde Kappen. */
   const BONE_SHAFT_W = 7;
@@ -836,21 +941,13 @@ function draw() {
   function drawOneBoneShaft(b: (typeof bones)[0], opts: { selected: boolean }) {
     const Lvis = lengthForBoneVisual(b, selBid, rigStep);
     if (Lvis <= 1e-9) return;
-    const M = boneM.get(b.id);
-    const joint = boneO.get(b.id);
-    if (!M || !joint) return;
-    const dx = M.a;
-    const dy = M.b;
-    const dd = dx * dx + dy * dy;
-    let ux = 1;
-    let uy = 0;
-    if (dd > 1e-20) {
-      const inv = 1 / Math.sqrt(dd);
-      ux = dx * inv;
-      uy = dy * inv;
-    }
-    const tipX = joint.x + ux * Lvis;
-    const tipY = joint.y + uy * Lvis;
+    const M4 = boneM4.get(b.id);
+    if (!M4) return;
+    const p0 = transformPointMat4(M4, 0, 0, 0);
+    const p1 = transformPointMat4(M4, Lvis, 0, 0);
+    const joint = { x: p0.x, y: p0.y };
+    const tipX = p1.x;
+    const tipY = p1.y;
     const ghost = rigStep && b.id === selBid && lengthForBoneDraw(b) < 1e-6;
     if (ghost) {
       g.strokeStyle = "rgba(160, 168, 184, 0.5)";
@@ -1322,26 +1419,32 @@ function onCanvasPointerMove(e: PointerEvent) {
         const g = boneDrag.value.animGrab;
         const twx = g ? g.j0x + (wx - g.p0x) : wx;
         const twy = g ? g.j0y + (wy - g.p0y) : wy;
-        const bone = project.value.bones.find((b) => b.id === boneDrag.value!.boneId);
-        const local = (() => {
-          if (!bone) return null;
-          if (bone.parentId === null) return { x: twx, y: twy };
-          const ps = solvedPose.value;
-          const parentW4 = ps.solvedWorld4ByBoneId.get(bone.parentId);
-          if (!parentW4) return null;
-          const invP = mat4Invert(parentW4);
-          if (!invP) return null;
-          const p = transformPointMat4(invP, twx, twy, 0);
-          return { x: p.x, y: p.y };
-        })();
-        if (local) {
-          store.dispatch({
-            type: "setBoneTranslationKeysAtTime",
-            boneId: boneDrag.value.boneId,
-            t: currentTime.value,
-            x: local.x,
-            y: local.y,
-          });
+        const boneId = boneDrag.value!.boneId;
+        const ikEff = ikEffectorChainForBone(boneId);
+        if (ikEff) {
+          dispatchIkChainWorldTarget(ikEff.chainId, ikEff.kind, twx, twy);
+        } else {
+          const bone = project.value.bones.find((b) => b.id === boneId);
+          const local = (() => {
+            if (!bone) return null;
+            if (bone.parentId === null) return { x: twx, y: twy };
+            const ps = solvedPose.value;
+            const parentW4 = ps.solvedWorld4ByBoneId.get(bone.parentId);
+            if (!parentW4) return null;
+            const invP = mat4Invert(parentW4);
+            if (!invP) return null;
+            const p = transformPointMat4(invP, twx, twy, 0);
+            return { x: p.x, y: p.y };
+          })();
+          if (local) {
+            store.dispatch({
+              type: "setBoneTranslationKeysAtTime",
+              boneId,
+              t: currentTime.value,
+              x: local.x,
+              y: local.y,
+            });
+          }
         }
       } else {
         const grab = boneDrag.value.rotGrab ?? beginAnimatorRotateDrag(boneDrag.value.boneId, wx, wy);
@@ -1578,6 +1681,8 @@ watch(
 watch(referenceBitmap, draw);
 watch(rigSheetBitmaps, draw, { deep: true });
 watch(brushStroke, draw);
+watch(animatorRigMeshDeformOverlay, draw);
+watch(animatorDeformMeshDraw, draw);
 
 function onCanvasPointerCancel(e: PointerEvent) {
   if (boneLengthDrag.value) {

@@ -5,11 +5,13 @@ import {
   createId,
   bakeIkTwoBoneChainRotKeysAtTime,
   ensureMinimalSliceDepthOnMeshSync,
+  getFabrikIkChainById,
   mat4Invert,
   normalizeReferenceImageMime,
   RIG_SLICE_MESH_ID_PREFIX,
   sanitizeInfluenceRow,
   worldBindBoneMatrices4,
+  worldBindBoneTips,
   skinnedMeshesFromCharacterRig,
   transformPointMat4,
   validateSkinnedMesh,
@@ -56,6 +58,10 @@ export type Command =
   | { type: "setIkChainTarget"; chainId: string; targetX: number; targetY: number }
   | { type: "setIkChainEnabled"; chainId: string; enabled: boolean }
   | { type: "removeIkChain"; chainId: string }
+  | { type: "addFabrikIkChainFromTip"; tipBoneId: string; name: string; maxBones?: number }
+  | { type: "setFabrikIkChainTarget"; chainId: string; targetX: number; targetY: number }
+  | { type: "setFabrikIkChainEnabled"; chainId: string; enabled: boolean }
+  | { type: "removeFabrikIkChain"; chainId: string }
   | { type: "bakeIkToFk"; chainId: string; sampleTimes: number[] }
   | { type: "ensureIkTargetControl"; chainId: string }
   | { type: "setIkTargetControlEnabled"; controlId: string; enabled: boolean }
@@ -324,7 +330,9 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "setIkChainTarget") {
-    const ch = p.ikTwoBoneChains?.find((c) => c.id === cmd.chainId);
+    const ch =
+      p.rig?.ik?.twoBoneChains?.find((c) => c.id === cmd.chainId) ??
+      p.ikTwoBoneChains?.find((c) => c.id === cmd.chainId);
     if (!ch) return p;
     ch.targetX = cmd.targetX;
     ch.targetY = cmd.targetY;
@@ -332,16 +340,84 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "setIkChainEnabled") {
-    const ch = p.ikTwoBoneChains?.find((c) => c.id === cmd.chainId);
+    const ch =
+      p.rig?.ik?.twoBoneChains?.find((c) => c.id === cmd.chainId) ??
+      p.ikTwoBoneChains?.find((c) => c.id === cmd.chainId);
     if (!ch) return p;
     ch.enabled = cmd.enabled;
     return p;
   }
 
   if (cmd.type === "removeIkChain") {
-    if (!p.ikTwoBoneChains) return p;
-    p.ikTwoBoneChains = p.ikTwoBoneChains.filter((c) => c.id !== cmd.chainId);
-    if (p.ikTwoBoneChains.length === 0) delete p.ikTwoBoneChains;
+    const filter = (c: { id: string }) => c.id !== cmd.chainId;
+    if (p.rig?.ik?.twoBoneChains?.length) {
+      const next = p.rig.ik.twoBoneChains.filter(filter);
+      if (next.length !== p.rig.ik.twoBoneChains.length) {
+        if (next.length === 0) delete p.rig.ik.twoBoneChains;
+        else p.rig.ik.twoBoneChains = next;
+      }
+    }
+    if (p.ikTwoBoneChains?.length) {
+      p.ikTwoBoneChains = p.ikTwoBoneChains.filter(filter);
+      if (p.ikTwoBoneChains.length === 0) delete p.ikTwoBoneChains;
+    }
+    return p;
+  }
+
+  if (cmd.type === "addFabrikIkChainFromTip") {
+    if (!p.bones.some((b) => b.id === cmd.tipBoneId)) return p;
+    const byId = new Map(p.bones.map((b) => [b.id, b] as const));
+    const maxB = Math.max(3, Math.min(cmd.maxBones ?? 8, 32));
+    const rev: string[] = [];
+    let cur: string | null = cmd.tipBoneId;
+    while (cur && rev.length < maxB) {
+      rev.push(cur);
+      cur = byId.get(cur)?.parentId ?? null;
+    }
+    rev.reverse();
+    if (rev.length < 3) return p;
+    if (!p.rig) p.rig = {};
+    if (!p.rig.ik) p.rig.ik = {};
+    if (!p.rig.ik.fabrikChains) p.rig.ik.fabrikChains = [];
+    const tips = worldBindBoneTips(p);
+    const tpos = tips.get(cmd.tipBoneId);
+    const tx = tpos?.x ?? 0;
+    const ty = tpos?.y ?? 0;
+    p.rig.ik.fabrikChains.push({
+      id: createId("ikfab"),
+      name: cmd.name,
+      enabled: true,
+      boneIds: rev,
+      targetX: tx,
+      targetY: ty,
+    });
+    return p;
+  }
+
+  if (cmd.type === "setFabrikIkChainTarget") {
+    const ch = getFabrikIkChainById(p, cmd.chainId);
+    if (!ch) return p;
+    ch.targetX = cmd.targetX;
+    ch.targetY = cmd.targetY;
+    return p;
+  }
+
+  if (cmd.type === "setFabrikIkChainEnabled") {
+    const ch = getFabrikIkChainById(p, cmd.chainId);
+    if (!ch) return p;
+    ch.enabled = cmd.enabled;
+    return p;
+  }
+
+  if (cmd.type === "removeFabrikIkChain") {
+    const list = p.rig?.ik?.fabrikChains;
+    if (!list) return p;
+    const next = list.filter((c) => c.id !== cmd.chainId);
+    if (next.length === list.length) return p;
+    if (next.length === 0) delete p.rig!.ik!.fabrikChains;
+    else p.rig!.ik!.fabrikChains = next;
+    if (p.rig?.ik && Object.keys(p.rig.ik).length === 0) delete p.rig.ik;
+    if (p.rig && Object.keys(p.rig).length === 0) delete p.rig;
     return p;
   }
 
@@ -375,7 +451,9 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "ensureIkTargetControl") {
-    const chain = (p.rig?.ik?.twoBoneChains ?? p.ikTwoBoneChains ?? []).find((c) => c.id === cmd.chainId);
+    const chain =
+      (p.rig?.ik?.twoBoneChains ?? p.ikTwoBoneChains ?? []).find((c) => c.id === cmd.chainId) ??
+      getFabrikIkChainById(p, cmd.chainId);
     if (!chain) return p;
     if (!p.rig) p.rig = {};
     if (!p.rig.controls) p.rig.controls = {};
@@ -929,6 +1007,9 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       bindPose: defaultBindPoseForNewChild(p, cmd.parentId, placeTip),
       length: 40,
     };
+    if (cmd.parentId !== null && placeTip) {
+      bone.followParentTip = true;
+    }
     p.bones.push(bone);
     return p;
   }

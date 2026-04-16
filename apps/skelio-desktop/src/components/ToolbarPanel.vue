@@ -304,6 +304,25 @@ async function saveRuntimeExportToFile() {
       <span class="save-feedback-text">{{ saveFeedback.text }}</span>
       <button type="button" class="save-feedback-close" title="Schließen" @click="dismissSaveFeedback">×</button>
     </div>
+    <label
+      class="chk"
+      title="Animator: Rig-Slice-Meshes als Hilfs-Dreiecke (bei aktivem Deform-Mesh für rig_slice ausgeblendet, sonst doppelt)"
+    >
+      <input
+        type="checkbox"
+        :checked="store.animatorRigMeshDeformOverlay"
+        @change="store.setAnimatorRigMeshDeformOverlay(($event.target as HTMLInputElement).checked)"
+      />
+      Mesh-Overlay
+    </label>
+    <label class="chk" title="Animator (2D): Slices als texturiertes skinned Mesh zeichnen (Deformation statt nur Rechteck)">
+      <input
+        type="checkbox"
+        :checked="store.animatorDeformMeshDraw"
+        @change="store.setAnimatorDeformMeshDraw(($event.target as HTMLInputElement).checked)"
+      />
+      Deform-Mesh
+    </label>
     <span class="sp" />
     <button type="button" @click="store.undo()">Undo</button>
     <button type="button" @click="store.redo()">Redo</button>

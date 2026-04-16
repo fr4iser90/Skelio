@@ -2,12 +2,14 @@ import type { Vec2 } from "../ik2d.js";
 import type { Mat2D } from "../mat2d.js";
 import type { Mat4 } from "../mat4.js";
 import {
+  getLocalBoneState,
   mat4ToMat2dProjection,
   worldOriginFromMat4,
   worldPoseBoneMatrices4FusedFkAndSolved,
 } from "../bone3dPose.js";
 import type { EditorProject } from "../types.js";
-import { getTwoBoneIkChains } from "./accessors.js";
+import { getFabrikIkChains, getTwoBoneIkChains } from "./accessors.js";
+import { fabrikIkAbsoluteLocalRotsAtTime } from "./solveFabrikPlanarChain2d.js";
 import { twoBoneIkAbsoluteLocalRotsAtTime } from "./solveTwoBoneChain2d.js";
 import type { EvaluatePoseOptions, PoseState } from "./types.js";
 
@@ -39,9 +41,18 @@ function originsFromWorld4(m4: Map<string, Mat4>): Map<string, Vec2> {
  *
  * Pipeline:
  * - FK: sample active clip → world 4×4 chain → 2D projection + origins
- * - IK: 2-bone chains inject solved local rotations on root/mid → rebuild world chain
+ * - IK: 2-bone chains inject solved rotations on root/mid; planar FABRIK chains on longer lines
+ *   override every bone in the chain (applied after two-bone so leg FABRIK wins when both exist).
  * - Constraints/Limits: future (operate on {@link PoseState})
  */
+function chainBoneHasTiltOrSpin(project: EditorProject, time: number, boneId: string): boolean {
+  const clip = project.clips.find((c) => c.id === project.activeClipId);
+  const b = project.bones.find((x) => x.id === boneId);
+  if (!b) return false;
+  const s = getLocalBoneState(b, clip, time);
+  return Math.abs(s.tilt) > 1e-5 || Math.abs(s.spin) > 1e-5;
+}
+
 export function evaluatePose(project: EditorProject, time: number, opts?: EvaluatePoseOptions): PoseState {
   const applyIk = opts?.applyIk ?? true;
   const ikSolvedLocalRotByBoneId = new Map<string, number>();
@@ -50,12 +61,29 @@ export function evaluatePose(project: EditorProject, time: number, opts?: Evalua
   if (applyIk) {
     for (const chain of getTwoBoneIkChains(project)) {
       if (!chain.enabled) continue;
+      if (
+        chainBoneHasTiltOrSpin(project, time, chain.rootBoneId) ||
+        chainBoneHasTiltOrSpin(project, time, chain.midBoneId) ||
+        chainBoneHasTiltOrSpin(project, time, chain.tipBoneId)
+      ) {
+        continue;
+      }
       const rots = twoBoneIkAbsoluteLocalRotsAtTime(project, time, chain.id);
       if (!rots) continue;
       rotOverrides.set(rots.rootBoneId, rots.rootLocalRot);
       rotOverrides.set(rots.midBoneId, rots.midLocalRot);
       ikSolvedLocalRotByBoneId.set(rots.rootBoneId, rots.rootLocalRot);
       ikSolvedLocalRotByBoneId.set(rots.midBoneId, rots.midLocalRot);
+    }
+
+    for (const chain of getFabrikIkChains(project)) {
+      if (!chain.enabled) continue;
+      const rots = fabrikIkAbsoluteLocalRotsAtTime(project, time, chain.id);
+      if (!rots) continue;
+      for (const [boneId, r] of rots) {
+        rotOverrides.set(boneId, r);
+        ikSolvedLocalRotByBoneId.set(boneId, r);
+      }
     }
   }
 

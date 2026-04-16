@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getLocalBoneState, normalizeInfluenceRow } from "@skelio/domain";
+import { getLocalBoneState, getTwoBoneIkChains, normalizeInfluenceRow } from "@skelio/domain";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useEditorStore } from "../stores/editor.js";
@@ -23,6 +23,9 @@ const {
 
 /** Bind pose / length / chain: Character Setup wizard or Quick Rig; sonst Keys + Gewichte + IK. */
 const bindPoseLocked = computed(() => !(characterRigModalOpen.value || quickRigMode.value));
+
+const twoBoneIkChainsShown = computed(() => getTwoBoneIkChains(project.value));
+const fabrikIkChainsShown = computed(() => project.value.rig?.ik?.fabrikChains ?? []);
 
 const poseRotationAtPlayhead = computed(() => {
   const b = selectedBone.value;
@@ -211,7 +214,7 @@ function setIkEnabled(chainId: string, e: Event) {
 function setIkTarget(chainId: string, axis: "x" | "y", e: Event) {
   const v = Number((e.target as HTMLInputElement).value);
   if (Number.isNaN(v)) return;
-  const ch = project.value.ikTwoBoneChains?.find((c) => c.id === chainId);
+  const ch = twoBoneIkChainsShown.value.find((c) => c.id === chainId);
   if (!ch) return;
   store.dispatch({
     type: "setIkChainTarget",
@@ -223,6 +226,34 @@ function setIkTarget(chainId: string, axis: "x" | "y", e: Event) {
 
 function removeIkChain(chainId: string) {
   store.dispatch({ type: "removeIkChain", chainId });
+}
+
+function setFabrikIkEnabled(chainId: string, e: Event) {
+  const on = (e.target as HTMLInputElement).checked;
+  store.dispatch({ type: "setFabrikIkChainEnabled", chainId, enabled: on });
+}
+
+function setFabrikIkTarget(chainId: string, axis: "x" | "y", e: Event) {
+  const v = Number((e.target as HTMLInputElement).value);
+  if (Number.isNaN(v)) return;
+  const ch = fabrikIkChainsShown.value.find((c) => c.id === chainId);
+  if (!ch) return;
+  store.dispatch({
+    type: "setFabrikIkChainTarget",
+    chainId,
+    targetX: axis === "x" ? v : ch.targetX,
+    targetY: axis === "y" ? v : ch.targetY,
+  });
+}
+
+function removeFabrikIkChain(chainId: string) {
+  store.dispatch({ type: "removeFabrikIkChain", chainId });
+}
+
+function addFabrikIkFromSelectedTip() {
+  const id = selectedBoneId.value;
+  if (!id) return;
+  store.dispatch({ type: "addFabrikIkChainFromTip", tipBoneId: id, name: "FABRIK-Kette" });
 }
 </script>
 
@@ -436,11 +467,24 @@ function removeIkChain(chainId: string) {
       </template>
     </template>
 
-    <template v-if="project.ikTwoBoneChains?.length">
-      <h3>IK (Spike)</h3>
-      <p class="muted small">FABRIK auf Gelenkpositionen; Skinning bleibt FK.</p>
-      <div v-for="ch in project.ikTwoBoneChains" :key="ch.id" class="ikblock">
-        <div class="iktitle">{{ ch.name }}</div>
+    <template v-if="twoBoneIkChainsShown.length || fabrikIkChainsShown.length">
+      <h3>IK</h3>
+      <p class="muted small">
+        Zwei-Knochen-Ketten (klassisch) und optionale <strong>planare FABRIK</strong>-Ketten (mehr Segmente, z. B. Fuß
+        bis Hüfte). Knochen in der Hierarchy wählen, dann FABRIK anlegen.
+      </p>
+      <div v-if="selectedBoneId" class="btnrow">
+        <button
+          type="button"
+          class="mini"
+          title="Vom gewählten Knochen bis zur Wurzel: mindestens 3 Knochen als FABRIK-Kette (Ziel = Bind-Spitze des gewählten Knochens)"
+          @click="addFabrikIkFromSelectedTip"
+        >
+          FABRIK aus gewähltem Knochen
+        </button>
+      </div>
+      <div v-for="ch in twoBoneIkChainsShown" :key="'2b-' + ch.id" class="ikblock">
+        <div class="iktitle">{{ ch.name }} (2-Segment)</div>
         <label class="rowchk">
           <input type="checkbox" :checked="ch.enabled" @change="setIkEnabled(ch.id, $event)" />
           Aktiv
@@ -448,6 +492,16 @@ function removeIkChain(chainId: string) {
         <label class="lbl">Ziel X <input class="inp sm" type="number" step="1" :value="ch.targetX" @change="setIkTarget(ch.id, 'x', $event)" /></label>
         <label class="lbl">Ziel Y <input class="inp sm" type="number" step="1" :value="ch.targetY" @change="setIkTarget(ch.id, 'y', $event)" /></label>
         <button type="button" class="mini" @click="removeIkChain(ch.id)">Kette entfernen</button>
+      </div>
+      <div v-for="ch in fabrikIkChainsShown" :key="'fab-' + ch.id" class="ikblock">
+        <div class="iktitle">{{ ch.name }} (FABRIK · {{ ch.boneIds.length }} Knochen)</div>
+        <label class="rowchk">
+          <input type="checkbox" :checked="ch.enabled" @change="setFabrikIkEnabled(ch.id, $event)" />
+          Aktiv
+        </label>
+        <label class="lbl">Ziel X <input class="inp sm" type="number" step="1" :value="ch.targetX" @change="setFabrikIkTarget(ch.id, 'x', $event)" /></label>
+        <label class="lbl">Ziel Y <input class="inp sm" type="number" step="1" :value="ch.targetY" @change="setFabrikIkTarget(ch.id, 'y', $event)" /></label>
+        <button type="button" class="mini" @click="removeFabrikIkChain(ch.id)">Kette entfernen</button>
       </div>
     </template>
   </div>

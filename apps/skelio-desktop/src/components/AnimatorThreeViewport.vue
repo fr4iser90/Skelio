@@ -9,6 +9,7 @@ import {
   evaluatePose,
   resolveCharacterRigSliceBoundBoneId,
   rigidCharacterRigSliceWorldPose,
+  transformPointMat4,
   BONE_LENGTH_HIT_MIN_LOCAL,
   type CharacterRigConfig,
   type CharacterRigSpriteSheetEntry,
@@ -250,7 +251,6 @@ function rebuildSliceMeshes() {
 
   const poseEval = solvedPose.value;
   const poseM4 = poseEval.solvedWorld4ByBoneId;
-  const jointDisplayByBoneId = poseEval.solvedOriginByBoneId;
 
   const activeSliceId = selectedCharacterRigSliceId.value;
   for (const s of rig.slices) {
@@ -258,7 +258,7 @@ function rebuildSliceMeshes() {
     const bid = resolveCharacterRigSliceBoundBoneId(project.value, s.id);
     const binding = bid ? project.value.characterRig?.bindings?.find((b) => b.sliceId === s.id && b.boneId === bid) ?? null : null;
     const rigid = bid
-      ? rigidCharacterRigSliceWorldPose(project.value, bid, s.worldCx, s.worldCy, poseM4, jointDisplayByBoneId, {
+      ? rigidCharacterRigSliceWorldPose(project.value, bid, s.worldCx, s.worldCy, poseM4, {
           localX: binding?.localX,
           localY: binding?.localY,
           localZ: binding?.localZ,
@@ -309,29 +309,17 @@ function rebuildBones() {
 
   const poseEval = solvedPose.value;
   const poseM4 = poseEval.solvedWorld4ByBoneId;
-  const joint = poseEval.solvedOriginByBoneId;
   const sel = selectedBoneId.value;
 
   for (const b of project.value.bones) {
     const M = poseM4.get(b.id);
-    const o = joint.get(b.id);
-    if (!M || !o) continue;
-    const dx = M[0];
-    const dy = M[1];
-    const dd = dx * dx + dy * dy;
-    let ux = 1;
-    let uy = 0;
-    if (dd > 1e-20) {
-      const inv = 1 / Math.sqrt(dd);
-      ux = dx * inv;
-      uy = dy * inv;
-    }
+    if (!M) continue;
     const L = b.length <= 1e-6 && b.id === sel ? BONE_LENGTH_HIT_MIN_LOCAL : b.length;
     if (L <= 1e-9) continue;
-    const tipX = o.x + ux * L;
-    const tipY = o.y + uy * L;
-    const a = new THREE.Vector3(o.x, -o.y, 0);
-    const c = new THREE.Vector3(tipX, -tipY, 0);
+    const p0 = transformPointMat4(M, 0, 0, 0);
+    const p1 = transformPointMat4(M, L, 0, 0);
+    const a = new THREE.Vector3(p0.x, -p0.y, p0.z);
+    const c = new THREE.Vector3(p1.x, -p1.y, p1.z);
     const dir = c.clone().sub(a);
     const len = dir.length();
     if (len <= 1e-9) continue;
@@ -348,13 +336,14 @@ function rebuildBones() {
   }
 
   for (const b of project.value.bones) {
-    const o = joint.get(b.id);
-    if (!o) continue;
+    const M = poseM4.get(b.id);
+    if (!M) continue;
+    const p0 = transformPointMat4(M, 0, 0, 0);
     const isSel = b.id === sel;
     const r = isSel ? 8.5 : 6.5;
     const geo = new THREE.SphereGeometry(r, 16, 12);
     const mesh = new THREE.Mesh(geo, isSel ? matJointSel : matJoint);
-    mesh.position.set(o.x, -o.y, 55);
+    mesh.position.set(p0.x, -p0.y, p0.z);
     boneJoints.add(mesh);
   }
 }

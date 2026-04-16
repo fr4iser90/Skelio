@@ -76,6 +76,47 @@ export function fabrik2dThreeJoints(
   return { p0, p1, p2 };
 }
 
+/**
+ * Planar FABRIK for `lengths.length` segments and `lengths.length + 1` joints.
+ * `init` has length `n + 1`; joint `n` follows `target`; joint `0` stays at `rootFixed`.
+ */
+export function fabrik2dChain(
+  rootFixed: Vec2,
+  init: Vec2[],
+  lengths: number[],
+  target: Vec2,
+  iterations = 24,
+): Vec2[] {
+  const n = lengths.length;
+  if (init.length !== n + 1) {
+    throw new Error(`fabrik2dChain: expected ${n + 1} init points, got ${init.length}`);
+  }
+  const L = lengths.map((l) => Math.max(l, 1e-9));
+  const p = init.map((v) => ({ ...v }));
+
+  if (n >= 2) {
+    const c = cross2(sub(p[1]!, p[0]!), sub(p[2]!, p[1]!));
+    const scale0 = dist(p[0]!, p[1]!) * dist(p[1]!, p[2]!) + 1e-12;
+    if (Math.abs(c) < 1e-12 * scale0) {
+      p[1] = { x: p[1]!.x, y: p[1]!.y + 1e-6 };
+    }
+  }
+
+  for (let k = 0; k < iterations; k++) {
+    const op = p.map((v) => ({ ...v }));
+    p[n] = { ...target };
+    for (let i = n - 1; i >= 0; i--) {
+      p[i] = add(p[i + 1]!, scale(norm(sub(op[i]!, p[i + 1]!)), L[i]!));
+    }
+    p[0] = { ...rootFixed };
+    for (let i = 0; i < n; i++) {
+      p[i + 1] = add(p[i]!, scale(norm(sub(p[i + 1]!, p[i]!)), L[i]!));
+    }
+  }
+
+  return p;
+}
+
 /** Segment lengths from bind-pose joint positions (three bones in a chain). */
 export function segmentLengthsFromBindOrigins(
   oRoot: Vec2,

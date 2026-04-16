@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultEditorProject } from "./projectFactory.js";
+import { worldBindBoneMatrices4 } from "./bone3dPose.js";
 import {
   BONE_LENGTH_HIT_MIN_LOCAL,
   boneLengthAndBindRotationFromWorldTip,
@@ -7,11 +8,28 @@ import {
   childBindTranslationAtParentTip,
   localBindTranslationForWorldOrigin,
   localTranslationForWorldJointAtPoseTime,
+  rigidCharacterRigSliceWorldPose,
   worldBindBoneMatrices,
   worldBindBoneTipForLengthHit,
   worldBindBoneTips,
   worldBindOrigins,
 } from "./pose.js";
+
+describe("rigidCharacterRigSliceWorldPose", () => {
+  it("keeps slice at layout when pose matrices equal bind (stored locals)", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones[0]!;
+    const bind = worldBindBoneMatrices4(p);
+    const rigid = rigidCharacterRigSliceWorldPose(p, root.id, 12, -7, bind, {
+      localX: 12,
+      localY: -7,
+      localZ: 0,
+    });
+    expect(rigid).not.toBeNull();
+    expect(rigid!.cx).toBeCloseTo(12, 5);
+    expect(rigid!.cy).toBeCloseTo(-7, 5);
+  });
+});
 
 describe("localBindTranslationForWorldOrigin", () => {
   it("places child bone world origin via parent inverse", () => {

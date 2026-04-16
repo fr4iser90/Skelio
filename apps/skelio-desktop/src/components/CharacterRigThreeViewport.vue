@@ -10,8 +10,10 @@ import {
   localBindTranslationForWorldOrigin,
   resolveCharacterRigSliceBoundBoneId,
   rigidCharacterRigSliceWorldPose,
+  transformPointMat4,
   worldBindBoneMatrices,
   worldBindBoneMatrices4,
+  worldBindBoneMatrices4OverridingBindPose,
   worldBindBoneMatricesOverridingBindPose,
   worldBindBoneTipForLengthHit,
   worldBindOrigins,
@@ -19,6 +21,7 @@ import {
   type CharacterRigConfig,
   type CharacterRigSpriteSheetEntry,
   type CharacterRigSpriteSlice,
+  type Mat4,
   type SkinInfluence,
   type SkinnedMesh,
 } from "@skelio/domain";
@@ -750,10 +753,6 @@ function rebuildSliceMeshes() {
   const poseEval = solvedPose.value;
   const poseM4 = poseEval.solvedWorld4ByBoneId;
   const boneM4 = rigModalBoneStep.value ? worldBindBoneMatrices4(project.value) : poseM4;
-  const jointDisplayByBoneId = rigModalBoneStep.value
-    ? new Map([...worldBindOrigins(project.value)].map(([id, o]) => [id, { x: o.x, y: o.y }] as const))
-    : poseEval.solvedOriginByBoneId;
-
   const activeSliceId = selectedCharacterRigSliceId.value;
   /** Schritt 3: nur das gewählte Teil rendern (keine abgedunkelten anderen). */
   const onlySelectedSlice3d =
@@ -767,7 +766,7 @@ function rebuildSliceMeshes() {
     const bid = rigModalBindStep.value ? null : resolveCharacterRigSliceBoundBoneId(project.value, s.id);
     const binding = bid ? project.value.characterRig?.bindings?.find((b) => b.sliceId === s.id && b.boneId === bid) ?? null : null;
     const rigid = bid
-      ? rigidCharacterRigSliceWorldPose(project.value, bid, cx, cy, boneM4, jointDisplayByBoneId, {
+      ? rigidCharacterRigSliceWorldPose(project.value, bid, cx, cy, boneM4, {
           localX: binding?.localX,
           localY: binding?.localY,
           localZ: binding?.localZ,
@@ -909,30 +908,40 @@ function rebuildBones() {
     }
   }
 
+  let boneM4: Map<string, Mat4>;
+  if (rigModalBoneStep.value) {
+    if (lenDrag) {
+      const b = project.value.bones.find((x) => x.id === lenDrag.boneId);
+      if (b) {
+        boneM4 = worldBindBoneMatrices4OverridingBindPose(project.value, lenDrag.boneId, {
+          ...b.bindPose,
+          rotation: lenDrag.previewRotation,
+        });
+      } else {
+        boneM4 = worldBindBoneMatrices4(project.value);
+      }
+    } else {
+      boneM4 = worldBindBoneMatrices4(project.value);
+    }
+  } else {
+    boneM4 = poseEval.solvedWorld4ByBoneId;
+  }
+
   const rigStep = rigModalBoneStep.value;
   const selBid = selectedBoneId.value;
 
   for (const b of project.value.bones) {
     const Lvis = lengthForBoneVisual(b, selBid, rigStep);
     if (Lvis <= 1e-9) continue;
-    const M = boneM.get(b.id);
-    const joint = boneO.get(b.id);
-    if (!M || !joint) continue;
-    const dx = M.a;
-    const dy = M.b;
-    const dd = dx * dx + dy * dy;
-    let ux = 1;
-    let uy = 0;
-    if (dd > 1e-20) {
-      const inv = 1 / Math.sqrt(dd);
-      ux = dx * inv;
-      uy = dy * inv;
-    }
-    const tipX = joint.x + ux * Lvis;
-    const tipY = joint.y + uy * Lvis;
+    const M4 = boneM4.get(b.id);
+    if (!M4) continue;
+    const p0 = transformPointMat4(M4, 0, 0, 0);
+    const p1 = transformPointMat4(M4, Lvis, 0, 0);
+    const tipX = p1.x;
+    const tipY = p1.y;
 
-    const a = new THREE.Vector3(joint.x, -joint.y, 0);
-    const c = new THREE.Vector3(tipX, -tipY, 0);
+    const a = new THREE.Vector3(p0.x, -p0.y, p0.z);
+    const c = new THREE.Vector3(tipX, -tipY, p1.z);
     const dir = c.clone().sub(a);
     const len = dir.length();
     if (len <= 1e-9) continue;
@@ -945,20 +954,20 @@ function rebuildBones() {
     const geo = new THREE.CylinderGeometry(r, r * 0.96, len, 14, 1, false);
     const mesh = new THREE.Mesh(geo, sel ? matBoneSel : matBone);
     mesh.position.copy(mid);
-    mesh.position.z = 40;
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
     mesh.renderOrder = 3;
     boneLines.add(mesh);
   }
 
   for (const b of project.value.bones) {
-    const o = boneO.get(b.id);
-    if (!o) continue;
+    const M4 = boneM4.get(b.id);
+    if (!M4) continue;
+    const p0 = transformPointMat4(M4, 0, 0, 0);
     const sel = b.id === selectedBoneId.value;
     const r = sel ? 8.5 : 6.5;
     const geo = new THREE.SphereGeometry(r, 16, 12);
     const mesh = new THREE.Mesh(geo, sel ? matJointSel : matJoint);
-    mesh.position.set(o.x, -o.y, RIG_WORLD_PLANE_Z);
+    mesh.position.set(p0.x, -p0.y, p0.z);
     mesh.renderOrder = 4;
     boneJoints.add(mesh);
   }

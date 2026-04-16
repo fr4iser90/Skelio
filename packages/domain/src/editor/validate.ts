@@ -1,4 +1,5 @@
 import { normalizeReferenceImageMime } from "./referenceImage.js";
+import { validateFabrikBoneChain } from "./rig/solveFabrikPlanarChain2d.js";
 import { validateSkinnedMesh } from "./skinning.js";
 import type { ChannelProperty, EditorProject } from "./types.js";
 
@@ -338,6 +339,29 @@ export function validateEditorProject(project: EditorProject): ValidationIssue[]
       if (tip.parentId !== mid.id) {
         issues.push({ path: `ikTwoBoneChains.${ch.id}`, message: "tip bone must be direct child of mid" });
       }
+    }
+  }
+
+  const fabrikChains = project.rig?.ik?.fabrikChains ?? [];
+  for (const ch of fabrikChains) {
+    if (ikChainIds.has(ch.id)) {
+      issues.push({ path: "rig.ik.fabrikChains", message: `duplicate IK chain id: ${ch.id}` });
+    }
+    ikChainIds.add(ch.id);
+    if (!Array.isArray(ch.boneIds) || ch.boneIds.length < 3) {
+      issues.push({ path: `rig.ik.fabrikChains.${ch.id}`, message: "boneIds must have at least 3 bones" });
+      continue;
+    }
+    for (const bid of ch.boneIds) {
+      if (!ids.has(bid)) {
+        issues.push({ path: `rig.ik.fabrikChains.${ch.id}`, message: `unknown bone: ${bid}` });
+      }
+    }
+    if (ch.boneIds.every((id) => ids.has(id)) && !validateFabrikBoneChain(project, ch.boneIds)) {
+      issues.push({
+        path: `rig.ik.fabrikChains.${ch.id}`,
+        message: "boneIds must be a strict parent chain (root → … → tip)",
+      });
     }
   }
 

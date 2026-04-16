@@ -1,5 +1,10 @@
-import type { Vec2 } from "../ik2d.js";
-import { worldPoseBoneMatrices } from "../pose.js";
+import {
+  mat4ToMat2dProjection,
+  worldPoseBoneMatrices4,
+} from "../bone3dPose.js";
+import { segmentLengthsFromBindOrigins, type Vec2 } from "../ik2d.js";
+import { transformPointMat4, type Mat4 } from "../mat4.js";
+import { worldBindOrigins } from "../pose.js";
 import type { Bone, EditorProject, IkTwoBoneChain } from "../types.js";
 import { getTwoBoneIkChains } from "./accessors.js";
 import { sampleIkTargetOverride2d } from "./controls.js";
@@ -23,15 +28,32 @@ export function getTwoBoneChainById(project: EditorProject, chainId: string): Ik
   return ch ?? null;
 }
 
-type PoseMatsCache = { project: EditorProject; time: number; mats: Map<string, { a: number; b: number; e: number; f: number }> };
+export type PoseMatsCache = {
+  project: EditorProject;
+  time: number;
+  /** FK world 4×4 — same basis as {@link evaluatePose} / rigid slices (ADR 0011). */
+  fk4: Map<string, Mat4>;
+  /** XY projection of `fk4` for 2D angle extraction (parent world heading). */
+  mats2d: Map<string, { a: number; b: number; e: number; f: number }>;
+};
 let poseMatsCache: PoseMatsCache | null = null;
 
-function poseMatsAtTimeCached(project: EditorProject, time: number) {
+/** Shared FK 4×4 cache for IK solvers at the same `(project, time)`. */
+export function poseFkAtTimeCached(project: EditorProject, time: number): PoseMatsCache {
   const c = poseMatsCache;
-  if (c && c.project === project && c.time === time) return c.mats;
-  const mats = worldPoseBoneMatrices(project, time);
-  poseMatsCache = { project, time, mats };
-  return mats;
+  if (c && c.project === project && c.time === time) return c;
+  const fk4 = worldPoseBoneMatrices4(project, time);
+  const mats2d = new Map<string, { a: number; b: number; e: number; f: number }>();
+  for (const [id, m] of fk4) {
+    const p2 = mat4ToMat2dProjection(m);
+    mats2d.set(id, { a: p2.a, b: p2.b, e: p2.e, f: p2.f });
+  }
+  poseMatsCache = { project, time, fk4, mats2d };
+  return poseMatsCache;
+}
+
+function poseMatsAtTimeCached(project: EditorProject, time: number) {
+  return poseFkAtTimeCached(project, time).mats2d;
 }
 
 function angleFromMat2d(m: { a: number; b: number }): number {
@@ -80,12 +102,14 @@ export function solveTwoBoneChain2dAtTime(project: EditorProject, time: number, 
   if (mid.parentId !== root.id) return null;
   if (tip.parentId !== mid.id) return null;
 
-  const mats = poseMatsAtTimeCached(project, time);
-  const Wr = mats.get(root.id);
-  const Wm = mats.get(mid.id);
-  if (!Wr || !Wm) return null;
-  const p0: Vec2 = { x: Wr.e, y: Wr.f };
-  const p1fk: Vec2 = { x: Wm.e, y: Wm.f };
+  const cache = poseFkAtTimeCached(project, time);
+  const Mr = cache.fk4.get(root.id);
+  const Mm = cache.fk4.get(mid.id);
+  if (!Mr || !Mm) return null;
+  const j0 = transformPointMat4(Mr, 0, 0, 0);
+  const j1 = transformPointMat4(Mm, 0, 0, 0);
+  const p0: Vec2 = { x: j0.x, y: j0.y };
+  const p1fk: Vec2 = { x: j1.x, y: j1.y };
 
   const ovr = sampleIkTargetOverride2d(project, chain.id, time);
   const target: Vec2 = { x: ovr?.x ?? chain.targetX, y: ovr?.y ?? chain.targetY };
@@ -100,7 +124,14 @@ export function solveTwoBoneChain2dAtTime(project: EditorProject, time: number, 
       : undefined;
   const pole = poleFromCtl ?? poleFromChain;
 
-  const lengths: [number, number] = [Math.max(root.length, 1e-6), Math.max(mid.length, 1e-6)];
+  /** Use bind-pose joint spacing (root→mid, mid→tip), not `bone.length`, so IK matches the real chain. */
+  const bo = worldBindOrigins(project);
+  const oR = bo.get(root.id);
+  const oM = bo.get(mid.id);
+  const oT = bo.get(tip.id);
+  if (!oR || !oM || !oT) return null;
+  const [d01, d12] = segmentLengthsFromBindOrigins(oR, oM, oT);
+  const lengths: [number, number] = [Math.max(d01, 1e-6), Math.max(d12, 1e-6)];
   const solved = solveTwoBoneIk2d(p0, p1fk, lengths, target, { allowStretch: chain.allowStretch ?? false, pole });
 
   return { chain, root, mid, tip, p0, p1fk, target, pole, lengths, solved };

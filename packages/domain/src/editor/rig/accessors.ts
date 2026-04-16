@@ -1,4 +1,4 @@
-import type { EditorProject, IkTwoBoneChain } from "../types.js";
+import type { EditorProject, IkPlanarFabrikChain, IkTwoBoneChain } from "../types.js";
 
 /**
  * Read IK chains in a backward-compatible way.
@@ -25,5 +25,14 @@ export function setTwoBoneIkChains(project: EditorProject, chains: IkTwoBoneChai
     if (Object.keys(project.rig.ik).length === 0) delete project.rig.ik;
     if (Object.keys(project.rig).length === 0) delete project.rig;
   }
+}
+
+export function getFabrikIkChains(project: EditorProject): IkPlanarFabrikChain[] {
+  const list = project.rig?.ik?.fabrikChains;
+  return Array.isArray(list) ? list : [];
+}
+
+export function getFabrikIkChainById(project: EditorProject, chainId: string): IkPlanarFabrikChain | null {
+  return getFabrikIkChains(project).find((c) => c.id === chainId) ?? null;
 }
 

@@ -51,6 +51,30 @@ const depthRegenBusy = ref<"front" | "back" | null>(null);
 const sliceDragSourceId = ref<string | null>(null);
 const sliceDropHighlightId = ref<string | "end" | null>(null);
 
+const sliceDrawOrderColumnTitle =
+  "Draw order: 1 = back (painted first). Higher numbers = closer to front / on top.";
+
+/** Mini stack SVG rects: more layers for higher slice index (capped for readability). */
+function sliceStackLayers(sliceIndex: number): { i: number; x: number; y: number; w: number; h: number; rx: number; fill: string }[] {
+  const L = Math.min(sliceIndex + 1, 8);
+  const out: { i: number; x: number; y: number; w: number; h: number; rx: number; fill: string }[] = [];
+  for (let r = 0; r < L; r++) {
+    const t = L <= 1 ? 1 : r / (L - 1);
+    const base = 42 + t * 55;
+    const fill = `rgb(${Math.round(base + 8)},${Math.round(base + 18)},${Math.round(base + 38)})`;
+    out.push({
+      i: r,
+      x: 2 + r * 2.15,
+      y: 22.5 - r * 3.35,
+      w: 30 - r * 2.05,
+      h: 4.1,
+      rx: 1.25,
+      fill,
+    });
+  }
+  return out;
+}
+
 const selectedSliceFor3d = computed(() => {
   const id = selectedCharacterRigSliceId.value;
   if (!id) return null;
@@ -710,6 +734,7 @@ async function onSheetFiles(e: Event) {
               <table v-if="slices.length" class="rail-table">
                 <colgroup>
                   <col class="rail-col-drag" />
+                  <col class="rail-col-draw-order" />
                   <col class="rail-col-name" />
                   <col class="rail-col-side-col" />
                   <col class="rail-col-tools-col" />
@@ -717,6 +742,7 @@ async function onSheetFiles(e: Event) {
                 <thead>
                   <tr>
                     <th class="rail-th-drag" title="Drag to reorder" aria-label="Reorder" />
+                    <th class="rail-th-order" :title="sliceDrawOrderColumnTitle">Draw order</th>
                     <th>Sprite</th>
                     <th class="rail-th-side">Side</th>
                     <th class="rail-th-tools" />
@@ -724,7 +750,7 @@ async function onSheetFiles(e: Event) {
                 </thead>
                 <tbody>
                   <tr
-                    v-for="s in slices"
+                    v-for="(s, sliceIndex) in slices"
                     :key="s.id"
                     class="rail-row"
                     :class="{
@@ -745,6 +771,32 @@ async function onSheetFiles(e: Event) {
                         @dragstart="onSliceGripDragStart(s.id, $event)"
                         @click.stop
                         >⋮⋮</span>
+                    </td>
+                    <td class="rail-order" :title="sliceDrawOrderColumnTitle">
+                      <div class="rail-order-inner">
+                        <svg
+                          class="rail-stack-svg"
+                          viewBox="0 0 36 30"
+                          width="36"
+                          height="30"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          <rect
+                            v-for="lr in sliceStackLayers(sliceIndex)"
+                            :key="`${s.id}-stk-${lr.i}`"
+                            :x="lr.x"
+                            :y="lr.y"
+                            :width="lr.w"
+                            :height="lr.h"
+                            :rx="lr.rx"
+                            :fill="lr.fill"
+                            stroke="rgba(15,17,22,0.55)"
+                            stroke-width="0.35"
+                          />
+                        </svg>
+                        <span class="rail-order-num">{{ sliceIndex + 1 }}</span>
+                      </div>
                     </td>
                     <td class="rail-name">
                       <input
@@ -802,7 +854,7 @@ async function onSheetFiles(e: Event) {
                     @drop="onSliceDropAppendEnd"
                     @dragend="onSliceRailDragEnd"
                   >
-                    <td colspan="4" class="rail-drop-end-cell">Drop here → draw on top (end of list)</td>
+                    <td colspan="5" class="rail-drop-end-cell">Drop here → draw on top (end of list)</td>
                   </tr>
                 </tbody>
               </table>
@@ -1609,6 +1661,41 @@ async function onSheetFiles(e: Event) {
 }
 .rail-col-drag {
   width: 1.45rem;
+}
+.rail-col-draw-order {
+  width: 5.75rem;
+  min-width: 5.75rem;
+}
+.rail-th-order {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  white-space: normal;
+  text-align: center;
+  vertical-align: middle;
+  padding: 0.2rem 0.25rem !important;
+}
+.rail-order {
+  text-align: center;
+  vertical-align: middle;
+  padding: 0.15rem 0.2rem !important;
+}
+.rail-order-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+.rail-stack-svg {
+  flex-shrink: 0;
+  display: block;
+}
+.rail-order-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: #d1d5db;
+  min-width: 1rem;
+  text-align: center;
 }
 .rail-col-name {
   width: auto;

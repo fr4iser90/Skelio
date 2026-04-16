@@ -256,7 +256,8 @@ function sliceDrawRotationFromPose4(poseWorld4: Mat4): number {
 /**
  * Rigid character-rig slice in world space using full **4×4** bind/pose (ADR 0011).
  * Avoids singular / lossy 2×3 `mat4ToMat2dProjection` inverses when tilt/spin are used.
- * `jointDisplayByBoneId` should match {@link worldPoseOriginsWithIk} for IK-corrected joints.
+ * Slice position is purely `Wpose * inv(Wbind) * layout` (or stored local bind); IK is already
+ * baked into `poseBoneM4` from {@link evaluatePose}.
  */
 export function rigidCharacterRigSliceWorldPose(
   project: EditorProject,
@@ -264,7 +265,6 @@ export function rigidCharacterRigSliceWorldPose(
   layoutWorldX: number,
   layoutWorldY: number,
   poseBoneM4: Map<string, Mat4>,
-  jointDisplayByBoneId: Map<string, { x: number; y: number }>,
   opts?: { localX?: number; localY?: number; localZ?: number; rotOffset?: number },
 ): { cx: number; cy: number; rot: number } | null {
   const Wbind4 = worldBindBoneMatrices4(project).get(boneId);
@@ -301,13 +301,7 @@ export function rigidCharacterRigSliceWorldPose(
     rot = rotPose - rotBind;
   }
   if (opts?.rotOffset) rot += opts.rotOffset;
-  /** FK joint like {@link worldPoseOrigins} (2D projection) — matches `worldPoseOriginsWithIk` before IK. */
-  const M2d = mat4ToMat2dProjection(Wpose4);
-  const jFk = { x: M2d.e, y: M2d.f };
-  const jIk = jointDisplayByBoneId.get(boneId);
-  const djx = jIk ? jIk.x - jFk.x : 0;
-  const djy = jIk ? jIk.y - jFk.y : 0;
-  return { cx: cx + djx, cy: cy + djy, rot };
+  return { cx, cy, rot };
 }
 
 export function clipDurationSeconds(clip: AnimationClip, _bones: Bone[]): number {

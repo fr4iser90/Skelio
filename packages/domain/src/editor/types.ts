@@ -100,12 +100,29 @@ export type IkTwoBoneChain = {
 };
 
 /**
+ * Planar FABRIK: strict parent line `boneIds[0]` → … → `boneIds[n-1]`.
+ * The **tip of the last bone** follows `targetX`/`targetY` (multi-segment legs with foot bone).
+ */
+export type IkPlanarFabrikChain = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  boneIds: string[];
+  targetX: number;
+  targetY: number;
+  poleX?: number;
+  poleY?: number;
+  allowStretch?: boolean;
+};
+
+/**
  * Rig controls / solvers are editor-only and evaluated by the rig pipeline.
  * This is the forward-compatible home for IK/FK/constraints without leaking into runtime export.
  */
 export type EditorRig = {
   ik?: {
     twoBoneChains?: IkTwoBoneChain[];
+    fabrikChains?: IkPlanarFabrikChain[];
   };
   controls?: {
     /**

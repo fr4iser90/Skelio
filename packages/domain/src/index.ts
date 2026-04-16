@@ -91,19 +91,30 @@ export {
   mat4RotateY,
 } from "./editor/mat4.js";
 export {
+  fabrik2dChain,
   fabrik2dThreeJoints,
   segmentLengthsFromBindOrigins,
   segmentLengthsFromBoneFields,
 } from "./editor/ik2d.js";
 export { worldPoseOriginsWithIk } from "./editor/ikPose.js";
-export { getTwoBoneIkChains, setTwoBoneIkChains } from "./editor/rig/accessors.js";
+export {
+  getFabrikIkChainById,
+  getFabrikIkChains,
+  getTwoBoneIkChains,
+  setTwoBoneIkChains,
+} from "./editor/rig/accessors.js";
 export { sampleIkTargetOverride2d, sampleControlChannel } from "./editor/rig/controls.js";
 export {
   solveTwoBoneChain2dAtTime,
   getTwoBoneChainById,
   twoBoneIkAbsoluteLocalRotsAtTime,
+  type PoseMatsCache,
   type SolvedTwoBoneChain2d,
 } from "./editor/rig/solveTwoBoneChain2d.js";
+export {
+  fabrikIkAbsoluteLocalRotsAtTime,
+  validateFabrikBoneChain,
+} from "./editor/rig/solveFabrikPlanarChain2d.js";
 export { evaluatePose } from "./editor/rig/evaluatePose.js";
 export type { PoseState, EvaluatePoseOptions } from "./editor/rig/types.js";
 export { solveTwoBoneIk2d } from "./editor/rig/ik2bone2d.js";

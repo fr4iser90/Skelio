@@ -28,6 +28,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useEditorStore, type RigCameraViewKind } from "../stores/editor.js";
+import { boneShaftSegmentsWorld2D, minDistPointToBoneShaftSegmentsSq } from "../boneShaftSegments.js";
 import { orbitControlsHandleWasd } from "../viewportWasd.js";
 
 type BrushStroke = {
@@ -362,19 +363,6 @@ function lengthForBoneVisual(
   return L;
 }
 
-/** Distance² from P to segment AB (for bone-shaft picking). */
-function distPointToSegmentSq(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const abx = bx - ax;
-  const aby = by - ay;
-  const ab2 = abx * abx + aby * aby;
-  if (ab2 < 1e-12) return (px - ax) ** 2 + (py - ay) ** 2;
-  let t = ((px - ax) * abx + (py - ay) * aby) / ab2;
-  t = Math.max(0, Math.min(1, t));
-  const qx = ax + t * abx;
-  const qy = ay + t * aby;
-  return (px - qx) ** 2 + (py - qy) ** 2;
-}
-
 /** Steps from this bone up to root (1 = root). Deeper bones win pick ties at parent-tip = child-joint. */
 function boneDepthFromRoot(boneId: string): number {
   let depth = 0;
@@ -424,6 +412,7 @@ function resolveRigBoneStepHit(
 ): { type: "length"; boneId: string } | { type: "drag"; boneId: string } | null {
   const po = planarBindOpts.value;
   const mats = worldBindBoneMatrices2D(project.value, po);
+  const mats4 = worldBindBoneMatrices4(project.value, po);
   const origins = new Map<string, { x: number; y: number }>();
   for (const [id, m] of mats) origins.set(id, { x: m.e, y: m.f });
   const rJoint = 18;
@@ -454,15 +443,9 @@ function resolveRigBoneStepHit(
       continue;
     }
     const Lvis = lengthForBoneVisual(b, sel, rigStep);
-    if (M && Lvis > 1e-6 && dJ > r2j) {
-      const dx = M.a;
-      const dy = M.b;
-      const len = Math.hypot(dx, dy) || 1;
-      const ux = dx / len;
-      const uy = dy / len;
-      const sx = o.x + ux * Lvis;
-      const sy = o.y + uy * Lvis;
-      const dSeg = distPointToSegmentSq(wx, wy, o.x, o.y, sx, sy);
+    if (Lvis > 1e-6 && dJ > r2j) {
+      const segs = boneShaftSegmentsWorld2D(b, project.value.bones, mats4, origins, Lvis);
+      const dSeg = minDistPointToBoneShaftSegmentsSq(wx, wy, segs);
       if (dSeg <= r2s) {
         cands.push({ boneId: b.id, kind: "shaft", d2: dSeg });
       }
@@ -954,33 +937,31 @@ function rebuildBones() {
   const rigStep = rigModalBoneStep.value;
   const selBid = selectedBoneId.value;
 
-  for (const b of project.value.bones) {
+  const bonesList = project.value.bones;
+  for (const b of bonesList) {
     const Lvis = lengthForBoneVisual(b, selBid, rigStep);
     if (Lvis <= 1e-9) continue;
     const M4 = boneM4.get(b.id);
     if (!M4) continue;
-    const p0 = transformPointMat4(M4, 0, 0, 0);
-    const p1 = transformPointMat4(M4, Lvis, 0, 0);
-    const tipX = p1.x;
-    const tipY = p1.y;
-
-    const a = new THREE.Vector3(p0.x, -p0.y, p0.z);
-    const c = new THREE.Vector3(tipX, -tipY, p1.z);
-    const dir = c.clone().sub(a);
-    const len = dir.length();
-    if (len <= 1e-9) continue;
-    dir.multiplyScalar(1 / len);
-    const mid = a.clone().add(c).multiplyScalar(0.5);
-
+    const segs = boneShaftSegmentsWorld2D(b, bonesList, boneM4, boneO, Lvis);
     const sel = b.id === selBid && rigStep;
-    // Note: a visually larger radius helps a lot in Ortho/2D mode.
     const r = sel ? 8 : 6;
-    const geo = new THREE.CylinderGeometry(r, r * 0.96, len, 14, 1, false);
-    const mesh = new THREE.Mesh(geo, sel ? matBoneSel : matBone);
-    mesh.position.copy(mid);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-    mesh.renderOrder = 3;
-    boneLines.add(mesh);
+    for (const seg of segs) {
+      const p0w = transformPointMat4(M4, 0, 0, 0);
+      const a = new THREE.Vector3(seg.ax, -seg.ay, p0w.z);
+      const c = new THREE.Vector3(seg.bx, -seg.by, p0w.z);
+      const dir = c.clone().sub(a);
+      const len = dir.length();
+      if (len <= 1e-9) continue;
+      dir.multiplyScalar(1 / len);
+      const mid = a.clone().add(c).multiplyScalar(0.5);
+      const geo = new THREE.CylinderGeometry(r, r * 0.96, len, 14, 1, false);
+      const mesh = new THREE.Mesh(geo, sel ? matBoneSel : matBone);
+      mesh.position.copy(mid);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      mesh.renderOrder = 3;
+      boneLines.add(mesh);
+    }
   }
 
   for (const b of project.value.bones) {

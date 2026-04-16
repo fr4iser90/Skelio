@@ -2,8 +2,6 @@
 import {
   addBoneWeightDelta,
   boneLengthAndBindRotationFromWorldTip,
-  boundSliceLocalInBindSpace,
-  boundSliceWorldAtPose,
   deformSkinnedMesh,
   evaluatePose,
   getFabrikIkChains,
@@ -14,6 +12,8 @@ import {
   mat4ToMat2dProjection,
   resolveCharacterRigSliceBoundBoneId,
   RIG_SLICE_MESH_ID_PREFIX,
+  boundSliceLocalInBindSpace,
+  boundSliceWorldAtPose,
   rigidCharacterRigSliceWorldPose,
   rigSliceSkinnedMeshId,
   transformPointMat4,
@@ -33,7 +33,9 @@ import {
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useEditorStore } from "../stores/editor.js";
+import { boneShaftSegmentsWorld2D, minDistPointToBoneShaftSegmentsSq } from "../boneShaftSegments.js";
 import { drawRigSliceSkinnedDeformed } from "../drawRigSliceSkinnedMesh.js";
+import { drawRigSliceRigidWithSeamFill } from "../drawRigSliceRigidSeamFill.js";
 import { isTypingInEditableField } from "../viewportWasd.js";
 import AnimatorThreeViewport from "./AnimatorThreeViewport.vue";
 
@@ -362,18 +364,6 @@ function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null
   return hits[0]?.id ?? null;
 }
 
-function distPointToSegmentSq(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const abx = bx - ax;
-  const aby = by - ay;
-  const ab2 = abx * abx + aby * aby;
-  if (ab2 < 1e-12) return (px - ax) ** 2 + (py - ay) ** 2;
-  let t = ((px - ax) * abx + (py - ay) * aby) / ab2;
-  t = Math.max(0, Math.min(1, t));
-  const qx = ax + t * abx;
-  const qy = ay + t * aby;
-  return (px - qx) ** 2 + (py - qy) ** 2;
-}
-
 /**
  * Main editor (animator): pick by joint **or** by distance to the posed bone segment (joint → tip).
  * Joints alone are tiny under full sprites; segment picking matches what you see as the grey bone line.
@@ -381,29 +371,27 @@ function distPointToSegmentSq(px: number, py: number, ax: number, ay: number, bx
 function hitTestBoneAnimator(wx: number, wy: number): string | null {
   const ps = solvedPose.value;
   const origins = ps.solvedOriginByBoneId;
-  const mats = ps.solvedWorld2dByBoneId;
+  const mats4 = ps.solvedWorld4ByBoneId;
   const jointR2 = 48 * 48;
   const segMaxD2 = 40 * 40;
+  const rigStep = bindPoseViewportEditing.value;
+  const sel = selectedBoneId.value;
   let best: string | null = null;
   let bestScore = Infinity;
-  for (const b of project.value.bones) {
+  const bones = project.value.bones;
+  for (const b of bones) {
     const joint = origins.get(b.id);
-    const M = mats.get(b.id);
-    if (!joint || !M) continue;
+    const M4 = mats4.get(b.id);
+    if (!joint || !M4) continue;
     const dJoint = (wx - joint.x) ** 2 + (wy - joint.y) ** 2;
     let dSeg = Infinity;
-    if (b.length > 1e-6) {
-      const dx = M.a;
-      const dy = M.b;
-      const len = Math.hypot(dx, dy) || 1;
-      const ux = dx / len;
-      const uy = dy / len;
-      const tipX = joint.x + ux * b.length;
-      const tipY = joint.y + uy * b.length;
-      dSeg = distPointToSegmentSq(wx, wy, joint.x, joint.y, tipX, tipY);
+    const Lvis = lengthForBoneVisual(b, sel, rigStep);
+    if (Lvis > 1e-6) {
+      const segs = boneShaftSegmentsWorld2D(b, bones, mats4, origins, Lvis);
+      dSeg = minDistPointToBoneShaftSegmentsSq(wx, wy, segs);
     }
     const jointHit = dJoint <= jointR2;
-    const segHit = b.length > 1e-6 && dSeg <= segMaxD2;
+    const segHit = Lvis > 1e-6 && dSeg <= segMaxD2;
     if (!jointHit && !segHit) continue;
     const score = Math.min(dJoint, dSeg);
     if (score < bestScore) {
@@ -963,7 +951,7 @@ function draw() {
   }
 
   const skinMeshes = project.value.skinnedMeshes ?? [];
-  const { bindM4, poseM4, boneM4 } = viewportBoneBindPoseAndDrawState();
+  const { bindM4, poseM4, boneM4, boneO } = viewportBoneBindPoseAndDrawState();
 
   const rig = project.value.characterRig;
   if (rig?.slices?.length) {
@@ -1006,12 +994,12 @@ function draw() {
           if (s.embedded) {
             const eimg = embeddedRigImages.value.get(s.id);
             if (eimg?.complete && eimg.naturalWidth > 0) {
-              ctx.drawImage(eimg, -s.width / 2, -s.height / 2, s.width, s.height);
+              drawRigSliceRigidWithSeamFill(ctx, s, eimg, true);
             }
           } else if (s.sheetId) {
             const rigImg = rigSheetBitmaps.value.get(s.sheetId);
             if (rigImg && rigImg.complete && rigImg.naturalWidth > 0) {
-              ctx.drawImage(rigImg, s.x, s.y, s.width, s.height, -s.width / 2, -s.height / 2, s.width, s.height);
+              drawRigSliceRigidWithSeamFill(ctx, s, rigImg, false);
             }
           }
         } else {
@@ -1109,10 +1097,11 @@ function draw() {
     const M4 = boneM4.get(b.id);
     if (!M4) return;
     const p0 = transformPointMat4(M4, 0, 0, 0);
-    const p1 = transformPointMat4(M4, Lvis, 0, 0);
+    const tipGeom = transformPointMat4(M4, Lvis, 0, 0);
+    const tipX = tipGeom.x;
+    const tipY = tipGeom.y;
     const joint = { x: p0.x, y: p0.y };
-    const tipX = p1.x;
-    const tipY = p1.y;
+    const segs = boneShaftSegmentsWorld2D(b, bones, boneM4, boneO, Lvis);
     const ghost = rigStep && b.id === selBid && lengthForBoneDraw(b) < 1e-6;
     if (ghost) {
       g.strokeStyle = "rgba(160, 168, 184, 0.5)";
@@ -1131,10 +1120,12 @@ function draw() {
     g.lineWidth = opts.selected ? BONE_SHAFT_W_SEL : BONE_SHAFT_W;
     g.lineCap = "round";
     g.lineJoin = "round";
-    g.beginPath();
-    g.moveTo(joint.x, joint.y);
-    g.lineTo(tipX, tipY);
-    g.stroke();
+    for (const s of segs) {
+      g.beginPath();
+      g.moveTo(s.ax, s.ay);
+      g.lineTo(s.bx, s.by);
+      g.stroke();
+    }
     if (b.id === selBid && rigStep) {
       tipHandles.push({ x: tipX, y: tipY });
     }

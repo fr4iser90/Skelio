@@ -122,7 +122,7 @@ const steps = [
   {
     id: "bind",
     title: "Bind",
-    hint: "Part → bone; generate rig meshes. Viewport: drag joints / Shift+tip for length — same as “Bones”. Max depth in “3D Settings”.",
+    hint: "Part → bone; generate rig meshes. Viewport: click part or bone to select — no dragging here; mapping is in the table. Max depth in “3D Settings”.",
   },
   {
     id: "depth",

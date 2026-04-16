@@ -22,6 +22,7 @@ import {
   type CharacterRigConfig,
   type CharacterRigSpriteSheetEntry,
   type CharacterRigSpriteSlice,
+  type EditorProject,
   type Mat4,
   type SkinInfluence,
   type SkinnedMesh,
@@ -120,6 +121,22 @@ const boneLengthDrag = ref<{
   pointerId: number;
 } | null>(null);
 
+/**
+ * Längen-Vorschau (Tip/Shift): FK muss dieselbe `length` wie `previewLength` nutzen, sonst weichen
+ * Gelenk-Matrizen und Schaft-Geometrie auseinander (stark sichtbar bei Zoom).
+ */
+const rigProjectForBoneMatrices = computed((): EditorProject => {
+  const p = rigEditProject.value;
+  const d = boneLengthDrag.value;
+  if (!d) return p;
+  return {
+    ...p,
+    bones: p.bones.map((b) =>
+      b.id === d.boneId ? { ...b, length: d.previewLength } : b,
+    ),
+  };
+});
+
 /** Live-Extrusion während Shift-Ziehen (ein `setCharacterRigSliceDepth` bei pointerup). */
 const depthAdjustDrag = ref<{
   sliceId: string;
@@ -132,15 +149,19 @@ const depthAdjustDrag = ref<{
 } | null>(null);
 
 const rigModalBoneStep = computed(() => characterRigModalStep.value === 1);
-/** Schritt 0–1 (Sprites / Bones): immer Bind-Pose — sonst wirkt die Figur „gestaucht“ (Timeline-Pose vs. Bind). */
-const rigModalSpritesOrBonesUseBindLayout = computed(() => characterRigModalStep.value <= 1);
+/**
+ * Im gesamten Character-Setup-Modal immer Bind-Layout (`worldBindBone*`), nicht `evaluatePose` / IK.
+ * War früher nur Schritt 0–1 — ab Bind wurde fälschlich auf gelöste Pose umgeschaltet → Knochen/Sprites
+ * wichen von Bones ab.
+ */
+const rigModalSpritesOrBonesUseBindLayout = computed(() => true);
 
 /**
  * Multi-character: nur den aktiven Slot zeigen/picken (wie ViewportPanel), sonst wirken leere Rigs noch mit
  * fremden Knochen im Setup.
  */
 const rigSetupViewportBones = computed(() => {
-  const p = rigEditProject.value;
+  const p = rigProjectForBoneMatrices.value;
   const slots = rigCharacterSlots.value;
   if (slots.length <= 1) return p.bones;
   const aid = activeCharacterId.value ?? slots[0]?.id;
@@ -182,7 +203,7 @@ const planarBindOpts = computed(() =>
 
 const viewportHintText = computed(() => {
   if (rigModalBindStep.value) {
-    return "Character Setup wizard — Bind: click a bone (hierarchy) · click a part = table row · do not drag parts — assign bone in the dropdown.";
+    return "Character Setup — Bind: nur Klick (Teil oder Knochen wählen) — nichts verschieben; Zuordnung in der Tabelle.";
   }
   if (rigModalDepthStep.value) {
     return "Character Setup wizard — 3D Settings: selected part only · max depth / maps on the right · Shift+drag = extrusion · click = bone · in front/behind: “Bones” step.";
@@ -391,6 +412,15 @@ function lengthForBoneVisual(
 }
 
 /**
+ * Drawn bone mesh uses fixed world radii (~6–8); short chains (fingers) would look as thick as limbs.
+ * Scale thickness by visible length so fine bones stay visually slim when zoomed in.
+ */
+function rigBoneVisualThicknessScale(Lvis: number): number {
+  const ref = 88;
+  return Math.min(1.12, Math.max(0.26, Lvis / ref));
+}
+
+/**
  * Ortho-Zoom ändert Welt-einheiten pro Pixel: ohne Skalierung sind Treffer bei kleinem Zoom winzig,
  * bei starkem Zoom riesig — und bei Überlappung gewann oft immer derselbe Knochen (nur „Tiefe im Baum“).
  */
@@ -434,8 +464,9 @@ function resolveRigBoneStepHit(
   wy: number,
 ): { type: "length"; boneId: string } | { type: "drag"; boneId: string } | null {
   const po = planarBindOpts.value;
-  const mats = worldBindBoneMatrices2D(rigEditProject.value, po);
-  const mats4 = worldBindBoneMatrices4(rigEditProject.value, po);
+  const pHit = rigProjectForBoneMatrices.value;
+  const mats = worldBindBoneMatrices2D(pHit, po);
+  const mats4 = worldBindBoneMatrices4(pHit, po);
   const origins = new Map<string, { x: number; y: number }>();
   for (const [id, m] of mats) origins.set(id, { x: m.e, y: m.f });
   const sc = rigBoneHitScaleWorld();
@@ -471,7 +502,7 @@ function resolveRigBoneStepHit(
     }
     const Lvis = lengthForBoneVisual(b, sel, rigBoneInteractiveHits);
     if (Lvis > 1e-6 && dJ > r2j) {
-      const segs = boneShaftSegmentsWorld2D(b, rigEditProject.value.bones, mats4, origins, Lvis, {
+      const segs = boneShaftSegmentsWorld2D(b, pHit.bones, mats4, origins, Lvis, {
         lengthPreviewBoneId: boneLengthDrag.value?.boneId ?? null,
       });
       const dSeg = minDistPointToBoneShaftSegmentsSq(wx, wy, segs);
@@ -488,7 +519,7 @@ function resolveRigBoneStepHit(
 }
 
 function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null {
-  const mats = worldBindBoneMatrices2D(rigEditProject.value, planarBindOpts.value);
+  const mats = worldBindBoneMatrices2D(rigProjectForBoneMatrices.value, planarBindOpts.value);
   const origins = new Map<string, { x: number; y: number }>();
   for (const [id, m] of mats) origins.set(id, { x: m.e, y: m.f });
   const sc = rigBoneHitScaleWorld();
@@ -1017,9 +1048,10 @@ function rebuildBones() {
   const lenDrag = boneLengthDrag.value;
   const poseEval = solvedPose.value;
   const po = planarBindOpts.value;
+  const pMat = rigProjectForBoneMatrices.value;
   const useBindLayout = rigModalSpritesOrBonesUseBindLayout.value;
   let boneM = useBindLayout
-    ? worldBindBoneMatrices2D(rigEditProject.value, po)
+    ? worldBindBoneMatrices2D(pMat, po)
     : poseEval.solvedWorld2dByBoneId;
   let boneO: Map<string, { x: number; y: number }>;
   if (useBindLayout) {
@@ -1032,9 +1064,9 @@ function rebuildBones() {
   const rigBoneInteractive =
     characterRigModalStep.value >= 1 && characterRigModalStep.value <= 3;
   if (rigBoneInteractive && lenDrag) {
-    const b = rigEditProject.value.bones.find((x) => x.id === lenDrag.boneId);
+    const b = pMat.bones.find((x) => x.id === lenDrag.boneId);
     if (b) {
-      boneM = worldBindBoneMatrices2DOverridingBindPose(rigEditProject.value, lenDrag.boneId, {
+      boneM = worldBindBoneMatrices2DOverridingBindPose(pMat, lenDrag.boneId, {
         ...b.bindPose,
         rotation: lenDrag.previewRotation,
       }, po);
@@ -1046,22 +1078,22 @@ function rebuildBones() {
   let boneM4: Map<string, Mat4>;
   if (useBindLayout) {
     if (rigBoneInteractive && lenDrag) {
-      const b = rigEditProject.value.bones.find((x) => x.id === lenDrag.boneId);
+      const b = pMat.bones.find((x) => x.id === lenDrag.boneId);
       if (b) {
-        boneM4 = worldBindBoneMatrices4OverridingBindPose(rigEditProject.value, lenDrag.boneId, {
+        boneM4 = worldBindBoneMatrices4OverridingBindPose(pMat, lenDrag.boneId, {
           ...b.bindPose,
           rotation: lenDrag.previewRotation,
         }, po);
       } else {
-        boneM4 = worldBindBoneMatrices4(rigEditProject.value, po);
+        boneM4 = worldBindBoneMatrices4(pMat, po);
       }
     } else {
-      boneM4 = worldBindBoneMatrices4(rigEditProject.value, po);
+      boneM4 = worldBindBoneMatrices4(pMat, po);
     }
   } else if (rigBoneInteractive && lenDrag) {
-    const b = rigEditProject.value.bones.find((x) => x.id === lenDrag.boneId);
+    const b = pMat.bones.find((x) => x.id === lenDrag.boneId);
     if (b) {
-      boneM4 = worldBindBoneMatrices4OverridingBindPose(rigEditProject.value, lenDrag.boneId, {
+      boneM4 = worldBindBoneMatrices4OverridingBindPose(pMat, lenDrag.boneId, {
         ...b.bindPose,
         rotation: lenDrag.previewRotation,
       }, po);
@@ -1084,7 +1116,8 @@ function rebuildBones() {
       lengthPreviewBoneId: lenDrag?.boneId ?? null,
     });
     const sel = b.id === selBid && rigBoneInteractive;
-    const r = sel ? 8 : 6;
+    const ts = rigBoneVisualThicknessScale(Math.max(Lvis, 1));
+    const r = (sel ? 8 : 6) * ts;
     for (const seg of segs) {
       const p0w = transformPointMat4(M4, 0, 0, 0);
       const a = new THREE.Vector3(seg.ax, -seg.ay, p0w.z);
@@ -1108,7 +1141,9 @@ function rebuildBones() {
     if (!M4) continue;
     const p0 = transformPointMat4(M4, 0, 0, 0);
     const sel = b.id === selectedBoneId.value;
-    const r = sel ? 8.5 : 6.5;
+    const Lvj = lengthForBoneVisual(b, selBid, rigBoneInteractive);
+    const ts = rigBoneVisualThicknessScale(Math.max(Lvj, 1));
+    const r = (sel ? 8.5 : 6.5) * ts;
     const geo = new THREE.SphereGeometry(r, 16, 12);
     const mesh = new THREE.Mesh(geo, sel ? matJointSel : matJoint);
     mesh.position.set(p0.x, -p0.y, p0.z);
@@ -1388,46 +1423,27 @@ function onPointerDown(e: PointerEvent) {
     return;
   }
 
-  /** Bind-Schritt: Knochen zuerst (wie Bones-Schritt: Gelenk ziehen, Tip/Schaft = Länge; Shift = Länge). */
+  /**
+   * Bind: nur Auswahl — kein Verschieben von Parts/Knochen im Viewport (Zuordnung nur in der Tabelle).
+   * Zuerst Part (liegt oft über dem Skelett), sonst Knochen.
+   */
   if (rigModalBindStep.value && e.button === 0) {
-    if (e.shiftKey) {
-      const hitShift = hitTestBone(wx, wy, 18);
-      if (hitShift) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (controls) controls.enabled = false;
-        beginBoneLengthDrag(hitShift, wx, wy, e, el);
-        return;
-      }
-    }
-    const rigHitBind = resolveRigBoneStepHit(wx, wy);
-    if (rigHitBind?.type === "length") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (controls) controls.enabled = false;
-      beginBoneLengthDrag(rigHitBind.boneId, wx, wy, e, el);
-      return;
-    }
-    if (rigHitBind?.type === "drag") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (controls) controls.enabled = false;
-      store.selectBone(rigHitBind.boneId);
-      boneDrag.value = { boneId: rigHitBind.boneId };
-      try {
-        el.setPointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
+    e.preventDefault();
+    e.stopPropagation();
     const hitBindSlice = hitTestRigSlice(wx, wy);
     if (hitBindSlice) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (controls) controls.enabled = false;
       store.selectCharacterRigSlice(hitBindSlice);
       store.clearMeshVertexSelection();
+      return;
+    }
+    const rigHitBind = resolveRigBoneStepHit(wx, wy);
+    if (rigHitBind) {
+      store.selectBone(rigHitBind.boneId);
+      return;
+    }
+    const hitJointOnly = hitTestBone(wx, wy, 22);
+    if (hitJointOnly) {
+      store.selectBone(hitJointOnly);
       return;
     }
     store.selectCharacterRigSlice(null);
@@ -1602,11 +1618,11 @@ function onPointerMove(e: PointerEvent) {
     const w = skelioWorldFromClient(e.clientX, e.clientY, el);
     if (!w) return;
     const d = boneLengthDrag.value;
-    const b = rigEditProject.value.bones.find((x) => x.id === d.boneId);
+    const b = rigProjectForBoneMatrices.value.bones.find((x) => x.id === d.boneId);
     if (b) {
       const previewBind = { ...b.bindPose, rotation: d.previewRotation };
       const tip = boneLengthAndBindRotationFromWorldTip(
-        rigEditProject.value,
+        rigProjectForBoneMatrices.value,
         d.boneId,
         w.wx,
         w.wy,

@@ -48,7 +48,11 @@ export function poseFkAtTimeCached(
 ): PoseMatsCache {
   const c = poseMatsCache;
   if (c && c.project === project && c.time === time && c.planar2dNoTiltSpin === planar2dNoTiltSpin) return c;
-  const fk4 = worldPoseBoneMatrices4(project, time, planar2dNoTiltSpin ? { planar2dNoTiltSpin: true } : undefined);
+  const fk4 = worldPoseBoneMatrices4(
+    project,
+    time,
+    planar2dNoTiltSpin ? { planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } : undefined,
+  );
   const mats2d = new Map<string, { a: number; b: number; e: number; f: number }>();
   for (const [id, m] of fk4) {
     const p2 = mat4ToMat2dProjection(m);

@@ -261,13 +261,13 @@ const bindPoseViewportEditing = computed(() => {
   return workspaceMode.value !== "animate" && (rigModalBoneStep.value || quickRigMode.value);
 });
 
-/** Muss zu {@link solvedPose} passen: Skinning nutzt `pose * inv(bind)` — bind ebenfalls ohne Tilt/Spin in 2D. */
+/**
+ * 2D-Kamera: immer dieselbe planare Basis wie {@link evaluatePose} (skip „Tip-Snap“) —
+ * gespeicherte `bindPose.x/y` bleiben maßgeblich in Animate und im Setup.
+ */
 const planarBindOpts = computed(() => {
   if (rigCameraViewKind.value !== "2d") return undefined;
-  const skipTipSnap = bindPoseViewportEditing.value || characterRigModalOpen.value;
-  return skipTipSnap
-    ? ({ planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } as const)
-    : ({ planar2dNoTiltSpin: true } as const);
+  return { planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } as const;
 });
 
 const animatorTool = ref<"rotate" | "translate">("rotate");
@@ -292,6 +292,9 @@ const viewportHintText = computed(() => {
   }
   if (characterRigModalOpen.value && rigCameraWorldYScale.value < 0.999) {
     return "Character Setup: Kamera Y gestaucht (Pseudo-Tiefe) — gleiche Logik für Klicks · Rad = Zoom";
+  }
+  if (characterRigModalOpen.value && characterRigModalStep.value === 2) {
+    return "Character Setup — Bind: nur Auswahl (Teil/Knochen) im WebGL — nichts verschieben; Zuordnung in der Tabelle.";
   }
   if (rigModalBoneStep.value) {
     if (pendingBonePlacementId.value) {
@@ -775,7 +778,7 @@ function viewportBoneBindPoseAndDrawState(): {
   // Hard guarantee: 2D animator skinning uses strictly planar 2D matrices (no 3D components).
   if (rigCameraViewKind.value === "2d") {
     // Additionally strip scale/shear so Deform-Mesh behaves like rigid sprites (rotation-only).
-    bindM4 = mat2dMapToMat4RotationOnly(worldBindBoneMatrices2D(poseProject.value, { planar2dNoTiltSpin: true }));
+    bindM4 = mat2dMapToMat4RotationOnly(worldBindBoneMatrices2D(poseProject.value, po));
     poseM4 = mat2dMapToMat4RotationOnly(poseEval.solvedWorld2dByBoneId);
   }
   const useBindBoneDraw =
@@ -820,7 +823,8 @@ function rigidSliceWorldPose(
 
   // Hard guarantee: 2D animator rigid slices use 2D bind/pose matrices only.
   if (rigCameraViewKind.value === "2d") {
-    const B2 = worldBindBoneMatrices2D(poseProject.value, { planar2dNoTiltSpin: true }).get(bid);
+    const po2d = planarBindOpts.value ?? { planar2dNoTiltSpin: true as const, skipPlanarChildTipSnap: true as const };
+    const B2 = worldBindBoneMatrices2D(poseProject.value, po2d).get(bid);
     const P2raw = solvedPose.value.solvedWorld2dByBoneId.get(bid);
     if (!B2 || !P2raw) return null;
     const P2 =

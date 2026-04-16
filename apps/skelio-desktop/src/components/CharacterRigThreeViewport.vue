@@ -201,23 +201,40 @@ const planarBindOpts = computed(() =>
     : undefined,
 );
 
-const viewportHintText = computed(() => {
+/** One entry = one line in the overlay (English). */
+const viewportHintLines = computed((): string[] => {
   if (rigModalBindStep.value) {
-    return "Character Setup — Bind: nur Klick (Teil oder Knochen wählen) — nichts verschieben; Zuordnung in der Tabelle.";
+    return [
+      "Bind: click part or bone only",
+      "No transforms — assign in the table",
+    ];
   }
   if (rigModalDepthStep.value) {
-    return "Character Setup wizard — 3D Settings: selected part only · max depth / maps on the right · Shift+drag = extrusion · click = bone · in front/behind: “Bones” step.";
+    return [
+      "3D Settings: selected part only",
+      "Depth / maps — panel on the right",
+      "Shift+drag — extrusion",
+      "Click — pick bone",
+      "In front/behind — edit in Bones step",
+    ];
   }
   if (weightBrushEnabled.value) {
-    return "Character Setup wizard — Weight brush: selected bone · paint (one undo per stroke).";
+    return ["Weight brush: selected bone", "Paint — one undo per stroke"];
   }
   if (rigCameraViewKind.value === "2d") {
-    return "Character Setup wizard — 2D: ortho · WASD = pan · middle mouse = pan · wheel = zoom.";
+    return ["2D — orthographic", "WASD — pan · MMB — pan · Wheel — zoom"];
   }
   if (rigCameraViewKind.value === "2.5d") {
-    return "Character Setup wizard — 2.5D: perspective · WASD = pan · left = orbit · middle = pan.";
+    return [
+      "2.5D — perspective",
+      "WASD — pan · LMB — orbit · MMB — pan · Wheel — zoom",
+    ];
   }
-  return "Character Setup wizard — 3D: full orbit · WASD = pan · parts with depth = extruded box · grid = ground.";
+  return [
+    "3D — full orbit",
+    "WASD — pan",
+    "Parts with depth — extruded box · Grid — ground",
+  ];
 });
 
 function activeCamera(): THREE.Camera {
@@ -1831,7 +1848,9 @@ onBeforeUnmount(() => {
       <button type="button" class="view-tb-btn" title="Zoom in" @click="zoomIn">+</button>
       <button type="button" class="view-tb-reset view-tb-btn" title="Reset view" @click="resetView">Reset</button>
     </div>
-    <div class="hint">{{ viewportHintText }}</div>
+    <div class="hint" role="status">
+      <div v-for="(line, i) in viewportHintLines" :key="i" class="hint-line">{{ line }}</div>
+    </div>
   </div>
 </template>
 
@@ -1904,10 +1923,16 @@ onBeforeUnmount(() => {
   padding: 0.35rem 0.55rem;
   border-radius: 6px;
   font-size: 0.68rem;
-  line-height: 1.4;
+  line-height: 1.45;
   color: #94a3b8;
   background: rgba(15, 16, 20, 0.88);
   border: 1px solid #2d3340;
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hint-line {
+  display: block;
 }
 </style>

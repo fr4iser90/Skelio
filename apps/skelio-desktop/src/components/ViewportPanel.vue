@@ -271,44 +271,121 @@ const planarBindOpts = computed(() => {
 });
 
 const animatorTool = ref<"rotate" | "translate">("rotate");
+/** Animate: L toggles UI chip only. Shift+Ctrl+LMB on tip = length (does not require L). */
+const animatorLengthMode = ref(false);
+
+/** Shift alone = force translate; Shift+Ctrl is for length-on-tip — must not force translate. */
+function animatorShiftMeansTranslate(e: PointerEvent): boolean {
+  return e.shiftKey && !(e.ctrlKey || e.metaKey);
+}
 
 /** Rig sprite slices draggable only in Character Setup wizard step 0, not in day-to-day Animate. */
 const mainViewSliceDragEnabled = computed(
   () => characterRigModalOpen.value && characterRigModalStep.value === 0,
 );
 
-const viewportHintText = computed(() => {
+/**
+ * One line = one function: chord or key, action, and (toggle …) when a key selects that mode.
+ */
+const viewportHintLines = computed((): string[] => {
   if (weightBrushEnabled.value) {
-    return "Weight brush: selected bone · paint in the viewport (one undo per stroke)";
+    return ["Weight brush: paint in the viewport", "Uses selected bone", "One undo per stroke"];
   }
   if (!characterRigModalOpen.value) {
     if (quickRigMode.value) {
       if (pendingBonePlacementId.value) {
-        return "Quick Rig: Klick in die Fläche = neuen Knochen platzieren (orange Kreis) · WASD = Ansicht · Rad = Zoom";
+        return [
+          "Click — place new bone (orange ring)",
+          "WASD — pan view",
+          "Wheel — zoom",
+          "Alt+LMB — pan view",
+        ];
       }
-      return "Quick Rig: … · Delete/Backspace = Knochen löschen (nicht Root) · Esc = Längen-Vorschau abbrechen · WASD · Rad · Alt+Pan · Rechts = drehen";
+      return [
+        "Drag — move bones (bind pose)",
+        "Delete / Backspace — remove bone (not root)",
+        "Esc — cancel length preview",
+        "WASD — pan view",
+        "Wheel — zoom",
+        "MMB — pan view",
+        "Alt+LMB — pan view",
+        "RMB — orbit view (2.5D / 3D)",
+      ];
     }
-    return `Animator: ${animatorTool.value === "rotate" ? "Linksklick = Drehen (um Gelenk)" : "Linksklick = Position (Keys)"} · Shift+Linksklick = immer Position · G/R umschalten · WASD · Rad · Alt+Links=Pan · Rechts=Ansicht drehen`;
+    const cam2d = rigCameraViewKind.value === "2d";
+    const lines: string[] = [
+      "Shift+LMB — move position (toggle P: position / translate tool)",
+      "R — rotate tool",
+      "Shift+Ctrl+LMB — rest bone length on tip (toggle L: length indicator)",
+      "Shift (while dragging, no Ctrl) — force translate",
+      "Alt+LMB — pan view",
+      "WASD — pan view",
+      "Wheel — zoom",
+      "MMB — pan view",
+      "RMB — orbit view (2.5D / 3D only)",
+      "K — keyframe IK handle at playhead",
+    ];
+    lines.push(
+      cam2d
+        ? "Tip: rest length uses this 2D canvas (Shift+Ctrl+LMB on tip)"
+        : "Tip: rest length — Camera 2D or Rig / Inspector",
+    );
+    lines.push("Note: bone shaft draws joint→child — can look shorter than Length when posed / IK");
+    return lines;
   }
   if (characterRigModalOpen.value && rigCameraWorldYScale.value < 0.999) {
-    return "Character Setup: Kamera Y gestaucht (Pseudo-Tiefe) — gleiche Logik für Klicks · Rad = Zoom";
+    return [
+      "Character Setup: camera Y squashed (pseudo depth)",
+      "Same pick logic as usual",
+      "Wheel — zoom",
+    ];
   }
   if (characterRigModalOpen.value && characterRigModalStep.value === 2) {
-    return "Character Setup — Bind: nur Auswahl (Teil/Knochen) im WebGL — nichts verschieben; Zuordnung in der Tabelle.";
+    return [
+      "Bind: WebGL — click part or bone only",
+      "No dragging — map in the table",
+    ];
   }
   if (rigModalBoneStep.value) {
     if (pendingBonePlacementId.value) {
-      return "Character Setup — Bones: Klick in die Fläche = neuen Knochen platzieren (orange Kreis) · Rad = Zoom";
+      return ["Bones: click — place bone (orange ring)", "Wheel — zoom"];
     }
-    return "Character Setup — Bones: Spitze/Shift+Gelenk ziehen · Esc = abbrechen · Delete/Backspace = Knochen löschen (nicht Root) · Rad = Zoom · Alt+Pan · Rechts = drehen";
+    return [
+      "Bones: drag tip — length / bind rotation",
+      "Shift+joint — length from joint",
+      "Esc — cancel",
+      "Delete / Backspace — remove bone (not root)",
+      "Wheel — zoom",
+      "Alt+LMB — pan",
+      "RMB — orbit (2.5D / 3D)",
+    ];
   }
   if (viewportRigSlices.value.length > 0) {
     if (!mainViewSliceDragEnabled.value) {
-      return "Character Setup: Rig-Meshes aktiv — Knochen ziehen (Keys), keine freien Slices. Rad = Zoom · Alt+Links = schieben · Rechts = drehen";
+      return [
+        "Rig meshes on — drag bones (animated keys)",
+        "No free slice drag in this step",
+        "Wheel — zoom",
+        "Alt+LMB — pan",
+        "RMB — orbit",
+      ];
     }
-    return "Character Setup: Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Slices mit Links ziehen";
+    return [
+      "Wheel — zoom",
+      "MMB — pan",
+      "Alt+LMB — pan",
+      "RMB — orbit",
+      "LMB — drag slices",
+    ];
   }
-  return "Rad = Zoom · Mitte oder Alt+Links = schieben · Rechts = drehen · Y unten · Vertex für Gewichte";
+  return [
+    "Wheel — zoom",
+    "MMB — pan view",
+    "Alt+LMB — pan view",
+    "RMB — orbit view",
+    "Y axis — down",
+    "Vertex — weight paint",
+  ];
 });
 
 const animatorUsesWebglViewport = computed(() => !characterRigModalOpen.value && rigCameraViewKind.value !== "2d");
@@ -320,47 +397,49 @@ const shortcutPanelLines = computed((): ShortcutLine[] => {
   if (characterRigModalOpen.value) return [];
   if (quickRigMode.value) {
     const lines: ShortcutLine[] = [
-      { keys: ["Esc"], label: "Längen-Vorschau abbrechen" },
-      { keys: ["Entf"], label: "Knochen löschen (nicht Wurzel)" },
+      { keys: ["Esc"], label: "Cancel length preview" },
+      { keys: ["Del"], label: "Remove bone (not root)" },
     ];
     if (pendingBonePlacementId.value) {
-      lines.unshift({ keys: ["Klick"], label: "Neuen Knochen platzieren" });
+      lines.unshift({ keys: ["Click"], label: "Place new bone" });
     }
     lines.push(
-      { keys: ["W", "A", "S", "D"], label: "Ansicht" },
-      { keys: ["Rad"], label: "Zoom" },
-      { keys: ["Mittelklick"], label: "Schwenken" },
-      { keys: ["Alt+LMB"], label: "Schwenken" },
+      { keys: ["W", "A", "S", "D"], label: "Pan view" },
+      {
+        keys:
+          rigCameraViewKind.value === "2d"
+            ? ["Wheel", "MMB", "Alt+LMB"]
+            : ["Wheel", "MMB", "Alt+LMB", "RMB"],
+        label: rigCameraViewKind.value === "2d" ? "Zoom · pan" : "Zoom · pan · orbit",
+      },
     );
-    if (rigCameraViewKind.value !== "2d") {
-      lines.push({ keys: ["Rechtsklick"], label: "Ansicht drehen" });
-    }
     return lines;
   }
   if (workspaceMode.value === "animate") {
     const lines: ShortcutLine[] = [
-      { keys: ["G"], label: "Werkzeug Position" },
-      { keys: ["R"], label: "Werkzeug Rotation" },
-      { keys: ["Shift"], label: "beim Ziehen: immer Position" },
-      { keys: ["K"], label: "IK-Handle an der Zeit keyen" },
-      { keys: ["W", "A", "S", "D"], label: "Ansicht schieben" },
-      { keys: ["Rad"], label: "Zoom" },
-      { keys: ["Mittelklick"], label: "Schwenken" },
-      { keys: ["Alt+LMB"], label: "Schwenken" },
+      { keys: ["Shift+LMB"], label: "Move position (toggle P: position / translate tool)" },
+      { keys: ["R"], label: "Rotate tool" },
+      { keys: ["Shift+Ctrl+LMB"], label: "Rest bone length on tip (toggle L: length indicator)" },
+      { keys: ["Shift"], label: "While dragging: force translate (no Ctrl)" },
+      { keys: ["Alt+LMB"], label: "Pan view" },
+      { keys: ["W", "A", "S", "D"], label: "Pan view" },
+      { keys: ["K"], label: "Keyframe IK handle at playhead" },
+      { keys: ["Wheel"], label: "Zoom" },
+      { keys: ["MMB"], label: "Pan view" },
     ];
     if (rigCameraViewKind.value !== "2d") {
-      lines.push({ keys: ["Rechtsklick"], label: "Ansicht drehen" });
+      lines.push({ keys: ["RMB"], label: "Orbit view" });
     }
     lines.push({
       keys: [],
-      label: "Tilt / Spin: Inspector → Bone 3D (keine Viewport-Tasten)",
+      label: "Tilt / spin: Inspector → bone 3D",
     });
     return lines;
   }
   return [
     {
       keys: [],
-      label: "Position/Rotation per G·R: Modus „Animate“ wählen (Toolbar).",
+      label: "Animate mode: shortcuts in viewport when toolbar is Animate.",
     },
   ];
 });
@@ -1515,6 +1594,25 @@ function onCanvasPointerDown(e: PointerEvent) {
 
   const { wx, wy } = worldFromClient(e, c);
 
+  // Animate: Shift+Ctrl+LMB on bone tip — rest length (chord is unambiguous; no L required).
+  if (
+    e.button === 0 &&
+    !characterRigModalOpen.value &&
+    !quickRigMode.value &&
+    workspaceMode.value === "animate" &&
+    e.shiftKey &&
+    (e.ctrlKey || e.metaKey) &&
+    !e.altKey
+  ) {
+    const hitTip = hitTestBoneTip(wx, wy, 22);
+    if (hitTip) {
+      e.preventDefault();
+      beginBoneLengthDrag(hitTip, wx, wy, e, c);
+      draw();
+      return;
+    }
+  }
+
   if (e.button === 0) {
     const hitCtl = hitTestIkControl(wx, wy);
     if (hitCtl) {
@@ -1589,7 +1687,7 @@ function onCanvasPointerDown(e: PointerEvent) {
     if (hitPose) {
       e.preventDefault();
       store.selectBone(hitPose);
-      const mode = e.shiftKey ? "translate" : animatorTool.value;
+      const mode = animatorShiftMeansTranslate(e) ? "translate" : animatorTool.value;
 
       // Intuitive IK authoring: when 2-bone IK is enabled, dragging on root/mid should operate the pole,
       // otherwise users "rotate" and nothing moves because IK overrides the rotations.
@@ -1643,7 +1741,7 @@ function onCanvasPointerDown(e: PointerEvent) {
       e.preventDefault();
       store.selectCharacterRigSlice(fromSprite.sliceId);
       store.selectBone(fromSprite.boneId);
-      const mode = e.shiftKey ? "translate" : animatorTool.value;
+      const mode = animatorShiftMeansTranslate(e) ? "translate" : animatorTool.value;
       boneDrag.value = {
         boneId: fromSprite.boneId,
         animGrab: animatorBoneDragGrab(fromSprite.boneId, wx, wy),
@@ -2000,12 +2098,20 @@ onUnmounted(() => {
 
 function onAnimatorToolKeyDown(e: KeyboardEvent) {
   if (characterRigModalOpen.value || quickRigMode.value) return;
-  if (e.key === "g" || e.key === "G") {
+  if (workspaceMode.value !== "animate") return;
+  if (isTypingInEditableField(e.target)) return;
+  if (e.key === "p" || e.key === "P") {
     animatorTool.value = "translate";
+    animatorLengthMode.value = false;
     draw();
   }
   if (e.key === "r" || e.key === "R") {
     animatorTool.value = "rotate";
+    animatorLengthMode.value = false;
+    draw();
+  }
+  if (e.key === "l" || e.key === "L") {
+    animatorLengthMode.value = !animatorLengthMode.value;
     draw();
   }
 }
@@ -2055,6 +2161,12 @@ function onViewportWasdKeyDown(e: KeyboardEvent) {
   draw();
 }
 
+watch([characterRigModalOpen, quickRigMode, workspaceMode], () => {
+  if (characterRigModalOpen.value || quickRigMode.value || workspaceMode.value !== "animate") {
+    animatorLengthMode.value = false;
+  }
+});
+
 watch(
   [
     project,
@@ -2082,6 +2194,8 @@ watch(
     boneLengthDrag,
     rigCameraWorldYScale,
     rigWorldYCompress,
+    animatorTool,
+    animatorLengthMode,
   ],
   draw,
   { deep: true },
@@ -2127,15 +2241,21 @@ function onCanvasPointerCancel(e: PointerEvent) {
       <div
         v-if="shortcutPanelLines.length > 0"
         class="kbd-hints"
-        aria-label="Tastenkürzel"
+        aria-label="Keyboard shortcuts"
       >
         <div
           v-if="workspaceMode === 'animate' && !quickRigMode"
           class="kbd-active-tool"
         >
-          <span class="kbd-active-label">Werkzeug</span>
-          <span class="kbd-active-name">{{ animatorTool === 'rotate' ? 'Rotation' : 'Position' }}</span>
-          <kbd class="kbd-active-key">{{ animatorTool === 'rotate' ? 'R' : 'G' }}</kbd>
+          <span class="kbd-active-label">Tool</span>
+          <template v-if="animatorLengthMode">
+            <span class="kbd-active-name">Length</span>
+            <kbd class="kbd-active-key">L</kbd>
+          </template>
+          <template v-else>
+            <span class="kbd-active-name">{{ animatorTool === 'rotate' ? 'Rotate' : 'Translate' }}</span>
+            <kbd class="kbd-active-key">{{ animatorTool === 'rotate' ? 'R' : 'P' }}</kbd>
+          </template>
         </div>
         <div
           v-for="(line, i) in shortcutPanelLines"
@@ -2182,13 +2302,15 @@ function onCanvasPointerCancel(e: PointerEvent) {
           3D
         </button>
       </div>
-      <div class="hint">{{ viewportHintText }}</div>
+      <div class="hint" role="status" aria-live="polite">
+        <div v-for="(line, i) in viewportHintLines" :key="i" class="hint-line">{{ line }}</div>
+      </div>
     </div>
-    <div class="view-toolbar" aria-label="Viewport-Ansicht">
+      <div class="view-toolbar" aria-label="Viewport view">
       <span class="view-toolbar-label">{{ zoomPercent }}%</span>
-      <button type="button" class="view-tb-btn" title="Verkleinern" @click="zoomViewportOut">−</button>
-      <button type="button" class="view-tb-btn" title="Vergrößern" @click="zoomViewportIn">+</button>
-      <button type="button" class="view-tb-btn view-tb-reset" title="Ansicht zurücksetzen" @click="resetViewportView">Reset</button>
+      <button type="button" class="view-tb-btn" title="Zoom out" @click="zoomViewportOut">−</button>
+      <button type="button" class="view-tb-btn" title="Zoom in" @click="zoomViewportIn">+</button>
+      <button type="button" class="view-tb-btn view-tb-reset" title="Reset view" @click="resetViewportView">Reset</button>
     </div>
   </div>
 </template>
@@ -2391,11 +2513,19 @@ function onCanvasPointerCancel(e: PointerEvent) {
   padding: 0.35rem 0.55rem;
   border-radius: 6px;
   font-size: 0.68rem;
-  line-height: 1.4;
+  line-height: 1.45;
   color: #94a3b8;
   background: rgba(15, 16, 20, 0.88);
   border: 1px solid #2d3340;
   pointer-events: none;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hint-line {
+  display: block;
+  white-space: normal;
+  word-break: break-word;
 }
 </style>

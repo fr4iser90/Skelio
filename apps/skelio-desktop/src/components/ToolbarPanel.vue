@@ -17,6 +17,14 @@ const store = useEditorStore();
 const { workspaceMode, rigCharacterSlots, activeCharacterId } = storeToRefs(store);
 const tauri = isTauriApp();
 
+/**
+ * Toolbar layout (extend without stuffing unrelated UI into workspace tabs):
+ * - `menubar-row`: File / Edit / View
+ * - `toolbar-workspace-region`: workspace mode tabs only; reserve adjacent slot for Settings (gear → prefs modal)
+ * - Future prefs: keymap JSON (override defaults in ViewportPanel), themes, audio — single store + `localStorage` sync
+ * - `btn-character-setup`: always visible
+ * - Trailing: help — future: optional Settings button before `?`
+ */
 const menubarEl = ref<HTMLElement | null>(null);
 const helpDialog = ref<HTMLDialogElement | null>(null);
 
@@ -370,37 +378,41 @@ async function saveRuntimeExportToFile() {
         </div>
       </details>
 
-      <div class="mode-tabs" role="tablist" aria-label="Workspace mode">
-        <button
-          type="button"
-          role="tab"
-          class="mode-tab"
-          :class="{ 'mode-tab--on': workspaceMode === 'animate' }"
-          :aria-selected="workspaceMode === 'animate'"
-          @click="store.setWorkspaceMode('animate')"
-        >
-          Animate
-        </button>
-        <button
-          type="button"
-          role="tab"
-          class="mode-tab"
-          :class="{ 'mode-tab--on': workspaceMode === 'rig' }"
-          :aria-selected="workspaceMode === 'rig'"
-          @click="store.setWorkspaceMode('rig')"
-        >
-          Rig
-        </button>
-        <button
-          type="button"
-          role="tab"
-          class="mode-tab"
-          :class="{ 'mode-tab--on': workspaceMode === 'export' }"
-          :aria-selected="workspaceMode === 'export'"
-          @click="store.setWorkspaceMode('export')"
-        >
-          Export
-        </button>
+      <div class="toolbar-workspace-region">
+        <div class="mode-tabs" role="tablist" aria-label="Workspace mode">
+          <button
+            type="button"
+            role="tab"
+            class="mode-tab"
+            :class="{ 'mode-tab--on': workspaceMode === 'animate' }"
+            :aria-selected="workspaceMode === 'animate'"
+            @click="store.setWorkspaceMode('animate')"
+          >
+            Animate
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="mode-tab"
+            :class="{ 'mode-tab--on': workspaceMode === 'rig' }"
+            :aria-selected="workspaceMode === 'rig'"
+            @click="store.setWorkspaceMode('rig')"
+          >
+            Rig
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="mode-tab"
+            :class="{ 'mode-tab--on': workspaceMode === 'export' }"
+            :aria-selected="workspaceMode === 'export'"
+            @click="store.setWorkspaceMode('export')"
+          >
+            Export
+          </button>
+        </div>
+        <!-- Mount point for future Settings popover (keybindings, etc.): keep flex gap minimal. -->
+        <div id="toolbar-settings-anchor" class="toolbar-settings-anchor" aria-hidden="true" />
       </div>
 
       <!-- Character Setup: single entry in the top row (always visible in every mode). -->
@@ -600,6 +612,19 @@ async function saveRuntimeExportToFile() {
 .grow {
   flex: 1;
   min-width: 0.5rem;
+}
+.toolbar-workspace-region {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  position: relative;
+}
+.toolbar-settings-anchor {
+  flex: 0 0 auto;
+  width: 0;
+  min-height: 1.25rem;
+  align-self: stretch;
 }
 .mode-tabs {
   display: inline-flex;

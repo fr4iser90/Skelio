@@ -25,10 +25,21 @@ const {
   placeNewBonesAtParentTip,
   characterRigModalOpen,
   quickRigMode,
+  workspaceMode,
 } = storeToRefs(store);
 
-/** Bind pose / length / chain: Character Setup wizard or Quick Rig; otherwise keys + weights + IK. */
-const bindPoseLocked = computed(() => !(characterRigModalOpen.value || quickRigMode.value));
+/**
+ * Bind/Länge nur außerhalb von „reinem“ Animate: Rig-Tab, Character-Setup-Modal oder Quick Rig.
+ * (Animate = nur Keys am Playhead, keine Skelett-Restpose — siehe docs/16.)
+ */
+const bindPoseLocked = computed(
+  () =>
+    !(
+      characterRigModalOpen.value ||
+      quickRigMode.value ||
+      workspaceMode.value === "rig"
+    ),
+);
 
 const twoBoneIkChainsShown = computed(() => getTwoBoneIkChains(rigEditProject.value));
 const fabrikIkChainsShown = computed(() => rigEditProject.value.rig?.ik?.fabrikChains ?? []);
@@ -404,8 +415,10 @@ function addTwoBoneIkFromSelectedTip() {
     <template v-if="selectedBone">
       <h3 class="panel-title">Knochen</h3>
       <p v-if="bindPoseLocked" class="bone-hint bone-hint-warn">
-        <strong>Skeleton / bind pose</strong>: Toolbar <strong>Character Setup…</strong> (immer sichtbar) oder Modus
-        <strong>Rig</strong> → <strong>Quick Rig</strong>. Sonst <strong>Animation</strong> (Keys, Viewport-Ziehen).
+        <strong>Rest-Skelett (Länge, Bind X/Y, …)</strong>: im Tab <strong>Rig</strong> hier editierbar, oder
+        <strong>Character Setup…</strong> / <strong>Quick Rig</strong>. Im Tab <strong>Animate</strong> absichtlich
+        gesperrt — nur Keys am Playhead. Grauer Schaft in der Ansicht: oft <strong>Gelenk → Kindgelenk</strong>; bei Pose/IK
+        kann das <strong>kürzer wirken</strong> als die Zahl „Length“ (die Länge am Stab ändert sich nicht durch Drehen).
       </p>
       <p v-else class="bone-hint">
         <strong>Bind pose</strong> = rest skeleton. <strong>Animation</strong> uses keys at time

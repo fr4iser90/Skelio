@@ -17,6 +17,7 @@
     "allow-write-project-manifest",
     "allow-read-project-subpath",
     "allow-write-project-subpath",
-    "allow-save-text-file-with-dialog"
+    "allow-save-text-file-with-dialog",
+    "allow-pick-project-folder-with-dialog"
   ]
 }

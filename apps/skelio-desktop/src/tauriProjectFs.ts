@@ -10,12 +10,13 @@ export function isTauriApp(): boolean {
   return Boolean(w.__TAURI__ || w.__TAURI_INTERNALS__);
 }
 
-/** Ordnerpfad erfragen (kein nativer Dialog — vermeidet GTK/Wayland-Builds; später erweiterbar). */
-export function promptProjectRootPath(title: string, current?: string | null): string | null {
-  const v = window.prompt(title, current ?? "");
-  if (v == null) return null;
-  const t = v.trim();
-  return t.length > 0 ? t : null;
+/** Nativer Ordner-Dialog (zenity/kdialog / OS), kein `window.prompt`. */
+export async function pickProjectRootFolder(defaultPath?: string | null): Promise<string | null> {
+  if (!isTauriApp()) return null;
+  const t = (defaultPath ?? "").trim();
+  return invoke<string | null>("pick_project_folder_with_dialog", {
+    defaultPath: t.length > 0 ? t : null,
+  });
 }
 
 export async function readProjectManifest(root: string): Promise<string> {

@@ -15,7 +15,7 @@ import { defineStore } from "pinia";
 import { computed, ref, toRaw } from "vue";
 import {
   isTauriApp,
-  promptProjectRootPath,
+  pickProjectRootFolder,
   readProjectManifest,
   readProjectSubpath,
   writeProjectManifest,
@@ -224,10 +224,7 @@ export const useEditorStore = defineStore("editor", () => {
     if (!isTauriApp()) {
       throw new Error("Ordnerprojekt nur in der Desktop-App (Tauri).");
     }
-    const root = promptProjectRootPath(
-      `Absoluter Pfad zum Ordner mit ${PROJECT_MANIFEST_FILE}:`,
-      projectRootPath.value,
-    );
+    const root = await pickProjectRootFolder(projectRootPath.value);
     if (!root) return;
     const text = await readProjectManifest(root);
     const raw = JSON.parse(text) as EditorProject;
@@ -242,7 +239,7 @@ export const useEditorStore = defineStore("editor", () => {
     }
     let root = projectRootPath.value;
     if (!root) {
-      root = promptProjectRootPath(`Ordner für ${PROJECT_MANIFEST_FILE} (absoluter Pfad):`);
+      root = await pickProjectRootFolder(null);
       if (!root) return;
       projectRootPath.value = root;
     }
@@ -254,10 +251,7 @@ export const useEditorStore = defineStore("editor", () => {
     if (!isTauriApp()) {
       throw new Error("Ordnerprojekt nur in der Desktop-App (Tauri).");
     }
-    const root = promptProjectRootPath(
-      `Zielordner für ${PROJECT_MANIFEST_FILE} (absoluter Pfad):`,
-      projectRootPath.value,
-    );
+    const root = await pickProjectRootFolder(projectRootPath.value);
     if (!root) return;
     projectRootPath.value = root;
     await persistProjectToFolder(root);

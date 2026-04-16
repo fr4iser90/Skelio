@@ -9,6 +9,7 @@ fn main() {
                 "read_project_subpath",
                 "write_project_subpath",
                 "save_text_file_with_dialog",
+                "pick_project_folder_with_dialog",
             ]),
         ),
     )

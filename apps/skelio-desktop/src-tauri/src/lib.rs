@@ -176,6 +176,148 @@ fn macos_save_dialog(default_name: &str) -> Result<Option<String>, String> {
     Ok(if s.is_empty() { None } else { Some(s) })
 }
 
+/// Nativer Ordner-Dialog (Projektroot). `Ok(None)` = abgebrochen.
+#[tauri::command]
+fn pick_project_folder_with_dialog(default_path: Option<String>) -> Result<Option<String>, String> {
+    let d = default_path
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    native_pick_folder_path(d.as_deref())
+}
+
+fn native_pick_folder_path(default_path: Option<&str>) -> Result<Option<String>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        linux_pick_folder(default_path)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows_pick_folder(default_path)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_pick_folder(default_path)
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "macos"
+    )))]
+    {
+        Err("Ordnerwahl: nicht unterstütztes Betriebssystem.".into())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_pick_folder(default_path: Option<&str>) -> Result<Option<String>, String> {
+    let mut z = Command::new("zenity");
+    z.args([
+        "--file-selection",
+        "--directory",
+        "--title=Skelio — Projektordner",
+    ]);
+    if let Some(p) = default_path {
+        if std::path::Path::new(p).is_dir() {
+            let mut fp = p.replace('\\', "/");
+            if !fp.ends_with('/') {
+                fp.push('/');
+            }
+            z.arg(format!("--filename={fp}"));
+        }
+    }
+    if let Ok(o) = z.output() {
+        if o.status.success() {
+            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            return Ok(if s.is_empty() { None } else { Some(s) });
+        }
+        if o.status.code() == Some(1) {
+            return Ok(None);
+        }
+    }
+    let start = default_path
+        .filter(|p| std::path::Path::new(p).is_dir())
+        .unwrap_or(".");
+    let o = Command::new("kdialog")
+        .args([
+            "--title",
+            "Skelio — Projektordner",
+            "--getexistingdirectory",
+            start,
+        ])
+        .output()
+        .map_err(|e| {
+            format!(
+                "Kein Ordner-Dialog (zenity/kdialog): {e}. Installiere zenity oder kdialog."
+            )
+        })?;
+    if o.status.success() {
+        let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        Ok(if s.is_empty() { None } else { Some(s) })
+    } else if o.status.code() == Some(1) {
+        Ok(None)
+    } else {
+        Err(String::from_utf8_lossy(&o.stderr).into_owned())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_pick_folder(default_path: Option<&str>) -> Result<Option<String>, String> {
+    let set_path = match default_path {
+        Some(p) if !p.is_empty() && std::path::Path::new(p).is_dir() => {
+            let e = p.replace('\'', "''");
+            format!("$b.SelectedPath = '{e}'; ")
+        }
+        _ => String::new(),
+    };
+    let ps = format!(
+        "Add-Type -AssemblyName System.Windows.Forms; \
+         $b = New-Object System.Windows.Forms.FolderBrowserDialog; \
+         $b.Description = 'Skelio — Projektordner'; \
+         {set_path}\
+         if ($b.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $b.SelectedPath }}"
+    );
+    let o = Command::new("powershell.exe")
+        .args(["-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", &ps])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !o.status.success() {
+        return Err(String::from_utf8_lossy(&o.stderr).into_owned());
+    }
+    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    Ok(if s.is_empty() { None } else { Some(s) })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_pick_folder(default_path: Option<&str>) -> Result<Option<String>, String> {
+    let script = match default_path {
+        Some(p) if !p.is_empty() && std::path::Path::new(p).is_dir() => {
+            let safe = p.replace('"', "\\\"");
+            format!(
+                "try\n\
+                 POSIX path of (choose folder with prompt \"Skelio — Projektordner\" default location POSIX file \"{safe}\")\n\
+                 on error number -128\n\
+                 return \"\"\n\
+                 end try"
+            )
+        }
+        _ => "try\n\
+              POSIX path of (choose folder with prompt \"Skelio — Projektordner\")\n\
+              on error number -128\n\
+              return \"\"\n\
+              end try"
+            .to_string(),
+    };
+    let o = Command::new("osascript")
+        .args(["-e", &script])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !o.status.success() {
+        return Err(String::from_utf8_lossy(&o.stderr).into_owned());
+    }
+    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    Ok(if s.is_empty() { None } else { Some(s) })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -185,7 +327,8 @@ pub fn run() {
             write_project_manifest,
             read_project_subpath,
             write_project_subpath,
-            save_text_file_with_dialog
+            save_text_file_with_dialog,
+            pick_project_folder_with_dialog
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

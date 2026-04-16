@@ -310,6 +310,58 @@ const viewportHintText = computed(() => {
 
 const animatorUsesWebglViewport = computed(() => !characterRigModalOpen.value && rigCameraViewKind.value !== "2d");
 
+/** Kurzliste für das Panel links über „Camera“ (nur Lesen; Bedienung unverändert). */
+type ShortcutLine = { keys: string[]; label: string };
+
+const shortcutPanelLines = computed((): ShortcutLine[] => {
+  if (characterRigModalOpen.value) return [];
+  if (quickRigMode.value) {
+    const lines: ShortcutLine[] = [
+      { keys: ["Esc"], label: "Längen-Vorschau abbrechen" },
+      { keys: ["Entf"], label: "Knochen löschen (nicht Wurzel)" },
+    ];
+    if (pendingBonePlacementId.value) {
+      lines.unshift({ keys: ["Klick"], label: "Neuen Knochen platzieren" });
+    }
+    lines.push(
+      { keys: ["W", "A", "S", "D"], label: "Ansicht" },
+      { keys: ["Rad"], label: "Zoom" },
+      { keys: ["Mittelklick"], label: "Schwenken" },
+      { keys: ["Alt+LMB"], label: "Schwenken" },
+    );
+    if (rigCameraViewKind.value !== "2d") {
+      lines.push({ keys: ["Rechtsklick"], label: "Ansicht drehen" });
+    }
+    return lines;
+  }
+  if (workspaceMode.value === "animate") {
+    const lines: ShortcutLine[] = [
+      { keys: ["G"], label: "Werkzeug Position" },
+      { keys: ["R"], label: "Werkzeug Rotation" },
+      { keys: ["Shift"], label: "beim Ziehen: immer Position" },
+      { keys: ["K"], label: "IK-Handle an der Zeit keyen" },
+      { keys: ["W", "A", "S", "D"], label: "Ansicht schieben" },
+      { keys: ["Rad"], label: "Zoom" },
+      { keys: ["Mittelklick"], label: "Schwenken" },
+      { keys: ["Alt+LMB"], label: "Schwenken" },
+    ];
+    if (rigCameraViewKind.value !== "2d") {
+      lines.push({ keys: ["Rechtsklick"], label: "Ansicht drehen" });
+    }
+    lines.push({
+      keys: [],
+      label: "Tilt / Spin: Inspector → Bone 3D (keine Viewport-Tasten)",
+    });
+    return lines;
+  }
+  return [
+    {
+      keys: [],
+      label: "Position/Rotation per G·R: Modus „Animate“ wählen (Toolbar).",
+    },
+  ];
+});
+
 function hitTestBoneTip(wx: number, wy: number, radiusWorld: number): string | null {
   const mats = worldBindBoneMatrices2D(poseProject.value, planarBindOpts.value);
   const sc = viewportBonePickScale();
@@ -2067,35 +2119,66 @@ function onCanvasPointerCancel(e: PointerEvent) {
       @wheel="onWheelView"
       @contextmenu.prevent
     />
-    <div v-if="!characterRigModalOpen" class="cam-modes" aria-label="Camera mode">
-      <span class="cam-label">Camera</span>
-      <button
-        type="button"
-        class="cam-btn"
-        :class="{ active: rigCameraViewKind === '2d' }"
-        title="2D (canvas)"
-        @click="store.setRigCameraViewKind('2d')"
+    <div class="viewport-left-stack">
+      <div
+        v-if="shortcutPanelLines.length > 0"
+        class="kbd-hints"
+        aria-label="Tastenkürzel"
       >
-        2D
-      </button>
-      <button
-        type="button"
-        class="cam-btn"
-        :class="{ active: rigCameraViewKind === '2.5d' }"
-        title="2.5D (WebGL)"
-        @click="store.setRigCameraViewKind('2.5d')"
-      >
-        2.5D
-      </button>
-      <button
-        type="button"
-        class="cam-btn"
-        :class="{ active: rigCameraViewKind === '3d' }"
-        title="3D (WebGL)"
-        @click="store.setRigCameraViewKind('3d')"
-      >
-        3D
-      </button>
+        <div
+          v-if="workspaceMode === 'animate' && !quickRigMode"
+          class="kbd-active-tool"
+        >
+          <span class="kbd-active-label">Werkzeug</span>
+          <span class="kbd-active-name">{{ animatorTool === 'rotate' ? 'Rotation' : 'Position' }}</span>
+          <kbd class="kbd-active-key">{{ animatorTool === 'rotate' ? 'R' : 'G' }}</kbd>
+        </div>
+        <div
+          v-for="(line, i) in shortcutPanelLines"
+          :key="i"
+          class="kbd-line"
+          :class="{ 'kbd-line--plain': line.keys.length === 0 }"
+        >
+          <span v-if="line.keys.length" class="kbd-chips">
+            <template v-for="(k, ki) in line.keys" :key="ki">
+              <kbd>{{ k }}</kbd>
+              <span v-if="ki < line.keys.length - 1" class="kbd-join" aria-hidden="true">·</span>
+            </template>
+          </span>
+          <span class="kbd-desc">{{ line.label }}</span>
+        </div>
+      </div>
+      <div v-if="!characterRigModalOpen" class="cam-modes" aria-label="Camera mode">
+        <span class="cam-label">Camera</span>
+        <button
+          type="button"
+          class="cam-btn"
+          :class="{ active: rigCameraViewKind === '2d' }"
+          title="2D (canvas)"
+          @click="store.setRigCameraViewKind('2d')"
+        >
+          2D
+        </button>
+        <button
+          type="button"
+          class="cam-btn"
+          :class="{ active: rigCameraViewKind === '2.5d' }"
+          title="2.5D (WebGL)"
+          @click="store.setRigCameraViewKind('2.5d')"
+        >
+          2.5D
+        </button>
+        <button
+          type="button"
+          class="cam-btn"
+          :class="{ active: rigCameraViewKind === '3d' }"
+          title="3D (WebGL)"
+          @click="store.setRigCameraViewKind('3d')"
+        >
+          3D
+        </button>
+      </div>
+      <div class="hint">{{ viewportHintText }}</div>
     </div>
     <div class="view-toolbar" aria-label="Viewport-Ansicht">
       <span class="view-toolbar-label">{{ zoomPercent }}%</span>
@@ -2103,7 +2186,6 @@ function onCanvasPointerCancel(e: PointerEvent) {
       <button type="button" class="view-tb-btn" title="Vergrößern" @click="zoomViewportIn">+</button>
       <button type="button" class="view-tb-btn view-tb-reset" title="Ansicht zurücksetzen" @click="resetViewportView">Reset</button>
     </div>
-    <div class="hint">{{ viewportHintText }}</div>
   </div>
 </template>
 
@@ -2149,10 +2231,107 @@ function onCanvasPointerCancel(e: PointerEvent) {
   color: #9ca3af;
   z-index: 2;
 }
-.cam-modes {
+.viewport-left-stack {
   position: absolute;
   bottom: 10px;
   left: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: min(92vw, 22rem);
+  z-index: 3;
+  pointer-events: none;
+}
+.kbd-hints {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(15, 16, 20, 0.94);
+  border: 1px solid #343a46;
+  color: #b8c0d0;
+  font-size: 0.65rem;
+  line-height: 1.45;
+  width: 100%;
+  box-sizing: border-box;
+}
+.kbd-active-tool {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #2d3340;
+}
+.kbd-active-label {
+  color: #7c8494;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.6rem;
+}
+.kbd-active-name {
+  font-weight: 700;
+  color: #e5e7eb;
+}
+.kbd-active-key {
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid #6366f1;
+  background: linear-gradient(180deg, #312e52 0%, #252043 100%);
+  color: #e0e7ff;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.kbd-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  margin-top: 4px;
+}
+.kbd-line:first-of-type {
+  margin-top: 0;
+}
+.kbd-line--plain {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #2a3140;
+  color: #8b95a8;
+  font-style: italic;
+}
+.kbd-line--plain .kbd-desc {
+  flex: 1;
+  min-width: 0;
+}
+.kbd-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.kbd-chips kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid #3b424e;
+  background: #1e2229;
+  font-size: 0.62rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #f1f5f9;
+}
+.kbd-join {
+  color: #5c6570;
+  font-size: 0.55rem;
+  user-select: none;
+}
+.kbd-desc {
+  color: #9ca8b8;
+  flex: 1;
+  min-width: 8rem;
+}
+.cam-modes {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2161,7 +2340,7 @@ function onCanvasPointerCancel(e: PointerEvent) {
   background: rgba(15, 16, 20, 0.88);
   border: 1px solid #2d3340;
   color: #cbd5e1;
-  z-index: 3;
+  pointer-events: auto;
 }
 .cam-label {
   font-size: 0.72rem;
@@ -2204,10 +2383,7 @@ function onCanvasPointerCancel(e: PointerEvent) {
   font-size: 0.68rem;
 }
 .hint {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  max-width: min(92%, 28rem);
+  max-width: 100%;
   padding: 0.35rem 0.55rem;
   border-radius: 6px;
   font-size: 0.68rem;
@@ -2216,5 +2392,6 @@ function onCanvasPointerCancel(e: PointerEvent) {
   background: rgba(15, 16, 20, 0.88);
   border: 1px solid #2d3340;
   pointer-events: none;
+  box-sizing: border-box;
 }
 </style>

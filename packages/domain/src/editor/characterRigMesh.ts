@@ -1,4 +1,6 @@
-import type { CharacterRigSpriteSlice, EditorProject, SkinnedMesh } from "./types.js";
+import type { CharacterRigBinding, CharacterRigSpriteSlice, EditorProject, SkinnedMesh } from "./types.js";
+import { mat4Invert, transformPointMat4 } from "./mat4.js";
+import { worldBindBoneMatrices4 } from "./bone3dPose.js";
 
 /** Stable id for meshes generated from Character Rig slices (`syncCharacterRigSkinnedMeshes`). */
 export const RIG_SLICE_MESH_ID_PREFIX = "rig_slice_";
@@ -49,12 +51,14 @@ export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMe
   const rig = project.characterRig;
   if (!rig?.slices?.length) return [];
 
-  const bindingBySlice = new Map((rig.bindings ?? []).map((b) => [b.sliceId, b.boneId] as const));
+  const bindingBySlice = new Map((rig.bindings ?? []).map((b) => [b.sliceId, b] as const));
   const out: SkinnedMesh[] = [];
+  const Wbind4 = worldBindBoneMatrices4(project);
 
   for (const s of rig.slices) {
     if (s.width <= 0 || s.height <= 0) continue;
-    const boneId = bindingBySlice.get(s.id);
+    const binding = bindingBySlice.get(s.id) as CharacterRigBinding | undefined;
+    const boneId = binding?.boneId;
     if (!boneId) continue;
 
     const depth = rig.sliceDepths?.find((d) => d.sliceId === s.id);
@@ -62,7 +66,7 @@ export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMe
     const dbRaw = depth?.syncBackWithFront ? df : Math.max(0, depth?.maxDepthBack ?? 0);
     const db = depth?.syncBackWithFront ? df : dbRaw;
 
-    const mesh = sliceToSkinnedMesh(s, boneId, df, db);
+    const mesh = sliceToSkinnedMesh(s, binding, Wbind4.get(boneId) ?? null, df, db);
     out.push(mesh);
   }
 
@@ -71,12 +75,32 @@ export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMe
 
 function sliceToSkinnedMesh(
   s: CharacterRigSpriteSlice,
-  boneId: string,
+  binding: CharacterRigBinding,
+  Wbind4: Float64Array | null,
   maxDepthFront: number,
   maxDepthBack: number,
 ): SkinnedMesh {
-  const cx = s.worldCx;
-  const cy = s.worldCy;
+  // Use the same anchor semantics as rigidCharacterRigSliceWorldPose:
+  // center the mesh at the binding anchor in bind-local space (default sliceCenter).
+  let cx = s.worldCx;
+  let cy = s.worldCy;
+  const ax = binding.localX;
+  const ay = binding.localY;
+  const az = binding.localZ ?? 0;
+  if (Wbind4 && ax != null && ay != null) {
+    const wp = transformPointMat4(Wbind4, ax, ay, az);
+    cx = wp.x;
+    cy = wp.y;
+  } else if (Wbind4) {
+    // Backwards compat: if locals are missing, derive them from the slice layout center at bind.
+    const inv = mat4Invert(Wbind4);
+    if (inv) {
+      const loc = transformPointMat4(inv, s.worldCx, s.worldCy, 0);
+      const wp = transformPointMat4(Wbind4, loc.x, loc.y, 0);
+      cx = wp.x;
+      cy = wp.y;
+    }
+  }
   const hw = s.width / 2;
   const hh = s.height / 2;
   const id = rigSliceSkinnedMeshId(s.id);
@@ -85,7 +109,7 @@ function sliceToSkinnedMesh(
   const hasDepth = maxDepthFront > 1e-6 || maxDepthBack > 1e-6;
 
   if (!hasDepth) {
-    const infl = influenceRow(boneId);
+    const infl = influenceRow(binding.boneId);
     return {
       id,
       name,
@@ -102,7 +126,7 @@ function sliceToSkinnedMesh(
 
   const fy = -maxDepthFront;
   const by = maxDepthBack;
-  const infl = influenceRow(boneId);
+  const infl = influenceRow(binding.boneId);
   const infl8 = [infl, infl, infl, infl, infl, infl, infl, infl];
 
   return {

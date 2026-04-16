@@ -2,6 +2,8 @@
 import {
   addBoneWeightDelta,
   boneLengthAndBindRotationFromWorldTip,
+  boundSliceLocalInBindSpace,
+  boundSliceWorldAtPose,
   deformSkinnedMesh,
   evaluatePose,
   getFabrikIkChains,
@@ -44,6 +46,7 @@ const store = useEditorStore();
 const {
   project,
   currentTime,
+  workspaceMode,
   selectedBoneId,
   selectedMeshId,
   selectedVertexIndex,
@@ -144,7 +147,10 @@ const rigModalBoneStep = computed(
 );
 
 /** Bind-Pose-Interaktionen im Canvas: Wizard „Bones“-Schritt oder Quick Rig (Hauptfenster). */
-const bindPoseViewportEditing = computed(() => rigModalBoneStep.value || quickRigMode.value);
+const bindPoseViewportEditing = computed(() =>
+  // In Animate mode we must only write animation keys, never edit bind pose.
+  workspaceMode.value !== "animate" && (rigModalBoneStep.value || quickRigMode.value),
+);
 
 const animatorTool = ref<"rotate" | "translate">("rotate");
 
@@ -401,6 +407,18 @@ function resetViewportView() {
   draw();
 }
 
+watch(
+  rigCameraViewKind,
+  (k) => {
+    // 2D canvas must never appear "tilted" by view rotation.
+    if (k === "2d" && Math.abs(viewRotation.value) > 1e-9) {
+      viewRotation.value = 0;
+      draw();
+    }
+  },
+  { immediate: true },
+);
+
 function zoomViewportIn() {
   viewZoom.value = Math.min(14, viewZoom.value * 1.12);
   draw();
@@ -556,6 +574,33 @@ function mat4MapToMat2d(m4: Map<string, Mat4>): Map<string, Mat2D> {
   return o;
 }
 
+function mat4FromMat2d(m: Mat2D): Mat4 {
+  const o = new Float64Array(16);
+  o[0] = m.a;
+  o[1] = m.b;
+  o[4] = m.c;
+  o[5] = m.d;
+  o[10] = 1;
+  o[15] = 1;
+  o[12] = m.e;
+  o[13] = m.f;
+  return o;
+}
+
+function mat2dRotationOnly(m: Mat2D): Mat2D {
+  // Strip scale/shear so Deform-Mesh matches rigid sprites (rotation + translation only).
+  const ang = Math.atan2(m.b, m.a);
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  return { a: c, b: s, c: -s, d: c, e: m.e, f: m.f };
+}
+
+function mat2dMapToMat4RotationOnly(m2: Map<string, Mat2D>): Map<string, Mat4> {
+  const o = new Map<string, Mat4>();
+  for (const [id, m] of m2) o.set(id, mat4FromMat2d(mat2dRotationOnly(m)));
+  return o;
+}
+
 /** Bind + Pose matrices for main viewport (slices + bones + mesh preview). */
 function viewportBoneBindPoseAndDrawState(): {
   bindM4: Map<string, Mat4>;
@@ -565,9 +610,15 @@ function viewportBoneBindPoseAndDrawState(): {
   boneO: Map<string, { x: number; y: number }>;
 } {
   const po = planarBindOpts.value;
-  const bindM4 = worldBindBoneMatrices4(project.value, po);
+  let bindM4 = worldBindBoneMatrices4(project.value, po);
   const poseEval = solvedPose.value;
-  const poseM4 = poseEval.solvedWorld4ByBoneId;
+  let poseM4 = poseEval.solvedWorld4ByBoneId;
+  // Hard guarantee: 2D animator skinning uses strictly planar 2D matrices (no 3D components).
+  if (rigCameraViewKind.value === "2d") {
+    // Additionally strip scale/shear so Deform-Mesh behaves like rigid sprites (rotation-only).
+    bindM4 = mat2dMapToMat4RotationOnly(worldBindBoneMatrices2D(project.value, { planar2dNoTiltSpin: true }));
+    poseM4 = mat2dMapToMat4RotationOnly(poseEval.solvedWorld2dByBoneId);
+  }
   const lenDrag = boneLengthDrag.value;
   let boneM4 = bindPoseViewportEditing.value ? bindM4 : poseM4;
   let boneO: Map<string, { x: number; y: number }>;
@@ -602,6 +653,19 @@ function rigidSliceWorldPose(
   const bid = resolveCharacterRigSliceBoundBoneId(project.value, s.id);
   if (!bid) return null;
   const binding = project.value.characterRig?.bindings?.find((b) => b.sliceId === s.id && b.boneId === bid) ?? null;
+
+  // Hard guarantee: 2D animator rigid slices use 2D bind/pose matrices only.
+  if (rigCameraViewKind.value === "2d") {
+    const B2 = worldBindBoneMatrices2D(project.value, { planar2dNoTiltSpin: true }).get(bid);
+    const P2 = solvedPose.value.solvedWorld2dByBoneId.get(bid);
+    if (!B2 || !P2) return null;
+    const loc = boundSliceLocalInBindSpace(B2, layoutCx, layoutCy);
+    if (!loc) return null;
+    const wp = boundSliceWorldAtPose(P2, loc.lx, loc.ly);
+    const rotBind = Math.atan2(B2.b, B2.a);
+    return { cx: wp.x, cy: wp.y, rot: wp.rotationRad - rotBind };
+  }
+
   return rigidCharacterRigSliceWorldPose(project.value, bid, layoutCx, layoutCy, boneM4, {
     localX: binding?.localX,
     localY: binding?.localY,
@@ -1127,8 +1191,7 @@ function applyBrushAt(wx: number, wy: number) {
   if (!st || !boneId) return;
   const mesh = project.value.skinnedMeshes?.find((m) => m.id === st.meshId);
   if (!mesh) return;
-  const bindM4 = worldBindBoneMatrices4(project.value, planarBindOpts.value);
-  const poseM4 = solvedPose.value.solvedWorld4ByBoneId;
+  const { bindM4, poseM4 } = viewportBoneBindPoseAndDrawState();
   const tmp: SkinnedMesh = { ...mesh, influences: st.working };
   const deformed = deformSkinnedMesh(tmp, bindM4, poseM4);
   const r = weightBrushRadius.value;
@@ -1173,7 +1236,10 @@ function onCanvasPointerDown(e: PointerEvent) {
   }
   if (e.button === 2) {
     e.preventDefault();
-    viewDrag.value = { kind: "rotate", lastX: e.clientX, lastY: e.clientY };
+    // In 2D canvas we do not allow view rotation (prevents "tilt" perception).
+    if (rigCameraViewKind.value !== "2d") {
+      viewDrag.value = { kind: "rotate", lastX: e.clientX, lastY: e.clientY };
+    }
     try {
       c.setPointerCapture(e.pointerId);
     } catch {
@@ -1346,8 +1412,7 @@ function onCanvasPointerDown(e: PointerEvent) {
     store.clearMeshVertexSelection();
     return;
   }
-  const bindM4 = worldBindBoneMatrices4(project.value, planarBindOpts.value);
-  const poseM4 = solvedPose.value.solvedWorld4ByBoneId;
+  const { bindM4, poseM4 } = viewportBoneBindPoseAndDrawState();
   const threshold2 = 20 * 20;
   let bestD2 = threshold2;
   let best: { meshId: string; vi: number } | null = null;
@@ -1382,6 +1447,13 @@ function onCanvasPointerMove(e: PointerEvent) {
       viewPanY.value += dy;
       viewDrag.value = { kind: "pan", lastX: e.clientX, lastY: e.clientY };
     } else {
+      if (rigCameraViewKind.value === "2d") {
+        // Hard lock: never rotate view in 2D.
+        viewRotation.value = 0;
+        viewDrag.value = null;
+        draw();
+        return;
+      }
       const dx = e.clientX - d.lastX;
       viewRotation.value += dx * 0.007;
       viewDrag.value = { kind: "rotate", lastX: e.clientX, lastY: e.clientY };

@@ -42,6 +42,9 @@ export function drawRigSliceSkinnedDeformed(
   img: CanvasImageSource,
   embedded: boolean,
 ): void {
+  // Spine-style: add a tiny deterministic overlap so seams between adjacent parts don't show background.
+  // This does not change rig math; it only inflates the drawn triangles in screen space.
+  const OVERLAP_PX = 1.25;
   const iw = "naturalWidth" in img && img.naturalWidth > 0 ? img.naturalWidth : s.width;
   const ih = "naturalHeight" in img && img.naturalHeight > 0 ? img.naturalHeight : s.height;
   const idx = mesh.indices;
@@ -60,6 +63,33 @@ export function drawRigSliceSkinnedDeformed(
     const pa = bindPointToTexturePx(s, ba.x, ba.y, iw, ih, !embedded);
     const pb = bindPointToTexturePx(s, bb.x, bb.y, iw, ih, !embedded);
     const pc = bindPointToTexturePx(s, bc.x, bc.y, iw, ih, !embedded);
-    drawTexturedTriangle(ctx, img, pa.sx, pa.sy, pb.sx, pb.sy, pc.sx, pc.sy, da.x, da.y, db.x, db.y, dc.x, dc.y);
+    const cx = (da.x + db.x + dc.x) / 3;
+    const cy = (da.y + db.y + dc.y) / 3;
+    const inflate = (p: { x: number; y: number }) => {
+      const vx = p.x - cx;
+      const vy = p.y - cy;
+      const len = Math.hypot(vx, vy) || 1;
+      const k = OVERLAP_PX / len;
+      return { x: p.x + vx * k, y: p.y + vy * k };
+    };
+    const ea = inflate(da);
+    const eb = inflate(db);
+    const ec = inflate(dc);
+    drawTexturedTriangle(
+      ctx,
+      img,
+      pa.sx,
+      pa.sy,
+      pb.sx,
+      pb.sy,
+      pc.sx,
+      pc.sy,
+      ea.x,
+      ea.y,
+      eb.x,
+      eb.y,
+      ec.x,
+      ec.y,
+    );
   }
 }

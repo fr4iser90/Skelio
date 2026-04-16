@@ -341,6 +341,14 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function setWorkspaceMode(m: WorkspaceMode) {
+    // Animate mode must never be "bind-pose editing by accident".
+    // When switching back to Animate, close setup/rig authoring affordances.
+    if (m === "animate") {
+      quickRigMode.value = false;
+      if (characterRigModalOpen.value) {
+        closeCharacterRigModal();
+      }
+    }
     workspaceMode.value = m;
   }
 

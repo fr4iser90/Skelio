@@ -45,6 +45,11 @@ export type EvaluatePoseOptions = {
    * Default: true.
    */
   applyIk?: boolean;
+  /**
+   * When true (e.g. rig camera „2D“): `tilt` / `spin` are treated as zero for FK/IK and 4×4 pose —
+   * pure planar rotation in the viewport; bind/clip data stay unchanged.
+   */
+  planar2dNoTiltSpin?: boolean;
 };
 
 export type BakeIkToFkOptions = {

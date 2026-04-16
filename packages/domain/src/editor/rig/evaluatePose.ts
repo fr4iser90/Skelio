@@ -45,7 +45,13 @@ function originsFromWorld4(m4: Map<string, Mat4>): Map<string, Vec2> {
  *   override every bone in the chain (applied after two-bone so leg FABRIK wins when both exist).
  * - Constraints/Limits: future (operate on {@link PoseState})
  */
-function chainBoneHasTiltOrSpin(project: EditorProject, time: number, boneId: string): boolean {
+function chainBoneHasTiltOrSpin(
+  project: EditorProject,
+  time: number,
+  boneId: string,
+  planar2dNoTiltSpin: boolean,
+): boolean {
+  if (planar2dNoTiltSpin) return false;
   const clip = project.clips.find((c) => c.id === project.activeClipId);
   const b = project.bones.find((x) => x.id === boneId);
   if (!b) return false;
@@ -55,6 +61,8 @@ function chainBoneHasTiltOrSpin(project: EditorProject, time: number, boneId: st
 
 export function evaluatePose(project: EditorProject, time: number, opts?: EvaluatePoseOptions): PoseState {
   const applyIk = opts?.applyIk ?? true;
+  const planar2dNoTiltSpin = opts?.planar2dNoTiltSpin ?? false;
+  const planarOpts = planar2dNoTiltSpin ? ({ planar2dNoTiltSpin: true } as const) : undefined;
   const ikSolvedLocalRotByBoneId = new Map<string, number>();
   const rotOverrides = new Map<string, number>();
 
@@ -62,13 +70,13 @@ export function evaluatePose(project: EditorProject, time: number, opts?: Evalua
     for (const chain of getTwoBoneIkChains(project)) {
       if (!chain.enabled) continue;
       if (
-        chainBoneHasTiltOrSpin(project, time, chain.rootBoneId) ||
-        chainBoneHasTiltOrSpin(project, time, chain.midBoneId) ||
-        chainBoneHasTiltOrSpin(project, time, chain.tipBoneId)
+        chainBoneHasTiltOrSpin(project, time, chain.rootBoneId, planar2dNoTiltSpin) ||
+        chainBoneHasTiltOrSpin(project, time, chain.midBoneId, planar2dNoTiltSpin) ||
+        chainBoneHasTiltOrSpin(project, time, chain.tipBoneId, planar2dNoTiltSpin)
       ) {
         continue;
       }
-      const rots = twoBoneIkAbsoluteLocalRotsAtTime(project, time, chain.id);
+      const rots = twoBoneIkAbsoluteLocalRotsAtTime(project, time, chain.id, planar2dNoTiltSpin);
       if (!rots) continue;
       rotOverrides.set(rots.rootBoneId, rots.rootLocalRot);
       rotOverrides.set(rots.midBoneId, rots.midLocalRot);
@@ -78,7 +86,7 @@ export function evaluatePose(project: EditorProject, time: number, opts?: Evalua
 
     for (const chain of getFabrikIkChains(project)) {
       if (!chain.enabled) continue;
-      const rots = fabrikIkAbsoluteLocalRotsAtTime(project, time, chain.id);
+      const rots = fabrikIkAbsoluteLocalRotsAtTime(project, time, chain.id, planar2dNoTiltSpin);
       if (!rots) continue;
       for (const [boneId, r] of rots) {
         rotOverrides.set(boneId, r);
@@ -91,6 +99,7 @@ export function evaluatePose(project: EditorProject, time: number, opts?: Evalua
     project,
     time,
     rotOverrides,
+    planarOpts,
   );
   const fkWorld2dByBoneId = mat4MapTo2d(fkWorld4ByBoneId);
   const fkOriginByBoneId = cloneOrigins(originsFromWorld4(fkWorld4ByBoneId));

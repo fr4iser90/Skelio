@@ -31,6 +31,8 @@ export function getTwoBoneChainById(project: EditorProject, chainId: string): Ik
 export type PoseMatsCache = {
   project: EditorProject;
   time: number;
+  /** Matches {@link EvaluatePoseOptions.planar2dNoTiltSpin} for cache keying. */
+  planar2dNoTiltSpin: boolean;
   /** FK world 4×4 — same basis as {@link evaluatePose} / rigid slices (ADR 0011). */
   fk4: Map<string, Mat4>;
   /** XY projection of `fk4` for 2D angle extraction (parent world heading). */
@@ -38,22 +40,26 @@ export type PoseMatsCache = {
 };
 let poseMatsCache: PoseMatsCache | null = null;
 
-/** Shared FK 4×4 cache for IK solvers at the same `(project, time)`. */
-export function poseFkAtTimeCached(project: EditorProject, time: number): PoseMatsCache {
+/** Shared FK 4×4 cache for IK solvers at the same `(project, time, planar flag)`. */
+export function poseFkAtTimeCached(
+  project: EditorProject,
+  time: number,
+  planar2dNoTiltSpin = false,
+): PoseMatsCache {
   const c = poseMatsCache;
-  if (c && c.project === project && c.time === time) return c;
-  const fk4 = worldPoseBoneMatrices4(project, time);
+  if (c && c.project === project && c.time === time && c.planar2dNoTiltSpin === planar2dNoTiltSpin) return c;
+  const fk4 = worldPoseBoneMatrices4(project, time, planar2dNoTiltSpin ? { planar2dNoTiltSpin: true } : undefined);
   const mats2d = new Map<string, { a: number; b: number; e: number; f: number }>();
   for (const [id, m] of fk4) {
     const p2 = mat4ToMat2dProjection(m);
     mats2d.set(id, { a: p2.a, b: p2.b, e: p2.e, f: p2.f });
   }
-  poseMatsCache = { project, time, fk4, mats2d };
+  poseMatsCache = { project, time, planar2dNoTiltSpin, fk4, mats2d };
   return poseMatsCache;
 }
 
-function poseMatsAtTimeCached(project: EditorProject, time: number) {
-  return poseFkAtTimeCached(project, time).mats2d;
+function poseMatsAtTimeCached(project: EditorProject, time: number, planar2dNoTiltSpin = false) {
+  return poseFkAtTimeCached(project, time, planar2dNoTiltSpin).mats2d;
 }
 
 function angleFromMat2d(m: { a: number; b: number }): number {
@@ -73,11 +79,12 @@ export function twoBoneIkAbsoluteLocalRotsAtTime(
   project: EditorProject,
   time: number,
   chainId: string,
+  planar2dNoTiltSpin = false,
 ): { rootBoneId: string; midBoneId: string; rootLocalRot: number; midLocalRot: number } | null {
-  const solved = solveTwoBoneChain2dAtTime(project, time, chainId);
+  const solved = solveTwoBoneChain2dAtTime(project, time, chainId, planar2dNoTiltSpin);
   if (!solved) return null;
   const { root, mid } = solved;
-  const mats = poseMatsAtTimeCached(project, time);
+  const mats = poseMatsAtTimeCached(project, time, planar2dNoTiltSpin);
   const Wp = root.parentId ? mats.get(root.parentId) : null;
   const parentWorld = Wp ? angleFromMat2d(Wp) : 0;
   const rootLocalRot = unwrapAngle(solved.solved.rootWorldAngle - parentWorld);
@@ -91,7 +98,12 @@ export function twoBoneIkAbsoluteLocalRotsAtTime(
  * - target/pole overrides from controls (animated)
  * - FK joint positions from world pose matrices at time
  */
-export function solveTwoBoneChain2dAtTime(project: EditorProject, time: number, chainId: string): SolvedTwoBoneChain2d | null {
+export function solveTwoBoneChain2dAtTime(
+  project: EditorProject,
+  time: number,
+  chainId: string,
+  planar2dNoTiltSpin = false,
+): SolvedTwoBoneChain2d | null {
   const chain = getTwoBoneChainById(project, chainId);
   if (!chain || !chain.enabled) return null;
 
@@ -102,7 +114,7 @@ export function solveTwoBoneChain2dAtTime(project: EditorProject, time: number, 
   if (mid.parentId !== root.id) return null;
   if (tip.parentId !== mid.id) return null;
 
-  const cache = poseFkAtTimeCached(project, time);
+  const cache = poseFkAtTimeCached(project, time, planar2dNoTiltSpin);
   const Mr = cache.fk4.get(root.id);
   const Mm = cache.fk4.get(mid.id);
   if (!Mr || !Mm) return null;

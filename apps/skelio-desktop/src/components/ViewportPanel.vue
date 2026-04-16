@@ -15,11 +15,10 @@ import {
   rigidCharacterRigSliceWorldPose,
   rigSliceSkinnedMeshId,
   transformPointMat4,
+  worldBindBoneMatrices2D,
   worldBindBoneMatrices4,
   worldBindBoneMatrices4OverridingBindPose,
   BONE_LENGTH_HIT_MIN_LOCAL,
-  worldBindBoneTipForLengthHit,
-  worldBindOrigins,
   sampleControlChannel,
   type CharacterRigConfig,
   type CharacterRigSpriteSlice,
@@ -72,7 +71,25 @@ const rigWorldYCompress = computed(() =>
  * Cached solved pose for the current reactive frame (time/project).
  * Keeps `evaluatePose` as SSoT, but avoids multiple recalcs per draw / event handler.
  */
-const solvedPose = computed(() => evaluatePose(project.value, currentTime.value, { applyIk: true }));
+const solvedPose = computed(() =>
+  evaluatePose(project.value, currentTime.value, {
+    applyIk: true,
+    planar2dNoTiltSpin: rigCameraViewKind.value === "2d",
+  }),
+);
+
+/** Muss zu {@link solvedPose} passen: Skinning nutzt `pose * inv(bind)` — bind ebenfalls ohne Tilt/Spin in 2D. */
+const planarBindOpts = computed(() =>
+  rigCameraViewKind.value === "2d" ? ({ planar2dNoTiltSpin: true } as const) : undefined,
+);
+
+/** Gleiche Bind-Basis wie Skinning / Bone-Linien (2D: ohne Tilt/Spin). */
+function viewportBindOriginsForHit(): Map<string, { x: number; y: number }> {
+  const mats = worldBindBoneMatrices2D(project.value, planarBindOpts.value);
+  const o = new Map<string, { x: number; y: number }>();
+  for (const [id, m] of mats) o.set(id, { x: m.e, y: m.f });
+  return o;
+}
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const referenceBitmap = shallowRef<HTMLImageElement | null>(null);
@@ -186,12 +203,15 @@ function boneDepthFromRootViewport(boneId: string): number {
 }
 
 function hitTestBoneTip(wx: number, wy: number, radiusWorld: number): string | null {
+  const mats = worldBindBoneMatrices2D(project.value, planarBindOpts.value);
   const r2 = radiusWorld * radiusWorld;
   const sel = selectedBoneId.value;
   const hits: { id: string; d2: number }[] = [];
   for (const b of project.value.bones) {
-    const t = worldBindBoneTipForLengthHit(project.value, b.id);
-    if (!t) continue;
+    const M = mats.get(b.id);
+    if (!M) continue;
+    const L = Math.max(b.length, BONE_LENGTH_HIT_MIN_LOCAL);
+    const t = { x: M.a * L + M.e, y: M.b * L + M.f };
     const d = (t.x - wx) ** 2 + (t.y - wy) ** 2;
     if (d <= r2) hits.push({ id: b.id, d2: d });
   }
@@ -245,7 +265,7 @@ function beginBoneLengthDrag(boneId: string, wx: number, wy: number, e: PointerE
   const b = project.value.bones.find((x) => x.id === boneId);
   const startLen = b?.length ?? 0;
   const startRot = b?.bindPose.rotation ?? 0;
-  const J0 = worldBindOrigins(project.value).get(boneId);
+  const J0 = viewportBindOriginsForHit().get(boneId);
   const tip = b ? boneLengthAndBindRotationFromWorldTip(project.value, boneId, wx, wy, undefined, J0) : null;
   boneLengthDrag.value = {
     boneId,
@@ -280,7 +300,7 @@ function onLengthDragEscapeKey(e: KeyboardEvent) {
 }
 
 function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null {
-  const origins = worldBindOrigins(project.value);
+  const origins = viewportBindOriginsForHit();
   const r2 = radiusWorld * radiusWorld;
   const sel = selectedBoneId.value;
   const hits: { id: string; d2: number }[] = [];
@@ -544,21 +564,26 @@ function viewportBoneBindPoseAndDrawState(): {
   boneM: Map<string, Mat2D>;
   boneO: Map<string, { x: number; y: number }>;
 } {
-  const bindM4 = worldBindBoneMatrices4(project.value);
+  const po = planarBindOpts.value;
+  const bindM4 = worldBindBoneMatrices4(project.value, po);
   const poseEval = solvedPose.value;
   const poseM4 = poseEval.solvedWorld4ByBoneId;
   const lenDrag = boneLengthDrag.value;
   let boneM4 = bindPoseViewportEditing.value ? bindM4 : poseM4;
-  let boneO = bindPoseViewportEditing.value
-    ? worldBindOrigins(project.value)
-    : poseEval.solvedOriginByBoneId;
+  let boneO: Map<string, { x: number; y: number }>;
+  if (bindPoseViewportEditing.value) {
+    boneO = new Map();
+    for (const [id, m] of bindM4) boneO.set(id, { x: m[12], y: m[13] });
+  } else {
+    boneO = poseEval.solvedOriginByBoneId;
+  }
   if (bindPoseViewportEditing.value && lenDrag) {
     const b = project.value.bones.find((x) => x.id === lenDrag.boneId);
     if (b) {
       boneM4 = worldBindBoneMatrices4OverridingBindPose(project.value, lenDrag.boneId, {
         ...b.bindPose,
         rotation: lenDrag.previewRotation,
-      });
+      }, po);
       boneO = new Map();
       for (const [id, m] of boneM4) boneO.set(id, { x: m[12], y: m[13] });
     }
@@ -995,7 +1020,7 @@ function draw() {
 
   const pendId = pendingBonePlacementId.value;
   if (pendId && bindPoseViewportEditing.value) {
-    const o = worldBindOrigins(project.value).get(pendId);
+    const o = viewportBindOriginsForHit().get(pendId);
     if (o) {
       ctx.strokeStyle = "rgba(251, 146, 60, 0.95)";
       ctx.lineWidth = 2 / viewZoom.value;
@@ -1102,7 +1127,7 @@ function applyBrushAt(wx: number, wy: number) {
   if (!st || !boneId) return;
   const mesh = project.value.skinnedMeshes?.find((m) => m.id === st.meshId);
   if (!mesh) return;
-  const bindM4 = worldBindBoneMatrices4(project.value);
+  const bindM4 = worldBindBoneMatrices4(project.value, planarBindOpts.value);
   const poseM4 = solvedPose.value.solvedWorld4ByBoneId;
   const tmp: SkinnedMesh = { ...mesh, influences: st.working };
   const deformed = deformSkinnedMesh(tmp, bindM4, poseM4);
@@ -1321,7 +1346,7 @@ function onCanvasPointerDown(e: PointerEvent) {
     store.clearMeshVertexSelection();
     return;
   }
-  const bindM4 = worldBindBoneMatrices4(project.value);
+  const bindM4 = worldBindBoneMatrices4(project.value, planarBindOpts.value);
   const poseM4 = solvedPose.value.solvedWorld4ByBoneId;
   const threshold2 = 20 * 20;
   let bestD2 = threshold2;

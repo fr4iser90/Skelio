@@ -27,8 +27,8 @@ export function validateFabrikBoneChain(project: EditorProject, boneIds: string[
   return true;
 }
 
-function bindWorldJointPoints(project: EditorProject, boneIds: string[]): Vec2[] | null {
-  const wb = worldBindBoneMatrices4(project);
+function bindWorldJointPoints(project: EditorProject, boneIds: string[], planar2dNoTiltSpin = false): Vec2[] | null {
+  const wb = worldBindBoneMatrices4(project, planar2dNoTiltSpin ? { planar2dNoTiltSpin: true } : undefined);
   const k = boneIds.length;
   const out: Vec2[] = [];
   for (let i = 0; i < k; i++) {
@@ -53,8 +53,13 @@ function segmentLengthsFromBindPts(pts: Vec2[]): number[] {
   return L.map((l) => Math.max(l, 1e-6));
 }
 
-function fkWorldJointPoints(project: EditorProject, time: number, boneIds: string[]): Vec2[] | null {
-  const cache = poseFkAtTimeCached(project, time);
+function fkWorldJointPoints(
+  project: EditorProject,
+  time: number,
+  boneIds: string[],
+  planar2dNoTiltSpin = false,
+): Vec2[] | null {
+  const cache = poseFkAtTimeCached(project, time, planar2dNoTiltSpin);
   const fk4 = cache.fk4;
   const k = boneIds.length;
   const out: Vec2[] = [];
@@ -72,7 +77,13 @@ function fkWorldJointPoints(project: EditorProject, time: number, boneIds: strin
   return out;
 }
 
-function fabrikChainHasTiltOrSpin(project: EditorProject, time: number, boneIds: string[]): boolean {
+function fabrikChainHasTiltOrSpin(
+  project: EditorProject,
+  time: number,
+  boneIds: string[],
+  planar2dNoTiltSpin: boolean,
+): boolean {
+  if (planar2dNoTiltSpin) return false;
   const clip = activeClip(project);
   for (const id of boneIds) {
     const b = project.bones.find((x) => x.id === id);
@@ -90,18 +101,19 @@ export function fabrikIkAbsoluteLocalRotsAtTime(
   project: EditorProject,
   time: number,
   chainId: string,
+  planar2dNoTiltSpin = false,
 ): Map<string, number> | null {
   const chain = getFabrikIkChainById(project, chainId);
   if (!chain || !chain.enabled) return null;
   const ids = chain.boneIds;
   if (!validateFabrikBoneChain(project, ids)) return null;
-  if (fabrikChainHasTiltOrSpin(project, time, ids)) return null;
+  if (fabrikChainHasTiltOrSpin(project, time, ids, planar2dNoTiltSpin)) return null;
 
-  const bindPts = bindWorldJointPoints(project, ids);
+  const bindPts = bindWorldJointPoints(project, ids, planar2dNoTiltSpin);
   if (!bindPts) return null;
   const lengths = segmentLengthsFromBindPts(bindPts);
 
-  const init = fkWorldJointPoints(project, time, ids);
+  const init = fkWorldJointPoints(project, time, ids, planar2dNoTiltSpin);
   if (!init) return null;
 
   const ovr = sampleIkTargetOverride2d(project, chain.id, time);
@@ -110,7 +122,7 @@ export function fabrikIkAbsoluteLocalRotsAtTime(
   const rootFixed = init[0]!;
   const solved = fabrik2dChain(rootFixed, init, lengths, target, 28);
 
-  const cache = poseFkAtTimeCached(project, time);
+  const cache = poseFkAtTimeCached(project, time, planar2dNoTiltSpin);
   const mats = cache.mats2d;
 
   const k = ids.length;

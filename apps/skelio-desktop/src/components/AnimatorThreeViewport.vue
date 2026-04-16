@@ -60,7 +60,12 @@ const matJointSel = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
 
 // (hasRig was used for earlier UI gating; keep rendering functions unconditional.)
 
-const solvedPose = computed(() => evaluatePose(project.value, currentTime.value, { applyIk: true }));
+const solvedPose = computed(() =>
+  evaluatePose(project.value, currentTime.value, {
+    applyIk: true,
+    planar2dNoTiltSpin: rigCameraViewKind.value === "2d",
+  }),
+);
 
 function activeCamera(): THREE.Camera {
   return rigCameraViewKind.value === "2d" && orthoCamera ? orthoCamera : perspCamera!;

@@ -17,6 +17,12 @@ export type LocalBoneState = {
   sy: number;
 };
 
+/** Optional sampling tweaks (editor viewport modes). */
+export type GetLocalBoneStateOpts = {
+  /** Treat `tilt`/`spin` as 0 for this sample (2D camera / planar authoring). */
+  planar2dNoTiltSpin?: boolean;
+};
+
 function sampleChannel(keys: { t: number; v: number }[], t: number, fallback: number): number {
   if (keys.length === 0) return fallback;
   if (t <= keys[0]!.t) return keys[0]!.v;
@@ -33,7 +39,12 @@ function sampleChannel(keys: { t: number; v: number }[], t: number, fallback: nu
 }
 
 /** Pose + clips: full local state including Z / tilt / spin. */
-export function getLocalBoneState(bone: Bone, clip: AnimationClip | undefined, time: number): LocalBoneState {
+export function getLocalBoneState(
+  bone: Bone,
+  clip: AnimationClip | undefined,
+  time: number,
+  opts?: GetLocalBoneStateOpts,
+): LocalBoneState {
   const tr = clip?.tracks.find((x) => x.boneId === bone.id);
   const bp = bone.bindPose;
   const b3 = bone.bindBone3d;
@@ -55,7 +66,11 @@ export function getLocalBoneState(bone: Bone, clip: AnimationClip | undefined, t
       if (ch.property === "spin") spin = (b3?.spin ?? 0) + sampleChannel(ch.keys, time, 0);
     }
   }
-  return { x, y, z, rot, tilt, spin, sx: bp.sx, sy: bp.sy };
+  const s = { x, y, z, rot, tilt, spin, sx: bp.sx, sy: bp.sy };
+  if (opts?.planar2dNoTiltSpin) {
+    return { ...s, tilt: 0, spin: 0 };
+  }
+  return s;
 }
 
 /** Bind-only local state (no animation). Optional 2D bind override for one bone (tip-drag preview). */
@@ -63,12 +78,14 @@ export function getBindLocalBoneState(
   bone: Bone,
   overrideBoneId: string | null,
   bindPoseOverride: Transform2D | null,
+  opts?: GetLocalBoneStateOpts,
 ): LocalBoneState {
   const bp = bone.bindPose;
   const b3 = bone.bindBone3d;
   const zBase = (b3?.z ?? 0) + (b3?.depthOffset ?? 0);
+  let s: LocalBoneState;
   if (overrideBoneId && bone.id === overrideBoneId && bindPoseOverride) {
-    return {
+    s = {
       x: bindPoseOverride.x,
       y: bindPoseOverride.y,
       z: zBase,
@@ -78,17 +95,22 @@ export function getBindLocalBoneState(
       sx: bindPoseOverride.sx,
       sy: bindPoseOverride.sy,
     };
+  } else {
+    s = {
+      x: bp.x,
+      y: bp.y,
+      z: zBase,
+      rot: bp.rotation,
+      tilt: b3?.tilt ?? 0,
+      spin: b3?.spin ?? 0,
+      sx: bp.sx,
+      sy: bp.sy,
+    };
   }
-  return {
-    x: bp.x,
-    y: bp.y,
-    z: zBase,
-    rot: bp.rotation,
-    tilt: b3?.tilt ?? 0,
-    spin: b3?.spin ?? 0,
-    sx: bp.sx,
-    sy: bp.sy,
-  };
+  if (opts?.planar2dNoTiltSpin) {
+    return { ...s, tilt: 0, spin: 0 };
+  }
+  return s;
 }
 
 /** T * Rz * Rx * Ry * S — siehe ADR 0011. */
@@ -145,6 +167,40 @@ export function mat4ToMat2dProjection(m: Mat4): Mat2D {
   };
 }
 
+/** Below this, the parent is treated as a point (e.g. root `length: 0`); keep stored `bindPose.x/y`. */
+const PLANAR_TIP_SNAP_MIN_PARENT_LENGTH = 1e-5;
+
+function countBonesWithParent(project: EditorProject, parentId: string): number {
+  let n = 0;
+  for (const b of project.bones) {
+    if (b.parentId === parentId) n++;
+  }
+  return n;
+}
+
+/**
+ * In planar 2D evaluation, stored `bindPose.x/y` may come from tilted 3D binds; the XY joint
+ * then no longer lies on the parent’s local +X at `parent.length`, so FK segments show gaps.
+ * Force the canonical child attach `(parent.length, 0)` so pose/bind chains and IK stay closed.
+ *
+ * Skipped when:
+ * - `parent.length` is ~0 (typical root / point bones), or
+ * - the parent has **more than one** child: every branch would otherwise get the same `(L,0)` and
+ *   all limbs collapse to one point (e.g. everything stuck at the neck).
+ */
+function snapPlanarChildTranslationToParentTip(
+  project: EditorProject,
+  bone: Bone,
+  s: LocalBoneState,
+  opts?: GetLocalBoneStateOpts,
+): LocalBoneState {
+  if (!opts?.planar2dNoTiltSpin || bone.parentId === null) return s;
+  const parent = project.bones.find((x) => x.id === bone.parentId);
+  if (!parent || parent.length <= PLANAR_TIP_SNAP_MIN_PARENT_LENGTH) return s;
+  if (countBonesWithParent(project, bone.parentId) !== 1) return s;
+  return { ...s, x: parent.length, y: 0 };
+}
+
 function worldMat4sFromLocals(
   project: EditorProject,
   getLocal: (b: Bone) => LocalBoneState,
@@ -186,6 +242,7 @@ export function worldPoseBoneMatrices4FusedFkAndSolved(
   project: EditorProject,
   time: number,
   rotOverrides: ReadonlyMap<string, number>,
+  opts?: GetLocalBoneStateOpts,
 ): { fkWorld4ByBoneId: Map<string, Mat4>; solvedWorld4ByBoneId: Map<string, Mat4> } {
   const clip = project.clips.find((c) => c.id === project.activeClipId);
 
@@ -214,7 +271,12 @@ export function worldPoseBoneMatrices4FusedFkAndSolved(
     const cur = stack.pop()!;
     const b = cur.bone;
 
-    const sFk = getLocalBoneState(b, clip, time);
+    const sFk = snapPlanarChildTranslationToParentTip(
+      project,
+      b,
+      getLocalBoneState(b, clip, time, opts),
+      opts,
+    );
     const localFk = localMat4FromState(sFk);
     const worldFk = cur.parentFk === null ? localFk : mat4Multiply(cur.parentFk, localFk);
     fkWorld4ByBoneId.set(b.id, worldFk);
@@ -236,21 +298,37 @@ export function worldPoseBoneMatrices4FusedFkAndSolved(
   return { fkWorld4ByBoneId, solvedWorld4ByBoneId };
 }
 
-export function worldBindBoneMatrices4(project: EditorProject): Map<string, Mat4> {
-  return worldMat4sFromLocals(project, (b) => getBindLocalBoneState(b, null, null));
+export function worldBindBoneMatrices4(project: EditorProject, opts?: GetLocalBoneStateOpts): Map<string, Mat4> {
+  return worldMat4sFromLocals(project, (b) =>
+    snapPlanarChildTranslationToParentTip(project, b, getBindLocalBoneState(b, null, null, opts), opts),
+  );
 }
 
 export function worldBindBoneMatrices4OverridingBindPose(
   project: EditorProject,
   boneId: string,
   bindPoseOverride: Transform2D,
+  opts?: GetLocalBoneStateOpts,
 ): Map<string, Mat4> {
-  return worldMat4sFromLocals(project, (b) => getBindLocalBoneState(b, boneId, bindPoseOverride));
+  return worldMat4sFromLocals(project, (b) =>
+    snapPlanarChildTranslationToParentTip(
+      project,
+      b,
+      getBindLocalBoneState(b, boneId, bindPoseOverride, opts),
+      opts,
+    ),
+  );
 }
 
-export function worldPoseBoneMatrices4(project: EditorProject, time: number): Map<string, Mat4> {
+export function worldPoseBoneMatrices4(
+  project: EditorProject,
+  time: number,
+  opts?: GetLocalBoneStateOpts,
+): Map<string, Mat4> {
   const clip = project.clips.find((c) => c.id === project.activeClipId);
-  return worldMat4sFromLocals(project, (b) => getLocalBoneState(b, clip, time));
+  return worldMat4sFromLocals(project, (b) =>
+    snapPlanarChildTranslationToParentTip(project, b, getLocalBoneState(b, clip, time, opts), opts),
+  );
 }
 
 /**
@@ -261,10 +339,11 @@ export function worldPoseBoneMatrices4WithRotOverrides(
   project: EditorProject,
   time: number,
   rotOverrides: ReadonlyMap<string, number>,
+  opts?: GetLocalBoneStateOpts,
 ): Map<string, Mat4> {
   const clip = project.clips.find((c) => c.id === project.activeClipId);
   return worldMat4sFromLocals(project, (b) => {
-    const s = getLocalBoneState(b, clip, time);
+    const s = snapPlanarChildTranslationToParentTip(project, b, getLocalBoneState(b, clip, time, opts), opts);
     const o = rotOverrides.get(b.id);
     if (o !== undefined) return { ...s, rot: o };
     return s;
@@ -275,8 +354,9 @@ export function worldPoseBoneMatrices2DWithRotOverrides(
   project: EditorProject,
   time: number,
   rotOverrides: ReadonlyMap<string, number>,
+  opts?: GetLocalBoneStateOpts,
 ): Map<string, Mat2D> {
-  const m4 = worldPoseBoneMatrices4WithRotOverrides(project, time, rotOverrides);
+  const m4 = worldPoseBoneMatrices4WithRotOverrides(project, time, rotOverrides, opts);
   const out = new Map<string, Mat2D>();
   for (const [id, m] of m4) {
     out.set(id, mat4ToMat2dProjection(m));
@@ -284,8 +364,8 @@ export function worldPoseBoneMatrices2DWithRotOverrides(
   return out;
 }
 
-export function worldPoseBoneMatrices2D(project: EditorProject, time: number): Map<string, Mat2D> {
-  const m4 = worldPoseBoneMatrices4(project, time);
+export function worldPoseBoneMatrices2D(project: EditorProject, time: number, opts?: GetLocalBoneStateOpts): Map<string, Mat2D> {
+  const m4 = worldPoseBoneMatrices4(project, time, opts);
   const out = new Map<string, Mat2D>();
   for (const [id, m] of m4) {
     out.set(id, mat4ToMat2dProjection(m));
@@ -293,8 +373,8 @@ export function worldPoseBoneMatrices2D(project: EditorProject, time: number): M
   return out;
 }
 
-export function worldBindBoneMatrices2D(project: EditorProject): Map<string, Mat2D> {
-  const m4 = worldBindBoneMatrices4(project);
+export function worldBindBoneMatrices2D(project: EditorProject, opts?: GetLocalBoneStateOpts): Map<string, Mat2D> {
+  const m4 = worldBindBoneMatrices4(project, opts);
   const out = new Map<string, Mat2D>();
   for (const [id, m] of m4) {
     out.set(id, mat4ToMat2dProjection(m));
@@ -306,8 +386,9 @@ export function worldBindBoneMatrices2DOverridingBindPose(
   project: EditorProject,
   boneId: string,
   bindPoseOverride: Transform2D,
+  opts?: GetLocalBoneStateOpts,
 ): Map<string, Mat2D> {
-  const m4 = worldBindBoneMatrices4OverridingBindPose(project, boneId, bindPoseOverride);
+  const m4 = worldBindBoneMatrices4OverridingBindPose(project, boneId, bindPoseOverride, opts);
   const out = new Map<string, Mat2D>();
   for (const [id, m] of m4) {
     out.set(id, mat4ToMat2dProjection(m));

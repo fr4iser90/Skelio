@@ -11,12 +11,10 @@ import {
   resolveCharacterRigSliceBoundBoneId,
   rigidCharacterRigSliceWorldPose,
   transformPointMat4,
-  worldBindBoneMatrices,
+  worldBindBoneMatrices2D,
+  worldBindBoneMatrices2DOverridingBindPose,
   worldBindBoneMatrices4,
   worldBindBoneMatrices4OverridingBindPose,
-  worldBindBoneMatricesOverridingBindPose,
-  worldBindBoneTipForLengthHit,
-  worldBindOrigins,
   BONE_LENGTH_HIT_MIN_LOCAL,
   type CharacterRigConfig,
   type CharacterRigSpriteSheetEntry,
@@ -142,7 +140,17 @@ const depthLoadPromises = new Map<DepthKey, Promise<void>>();
  * Cached solved pose for current reactive frame/time.
  * Keeps `evaluatePose` as SSoT, but avoids multiple recalcs per rebuild().
  */
-const solvedPose = computed(() => evaluatePose(project.value, currentTime.value, { applyIk: true }));
+const solvedPose = computed(() =>
+  evaluatePose(project.value, currentTime.value, {
+    applyIk: true,
+    planar2dNoTiltSpin: rigCameraViewKind.value === "2d",
+  }),
+);
+
+/** Gleiche Basis wie Pose + Skinning: Bind ohne Tilt/Spin in 2D-Kamera. */
+const planarBindOpts = computed(() =>
+  rigCameraViewKind.value === "2d" ? ({ planar2dNoTiltSpin: true } as const) : undefined,
+);
 
 const viewportHintText = computed(() => {
   if (rigModalBindStep.value) {
@@ -414,8 +422,10 @@ function resolveRigBoneStepHit(
   wx: number,
   wy: number,
 ): { type: "length"; boneId: string } | { type: "drag"; boneId: string } | null {
-  const origins = worldBindOrigins(project.value);
-  const mats = worldBindBoneMatrices(project.value);
+  const po = planarBindOpts.value;
+  const mats = worldBindBoneMatrices2D(project.value, po);
+  const origins = new Map<string, { x: number; y: number }>();
+  for (const [id, m] of mats) origins.set(id, { x: m.e, y: m.f });
   const rJoint = 18;
   const rTip = 28;
   const rShaft = 30;
@@ -429,8 +439,9 @@ function resolveRigBoneStepHit(
 
   for (const b of project.value.bones) {
     const o = origins.get(b.id);
-    const t = worldBindBoneTipForLengthHit(project.value, b.id);
     const M = mats.get(b.id);
+    const Lhit = Math.max(b.length, BONE_LENGTH_HIT_MIN_LOCAL);
+    const t = M ? { x: M.a * Lhit + M.e, y: M.b * Lhit + M.f } : null;
     if (!o || !t) continue;
     const dJ = (o.x - wx) ** 2 + (o.y - wy) ** 2;
     const dT = (t.x - wx) ** 2 + (t.y - wy) ** 2;
@@ -465,7 +476,9 @@ function resolveRigBoneStepHit(
 }
 
 function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null {
-  const origins = worldBindOrigins(project.value);
+  const mats = worldBindBoneMatrices2D(project.value, planarBindOpts.value);
+  const origins = new Map<string, { x: number; y: number }>();
+  for (const [id, m] of mats) origins.set(id, { x: m.e, y: m.f });
   const r2 = radiusWorld * radiusWorld;
   const sel = selectedBoneId.value;
   const hits: { id: string; d2: number }[] = [];
@@ -530,7 +543,8 @@ function beginBoneLengthDrag(boneId: string, wx: number, wy: number, e: PointerE
   const b = project.value.bones.find((x) => x.id === boneId);
   const startLen = b?.length ?? 0;
   const startRot = b?.bindPose.rotation ?? 0;
-  const J0 = worldBindOrigins(project.value).get(boneId);
+  const M0 = worldBindBoneMatrices2D(project.value, planarBindOpts.value).get(boneId);
+  const J0 = M0 ? { x: M0.e, y: M0.f } : undefined;
   const tip = b
     ? boneLengthAndBindRotationFromWorldTip(project.value, boneId, wx, wy, undefined, J0)
     : null;
@@ -575,7 +589,7 @@ function applyBrushAt(wx: number, wy: number) {
   if (!st || !boneId) return;
   const mesh = project.value.skinnedMeshes?.find((m) => m.id === st.meshId);
   if (!mesh) return;
-  const bindM4 = worldBindBoneMatrices4(project.value);
+  const bindM4 = worldBindBoneMatrices4(project.value, planarBindOpts.value);
   const poseM4 = solvedPose.value.solvedWorld4ByBoneId;
   const tmp: SkinnedMesh = { ...mesh, influences: st.working };
   const deformed = deformSkinnedMesh(tmp, bindM4, poseM4);
@@ -752,7 +766,8 @@ function rebuildSliceMeshes() {
 
   const poseEval = solvedPose.value;
   const poseM4 = poseEval.solvedWorld4ByBoneId;
-  const boneM4 = rigModalBoneStep.value ? worldBindBoneMatrices4(project.value) : poseM4;
+  const po = planarBindOpts.value;
+  const boneM4 = rigModalBoneStep.value ? worldBindBoneMatrices4(project.value, po) : poseM4;
   const activeSliceId = selectedCharacterRigSliceId.value;
   /** Schritt 3: nur das gewählte Teil rendern (keine abgedunkelten anderen). */
   const onlySelectedSlice3d =
@@ -893,16 +908,25 @@ function rebuildBones() {
 
   const lenDrag = boneLengthDrag.value;
   const poseEval = solvedPose.value;
-  let boneM = rigModalBoneStep.value ? worldBindBoneMatrices(project.value) : poseEval.solvedWorld2dByBoneId;
-  let boneO = rigModalBoneStep.value ? worldBindOrigins(project.value) : poseEval.solvedOriginByBoneId;
+  const po = planarBindOpts.value;
+  let boneM = rigModalBoneStep.value
+    ? worldBindBoneMatrices2D(project.value, po)
+    : poseEval.solvedWorld2dByBoneId;
+  let boneO: Map<string, { x: number; y: number }>;
+  if (rigModalBoneStep.value) {
+    boneO = new Map();
+    for (const [id, m] of boneM) boneO.set(id, { x: m.e, y: m.f });
+  } else {
+    boneO = poseEval.solvedOriginByBoneId;
+  }
 
   if (rigModalBoneStep.value && lenDrag) {
     const b = project.value.bones.find((x) => x.id === lenDrag.boneId);
     if (b) {
-      boneM = worldBindBoneMatricesOverridingBindPose(project.value, lenDrag.boneId, {
+      boneM = worldBindBoneMatrices2DOverridingBindPose(project.value, lenDrag.boneId, {
         ...b.bindPose,
         rotation: lenDrag.previewRotation,
-      });
+      }, po);
       boneO = new Map();
       for (const [id, m] of boneM) boneO.set(id, { x: m.e, y: m.f });
     }
@@ -916,12 +940,12 @@ function rebuildBones() {
         boneM4 = worldBindBoneMatrices4OverridingBindPose(project.value, lenDrag.boneId, {
           ...b.bindPose,
           rotation: lenDrag.previewRotation,
-        });
+        }, po);
       } else {
-        boneM4 = worldBindBoneMatrices4(project.value);
+        boneM4 = worldBindBoneMatrices4(project.value, po);
       }
     } else {
-      boneM4 = worldBindBoneMatrices4(project.value);
+      boneM4 = worldBindBoneMatrices4(project.value, po);
     }
   } else {
     boneM4 = poseEval.solvedWorld4ByBoneId;

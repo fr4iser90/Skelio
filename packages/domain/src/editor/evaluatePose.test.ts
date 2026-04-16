@@ -60,4 +60,32 @@ describe("evaluatePose", () => {
       for (let i = 0; i < 16; i++) expect(s[i]).toBeCloseTo(fk[i]!, 10);
     }
   });
+
+  it("planar2dNoTiltSpin: IK runs with bind tilt and FK omits tilt/spin", () => {
+    const p = createDefaultEditorProject();
+    const root = p.bones.find((b) => b.parentId === null)!;
+    const mid: Bone = {
+      id: "bone_mid",
+      parentId: root.id,
+      name: "mid",
+      bindPose: { x: 70, y: 0, rotation: 0, sx: 1, sy: 1 },
+      length: 65,
+      bindBone3d: { tilt: 0.15, spin: 0, z: 0, depthOffset: 0 },
+    };
+    const tip: Bone = { id: "bone_tip", parentId: mid.id, name: "tip", bindPose: { x: 65, y: 0, rotation: 0, sx: 1, sy: 1 }, length: 0 };
+    p.bones.push(mid, tip);
+    root.length = 70;
+    p.ikTwoBoneChains = [
+      { id: "ik_demo", name: "demo", enabled: true, rootBoneId: root.id, midBoneId: mid.id, tipBoneId: tip.id, targetX: 130, targetY: 35 },
+    ];
+    const psFull = evaluatePose(p, 0, { applyIk: true });
+    const psFlat = evaluatePose(p, 0, { applyIk: true, planar2dNoTiltSpin: true });
+    expect(psFull.ikSolvedLocalRotByBoneId.size).toBe(0);
+    expect(psFlat.ikSolvedLocalRotByBoneId.size).toBeGreaterThan(0);
+    const mFull = psFull.fkWorld4ByBoneId.get(mid.id)!;
+    const mFlat = psFlat.fkWorld4ByBoneId.get(mid.id)!;
+    let diff = 0;
+    for (let i = 0; i < 16; i++) diff += Math.abs(mFull[i]! - mFlat[i]!);
+    expect(diff).toBeGreaterThan(1e-6);
+  });
 });

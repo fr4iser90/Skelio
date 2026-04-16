@@ -72,10 +72,13 @@ export {
 export {
   getBindLocalBoneState,
   getLocalBoneState,
+  type GetLocalBoneStateOpts,
   localMat4FromState,
   mat4ToMat2dProjection,
   worldBindBoneMatrices4,
   worldBindBoneMatrices4OverridingBindPose,
+  worldBindBoneMatrices2D,
+  worldBindBoneMatrices2DOverridingBindPose,
   worldPoseBoneMatrices4,
   worldPoseBoneMatrices4WithRotOverrides,
   worldPoseBoneMatrices2DWithRotOverrides,

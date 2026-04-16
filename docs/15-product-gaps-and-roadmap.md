@@ -2,96 +2,101 @@
 
 This document states **known limitations** and a **prioritized plan**. It is not a marketing status page.
 
+## Design principle (non-negotiable)
+
+**Intuition beats explanation.** If the correct fix is “the user must read something first,” that is a **failed** interaction for Skelio’s target audience. The product should **default to behavior that works** in common rigs (grab end effector → limb follows; move body → keys behave predictably). Copy, banners, and tooltips are **last-resort polish**, not substitutes for correct engineering and direct manipulation.
+
+---
+
 ## IK
 
 **Current behavior**
 
-- Two-bone IK and planar FABRIK are implemented in `@skelio/domain` (`evaluatePose`, solvers under `packages/domain/src/editor/rig/`).
-- Two-bone IK is **skipped** when chain bones have **tilt** or **spin** (unless planar-2D mode forces `planar2dNoTiltSpin`).
-- FABRIK similarly refuses non-planar chains when tilt/spin is present.
-- **Bake IK → FK** in the UI is oriented around **two-bone** chains; FABRIK baking may be missing or incomplete.
+- Two-bone IK and planar FABRIK live in `@skelio/domain` (`evaluatePose`, solvers under `packages/domain/src/editor/rig/`).
+- Two-bone IK is **skipped** when chain bones have **tilt** or **spin** (unless strict 2D mode forces `planar2dNoTiltSpin`).
+- FABRIK similarly bails when the chain is non-planar under the same rules.
+- **Bake IK → FK** in the UI is built around **two-bone** chains; FABRIK baking is incomplete or absent.
 
-**Problems for users**
+**What feels broken**
 
-- IK can appear to “do nothing” with no in-viewport explanation (tilt/spin skip).
-- Mixed 2.5D/3D expectations vs planar solvers are easy to misunderstand.
+- IK can **silently do nothing** while the rig still looks “valid,” which reads as a bug, not a learning moment.
+- Camera / rig dimensionality and solver assumptions can **diverge** without the user changing a mental model—because they should not need one.
 
-**Plan**
+**Plan (engineering and interaction, not “explain more”)**
 
-1. Surface **why IK did not apply** (inspector banner or dev overlay keyed off skip reasons).
-2. Decide product stance: educate (tooltips) vs extend solvers (harder) vs automatic “planar projection” mode.
-3. Extend or add **FABRIK bake** if FABRIK is a first-class authoring tool.
+1. **Eliminate silent no-op:** choose a technical default so common setups always get a solve—e.g. automatically feed IK from a **consistent planar projection** of the chain for the solve step when tilt/spin are non-zero, **or** restrict bone DOFs in modes where the solver is planar-only, **or** upgrade solvers where justified. Pick one coherent strategy per mode; ship behavior, not lectures.
+2. **Viewport-first authoring:** dragging IK targets / poles (and optional bone pins) is the primary loop; numeric inspector fields stay secondary.
+3. **FABRIK parity:** if FABRIK is offered in the UI, **bake-to-FK** and timeline integration must match what two-bone already gets, or FABRIK is demoted until it does.
 
-## FK and animation UX
+---
+
+## FK and animation
 
 **Current behavior**
 
-- FK comes from clip sampling; IK overlays solved rotations.
+- FK from clip sampling; IK overlays solved rotations.
 
-**Problems**
+**What feels broken**
 
-- Users may not see a clear **mental model** (what is driven by keys vs IK targets).
-- Pole/target UX exists for some flows but may feel technical.
+- It is unclear **what to grab** so the character moves the way animators expect (hands/feet vs individual bones vs keys).
 
 **Plan**
 
-1. **Effector-first** language in UI (hands/feet targets) where possible.
-2. Explicit mode badges: “Keys drive / IK drives / mixed” per bone or chain.
-3. Optional visualization of **influence** or override stack.
+1. **Effector-first manipulation** as default: end-of-chain handles behave like film rigs; FK on intermediate joints stays predictable.
+2. **One stack of truth in the tool:** the app chooses driver precedence in code (keys vs IK vs constraints) so scrubbing the timeline never “lies.” Avoid UI that asks the user to learn FK vs IK theory first.
+
+---
 
 ## Mesh and skinning
 
 **Current behavior**
 
-- Character rig slices can become **skinned meshes** (simplified geometry, bindings).
-- Weight painting exists in the desktop app for supported paths.
+- Character rig slices → skinned meshes (simplified geometry); weight painting exists on supported paths.
 
-**Problems**
+**What feels broken**
 
-- Authoring parity with mature 2D mesh tools is **not** the current reality.
-- Users expecting Spine-level mesh workflows will hit gaps quickly.
+- The mesh loop is still **slow and rough** compared to what animators expect from mature 2D DCCs.
 
 **Plan**
 
-1. Document **exactly** which mesh paths are supported in-editor vs import-only.
-2. Improve weight painting ergonomics iteratively with tests.
-3. Keep runtime **`skins`** contract stable; evolve via schema semver + ADR.
+1. **Ship better tools** (weight painting flow, slice binding, deformation preview), measured against real tasks—not a static “limits” page as the main deliverable.
+2. Keep the runtime **`skins`** contract stable; schema changes only via semver + ADR.
+
+---
 
 ## 2D / 2.5D / 3D viewport
 
 **Current behavior**
 
-- Camera modes switch orthographic vs perspective; domain gets `planar2dNoTiltSpin` when mode is strict 2D.
-- `rigCameraWorldYScale` is currently fixed (no extra world-Y squash in store); depth feel comes from camera/perspective and slice depth where implemented.
+- Camera modes switch ortho vs perspective; strict 2D toggles `planar2dNoTiltSpin` into the pose pipeline.
+- `rigCameraWorldYScale` is fixed at `1`; depth is mostly camera + slice depth.
 
-**Problems**
+**What feels broken**
 
-- Naming can imply full 3D rigging while the solver stack remains **2D-planar-first**.
-
-**Plan**
-
-1. Rename or explain modes in UI copy (“Camera” vs “Rig dimensionality”).
-2. If world-Y scale returns, document interaction with IK planarity.
-
-## Documentation and process
-
-**Fixed baseline**
-
-- `docs/00`–`docs/15` (English) are the canonical narrative.
-- **ADRs** still need real files under `docs/adr/` when decisions are recorded.
+- Modes can **read** like full spatial rigging while the IK core is still **planar-first**.
 
 **Plan**
 
-1. Add ADRs as decisions land (export, time base, coordinates).
-2. Keep **AGENTS.md** and **`.cursor/rules/`** links synchronized with `docs/`.
+1. **Align mode with math:** either the solver path matches what “3D” implies, or the product **narrows what the mode promises** until it does—implemented in behavior and camera rig, not only in wording.
+2. If optional squash/stretch returns, it must interact with IK in a defined, test-covered way—not as a hidden footgun.
+
+---
+
+## Documentation and process (maintainers)
+
+**Baseline**
+
+- `docs/00`–`docs/15` (English) for contributors and automation.
+- **ADRs** under `docs/adr/` when export or persistence decisions are made.
+
+**Plan**
+
+- Keep **AGENTS.md** and **`.cursor/rules/`** in sync with `docs/`. This is **not** a substitute for intuitive in-app behavior.
+
+---
 
 ## Runtime and Godot
 
-**Problems**
-
-- End-to-end **Godot sample** may lag the editor.
-
 **Plan**
 
-1. Minimal Godot loader example + issue-linked milestones.
-2. Contract tests remain the guardrail until samples exist.
+- Keep the **Godot minimal example** truthful with the schema; grow it as the editor grows. Contract tests stay the guardrail.

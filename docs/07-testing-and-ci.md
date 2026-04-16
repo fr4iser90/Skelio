@@ -23,6 +23,7 @@ Use this when working on pose, IK, or export code.
 
 - **Domain:** pose evaluation, IK edge cases, validators, runtime export snapshots or structural invariants.
 - **Application:** command handlers for regressions when adding commands.
+- **Large local projects** (e.g. multi‑MB `Untitled.skelio.json` with embedded images): use for **manual** QA; optional automated checks in `packages/domain/src/editor/untitledSkelioAcceptance.test.ts` when that file exists at the repo root (or set **`SKELIO_UNTITLED_PATH`**). CI without the file **skips** that `describe` block; a small **synthetic** test still runs. Keep **CI fixtures** small elsewhere.
 
 ## CI expectations
 

@@ -3,10 +3,10 @@ import type { Mat2D } from "../mat2d.js";
 import type { Mat4 } from "../mat4.js";
 import {
   getLocalBoneState,
-  mat4ToMat2dProjection,
   worldOriginFromMat4,
   worldPoseBoneMatrices4FusedFkAndSolved,
 } from "../bone3dPose.js";
+import { mat4ToMat2dProjection, planar2dClosedFkChainOpts } from "../bone2dPose.js";
 import type { EditorProject } from "../types.js";
 import { getFabrikIkChains, getTwoBoneIkChains } from "./accessors.js";
 import { fabrikIkAbsoluteLocalRotsAtTime } from "./solveFabrikPlanarChain2d.js";
@@ -64,8 +64,16 @@ export function evaluatePose(project: EditorProject, time: number, opts?: Evalua
   /** Default FK-only; opt in with `applyIk: true` when enabled IK chains should override rotations. */
   const applyIk = opts?.applyIk ?? false;
   const planar2dNoTiltSpin = opts?.planar2dNoTiltSpin ?? false;
-  /** Planar 2D: sole children snap to `(parent.length,0)` so FK joints stay closed (no “floating” hand vs forearm tip). */
-  const planarOpts = planar2dNoTiltSpin ? ({ planar2dNoTiltSpin: true } as const) : undefined;
+  /**
+   * Planar 2D: baseline is {@link planar2dClosedFkChainOpts}.
+   * Some consumers (notably Animate) must respect authored bind attachments exactly and opt out of tip-snap.
+   */
+  const planarOpts = planar2dNoTiltSpin
+    ? ({
+        ...planar2dClosedFkChainOpts,
+        ...(opts?.skipPlanarChildTipSnap ? { skipPlanarChildTipSnap: true } : null),
+      } as const)
+    : undefined;
   const ikSolvedLocalRotByBoneId = new Map<string, number>();
   const rotOverrides = new Map<string, number>();
 

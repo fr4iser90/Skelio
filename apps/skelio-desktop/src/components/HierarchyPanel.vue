@@ -12,21 +12,19 @@ const {
   placeNewBonesAtParentTip,
   characterRigModalOpen,
   characterRigModalStep,
-  quickRigMode,
   activeCharacterId,
   rigCharacterSlots,
-  workspaceMode,
 } = storeToRefs(store);
 
-/** Skeleton structure: add/remove while Character Setup wizard or Quick Rig. */
-const skeletonEditLocked = computed(() => !(characterRigModalOpen.value || quickRigMode.value));
+/** Skeleton structure: add/remove only while Character Setup wizard is open. */
+const skeletonEditLocked = computed(() => !characterRigModalOpen.value);
 
 const rows = computed(() => {
   const p = rigEditProject.value;
   const slots = rigCharacterSlots.value;
   let allowed: Set<string> | null = null;
-  /** Multi-character: Animate = full scene; Rig/Export/Setup = active character only. */
-  const focusActiveSubtree = slots.length > 1 && workspaceMode.value !== "animate";
+  /** Multi-character: main Animate view = full scene; Character Setup modal = active slot only. */
+  const focusActiveSubtree = slots.length > 1 && characterRigModalOpen.value;
   if (focusActiveSubtree) {
     const aid = activeCharacterId.value;
     const slot = aid ? slots.find((s) => s.id === aid) : slots[0];
@@ -61,8 +59,7 @@ function addChild(parentId: string) {
     })
   )
     return;
-  const placePending =
-    quickRigMode.value || (characterRigModalOpen.value && characterRigModalStep.value === 1);
+  const placePending = characterRigModalOpen.value && characterRigModalStep.value === 1;
   if (placePending) {
     const nb = rigEditProject.value.bones;
     if (nb.length > nBefore) {
@@ -89,9 +86,7 @@ function selectMesh(id: string) {
     <label
       class="pref"
       :title="
-        skeletonEditLocked
-          ? 'Character Setup oder Quick Rig aktivieren — dann Knochen-Struktur bearbeiten.'
-          : undefined
+        skeletonEditLocked ? 'Character Setup… öffnen — dann Knochen-Struktur bearbeiten.' : undefined
       "
     >
       <input
@@ -110,11 +105,7 @@ function selectMesh(id: string) {
             type="button"
             class="mini"
             :disabled="skeletonEditLocked"
-            :title="
-              skeletonEditLocked
-                ? 'Character Setup oder Quick Rig — dann Knochen hinzufügen.'
-                : 'Kind'
-            "
+            :title="skeletonEditLocked ? 'Character Setup… — dann Knochen hinzufügen.' : 'Kind'"
             @click="addChild(row.id)"
           >
             +
@@ -124,9 +115,7 @@ function selectMesh(id: string) {
             type="button"
             class="mini danger"
             :disabled="skeletonEditLocked"
-            :title="
-              skeletonEditLocked ? 'Character Setup oder Quick Rig — dann Knochen entfernen.' : undefined
-            "
+            :title="skeletonEditLocked ? 'Character Setup… — dann Knochen entfernen.' : undefined"
             @click="remove(row.id)"
           >
             ×

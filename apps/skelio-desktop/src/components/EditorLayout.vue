@@ -12,12 +12,10 @@ import ToolbarPanel from "./ToolbarPanel.vue";
 import ViewportPanel from "./ViewportPanel.vue";
 
 const store = useEditorStore();
-const { project, rigEditProject, workspaceMode, currentTime, playing, characterRigModalOpen } = storeToRefs(store);
+const { rigEditProject, currentTime, playing, characterRigModalOpen } = storeToRefs(store);
 
-/** Timeline: committed project in Animate mode; in Rig mode includes Character Setup draft when the wizard is open. */
-const timelineProject = computed(() =>
-  workspaceMode.value === "animate" ? project.value : rigEditProject.value,
-);
+/** Timeline uses `rigEditProject` (committed `project`, or Character Setup draft while the modal is open). */
+const timelineProject = computed(() => rigEditProject.value);
 
 const playMax = computed(() => {
   const p = timelineProject.value;

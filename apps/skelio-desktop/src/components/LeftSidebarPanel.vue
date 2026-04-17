@@ -78,7 +78,7 @@ const leftTab = ref<"hierarchy" | "characters" | "scene" | "assets" | "vfx">("hi
         <h3 class="panel-title">Szene und Hintergrund</h3>
         <p class="muted small">
           Hintergrundbilder und fertige Szenen-Vorlagen kommen mit einem späteren Datenmodell (Runtime-Export).
-          Bis dahin: Referenzbild über die Toolbar (Rig) nutzen, um beim Aufbau zu orientieren.
+          Bis dahin: Referenzbild nur im Projekt / später im Character-Setup-Workflow — nicht in der Haupt-Toolbar.
         </p>
       </section>
 

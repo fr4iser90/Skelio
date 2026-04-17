@@ -50,6 +50,11 @@ export type EvaluatePoseOptions = {
    * pure planar rotation in the viewport; bind/clip data stay unchanged.
    */
   planar2dNoTiltSpin?: boolean;
+  /**
+   * When set together with {@link planar2dNoTiltSpin}, do not auto-snap child local bind translations
+   * to the parent tip. This makes planar 2D evaluation respect authored `bindPose.x/y`.
+   */
+  skipPlanarChildTipSnap?: boolean;
 };
 
 export type BakeIkToFkOptions = {

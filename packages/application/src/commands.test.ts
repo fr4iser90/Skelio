@@ -278,7 +278,7 @@ describe("applyCommand", () => {
     expect(validateEditorProject(p)).toHaveLength(0);
   });
 
-  it("syncCharacterRigSkinnedMeshes does nothing when bindings are incomplete", () => {
+  it("syncCharacterRigSkinnedMeshes builds partial meshes when bindings are incomplete", () => {
     let p = createDefaultEditorProject();
     const root = p.bones[0]!.id;
     p = applyCommand(p, {
@@ -312,7 +312,7 @@ describe("applyCommand", () => {
     p = applyCommand(p, { type: "setCharacterRigBinding", sliceId: rig(p).slices[0]!.id, boneId: root });
     const before = p.skinnedMeshes?.length ?? 0;
     p = applyCommand(p, { type: "syncCharacterRigSkinnedMeshes" });
-    expect(p.skinnedMeshes?.length ?? 0).toBe(before);
+    expect(p.skinnedMeshes?.length ?? 0).toBeGreaterThan(before);
   });
 
   it("syncCharacterRigSkinnedMeshes is a no-op when bindings reference unknown bones", () => {

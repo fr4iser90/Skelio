@@ -1,29 +1,16 @@
 <script setup lang="ts">
-import {
-  createId,
-  meshDisplayNameFromFileName,
-  mimeFromFileName,
-  normalizeReferenceImageMime,
-  REFERENCE_IMAGE_ACCEPT_ATTR,
-  skinnedMeshFromObjText,
-} from "@skelio/domain";
 import { invoke } from "@tauri-apps/api/core";
-import { storeToRefs } from "pinia";
 import { ref } from "vue";
 import { useEditorStore } from "../stores/editor.js";
 import { isTauriApp } from "../tauriProjectFs.js";
 
 const store = useEditorStore();
-const { workspaceMode, rigCharacterSlots, activeCharacterId } = storeToRefs(store);
 const tauri = isTauriApp();
 
 /**
- * Toolbar layout (extend without stuffing unrelated UI into workspace tabs):
- * - `menubar-row`: File / Edit / View
- * - `toolbar-workspace-region`: workspace mode tabs only; reserve adjacent slot for Settings (gear → prefs modal)
- * - Future prefs: keymap JSON (override defaults in ViewportPanel), themes, audio — single store + `localStorage` sync
- * - `btn-character-setup`: always visible
- * - Trailing: help — future: optional Settings button before `?`
+ * Toolbar layout:
+ * - `menubar-row`: File / Edit / View, Character Setup, settings anchor, help
+ * - `context-row`: animator viewport toggles (rigging lives in Character Setup modal only)
  */
 const menubarEl = ref<HTMLElement | null>(null);
 const helpDialog = ref<HTMLDialogElement | null>(null);
@@ -105,10 +92,6 @@ function dismissSaveFeedback() {
   window.clearTimeout(saveFeedbackTimer);
 }
 const fileInput = ref<HTMLInputElement | null>(null);
-const refImageInput = ref<HTMLInputElement | null>(null);
-const objMeshInput = ref<HTMLInputElement | null>(null);
-/** OBJ: negate vertex Y (typical Y-up mesh vs. canvas Y-down). */
-const objImportFlipY = ref(false);
 
 function triggerLoad() {
   fileInput.value?.click();
@@ -126,54 +109,6 @@ function onFile(e: Event) {
   };
   r.readAsText(f);
   (e.target as HTMLInputElement).value = "";
-}
-
-function triggerRefImage() {
-  refImageInput.value?.click();
-}
-
-function readImageFileAsPayload(file: File): Promise<{ fileName: string; mimeType: string; dataBase64: string }> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => {
-      const s = fr.result as string;
-      const m = s.match(/^data:([^;]+);base64,(.+)$/);
-      if (!m) {
-        reject(new Error("Bild konnte nicht gelesen werden."));
-        return;
-      }
-      let mime = m[1]!.trim().toLowerCase();
-      const dataBase64 = m[2]!.replace(/\s/g, "");
-      if (!mime || mime === "application/octet-stream") {
-        mime = (file.type || mimeFromFileName(file.name) || "").toLowerCase();
-      }
-      resolve({ fileName: file.name, mimeType: mime, dataBase64 });
-    };
-    fr.onerror = () => reject(fr.error ?? new Error("Lesen fehlgeschlagen"));
-    fr.readAsDataURL(file);
-  });
-}
-
-async function onRefImageFile(e: Event) {
-  const f = (e.target as HTMLInputElement).files?.[0];
-  (e.target as HTMLInputElement).value = "";
-  if (!f) return;
-  try {
-    const payload = await readImageFileAsPayload(f);
-    const mime = normalizeReferenceImageMime(payload.mimeType);
-    if (!mime) {
-      alert("Nur PNG, JPEG oder WebP werden unterstützt.");
-      return;
-    }
-    store.dispatch({
-      type: "setReferenceImage",
-      fileName: payload.fileName,
-      mimeType: mime,
-      dataBase64: payload.dataBase64,
-    });
-  } catch (err) {
-    alert(String(err));
-  }
 }
 
 async function onOpenProjectFolder() {
@@ -210,38 +145,6 @@ async function onSaveProjectFolderAs() {
   } catch (err) {
     alert(String(err));
   }
-}
-
-function triggerObjMesh() {
-  objMeshInput.value?.click();
-}
-
-function onObjMeshFile(e: Event) {
-  const input = e.target as HTMLInputElement;
-  const f = input.files?.[0];
-  input.value = "";
-  if (!f) return;
-  const boneId = store.selectedBoneId;
-  if (!boneId) {
-    alert("Kein Knochen ausgewählt.");
-    return;
-  }
-  const r = new FileReader();
-  r.onload = () => {
-    const text = String(r.result);
-    const parsed = skinnedMeshFromObjText(text, {
-      id: createId("mesh"),
-      name: meshDisplayNameFromFileName(f.name),
-      boneId,
-      flipY: objImportFlipY.value,
-    });
-    if ("error" in parsed) {
-      alert(parsed.error);
-      return;
-    }
-    store.dispatch({ type: "addSkinnedMesh", mesh: parsed.mesh });
-  };
-  r.readAsText(f);
 }
 
 async function saveEditorProjectToFile() {
@@ -379,43 +282,11 @@ async function saveRuntimeExportToFile() {
       </details>
 
       <div class="toolbar-workspace-region">
-        <div class="mode-tabs" role="tablist" aria-label="Workspace mode">
-          <button
-            type="button"
-            role="tab"
-            class="mode-tab"
-            :class="{ 'mode-tab--on': workspaceMode === 'animate' }"
-            :aria-selected="workspaceMode === 'animate'"
-            @click="store.setWorkspaceMode('animate')"
-          >
-            Animate
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class="mode-tab"
-            :class="{ 'mode-tab--on': workspaceMode === 'rig' }"
-            :aria-selected="workspaceMode === 'rig'"
-            @click="store.setWorkspaceMode('rig')"
-          >
-            Rig
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class="mode-tab"
-            :class="{ 'mode-tab--on': workspaceMode === 'export' }"
-            :aria-selected="workspaceMode === 'export'"
-            @click="store.setWorkspaceMode('export')"
-          >
-            Export
-          </button>
-        </div>
-        <!-- Mount point for future Settings popover (keybindings, etc.): keep flex gap minimal. -->
+        <!-- Mount point for future Settings popover (keybindings, etc.). -->
         <div id="toolbar-settings-anchor" class="toolbar-settings-anchor" aria-hidden="true" />
       </div>
 
-      <!-- Character Setup: single entry in the top row (always visible in every mode). -->
+      <!-- Character Setup: rigging wizard (modal only). -->
       <button
         type="button"
         class="btn-character-setup"
@@ -431,121 +302,25 @@ async function saveRuntimeExportToFile() {
     </div>
 
     <div class="context-row">
-      <template v-if="workspaceMode === 'animate'">
-        <span class="ctx-hint">
-          Viewport + timeline · Rig tools also under <strong>Rig</strong> or <strong>Character Setup…</strong> above.
-        </span>
-        <label class="chk" title="Animator: Rig-Slice-Meshes als Hilfs-Dreiecke">
-          <input
-            type="checkbox"
-            :checked="store.animatorRigMeshDeformOverlay"
-            @change="store.setAnimatorRigMeshDeformOverlay(($event.target as HTMLInputElement).checked)"
-          />
-          Mesh overlay
-        </label>
-        <label class="chk" title="Animator: Slices als skinned Mesh">
-          <input
-            type="checkbox"
-            :checked="store.animatorDeformMeshDraw"
-            @change="store.setAnimatorDeformMeshDraw(($event.target as HTMLInputElement).checked)"
-          />
-          Deform mesh
-        </label>
-        <span v-if="store.quickRigMode" class="quick-rig-pill" role="status">
-          Quick Rig on — no keyframe drag on bones/sprites
-        </span>
-      </template>
-
-      <template v-else-if="workspaceMode === 'rig'">
-        <label v-if="rigCharacterSlots.length" class="char-toolbar-picker">
-          <span class="muted">Character</span>
-          <select
-            :value="activeCharacterId ?? ''"
-            title="Welcher Charakter: Bones + Rig-Befehle gelten für diesen Slot"
-            @change="store.setActiveCharacterId(($event.target as HTMLSelectElement).value || null)"
-          >
-            <option v-for="c in rigCharacterSlots" :key="c.id" :value="c.id">{{ c.name }}</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          class="ghost"
-          title="Neuer Charakter (eigener Skelett-Root + leeres Rig)"
-          @click="store.dispatch({ type: 'addCharacter', name: '' })"
-        >
-          + Character
-        </button>
-        <button
-          type="button"
-          class="ghost"
-          :class="{ 'quick-rig-toggle-on': store.quickRigMode }"
-          title="Quick Rig"
-          @click="store.setQuickRigMode(!store.quickRigMode)"
-        >
-          Quick Rig
-        </button>
-        <button type="button" @click="triggerRefImage">Referenzbild…</button>
-        <button
-          v-if="store.rigEditProject.referenceImage"
-          type="button"
-          class="ghost"
-          @click="store.dispatch({ type: 'clearReferenceImage' })"
-        >
-          Referenz weg
-        </button>
-        <button type="button" @click="store.dispatch({ type: 'addDemoSkinnedMesh' })">Demo-Mesh</button>
-        <button type="button" class="ghost" @click="store.dispatch({ type: 'addDemoIkChain' })">IK-Demo</button>
-        <button type="button" @click="triggerObjMesh">OBJ import…</button>
-        <label class="chk" title="OBJ: Y spiegeln">
-          <input v-model="objImportFlipY" type="checkbox" />
-          Y spiegeln
-        </label>
-        <button
-          v-if="store.rigEditProject.skinnedMeshes?.length"
-          type="button"
-          class="ghost"
-          @click="store.dispatch({ type: 'clearSkinnedMeshes' })"
-        >
-          Meshes löschen
-        </button>
-      </template>
-
-      <template v-else>
-        <span class="ctx-hint">Folder = manifest + assets/ · File = one .skelio.json with a custom name</span>
-        <button
-          type="button"
-          title="Single .skelio.json — choose path and filename in the dialog."
-          @click="saveEditorProjectToFile"
-        >
-          Save project as file…
-        </button>
-        <button type="button" class="ghost" title="Runtime JSON for engine use." @click="saveRuntimeExportToFile">
-          Export runtime…
-        </button>
-        <template v-if="tauri">
-          <button
-            type="button"
-            title="Load folder project (project.skelio.json + assets/)."
-            @click="onOpenProjectFolder"
-          >
-            Open folder…
-          </button>
-          <button
-            type="button"
-            title="Save into the current project folder."
-            @click="onSaveProjectFolder"
-          >
-            Save project
-          </button>
-          <button
-            type="button"
-            title="Pick a new folder; manifest is always project.skelio.json there."
-            @click="onSaveProjectFolderAs"
-          >
-            Other folder…
-          </button>
-        </template>
-      </template>
+      <span class="ctx-hint">
+        Viewport + timeline · Rigging under <strong>Character Setup…</strong> above.
+      </span>
+      <label class="chk" title="Animator: Rig-Slice-Meshes als Hilfs-Dreiecke">
+        <input
+          type="checkbox"
+          :checked="store.animatorRigMeshDeformOverlay"
+          @change="store.setAnimatorRigMeshDeformOverlay(($event.target as HTMLInputElement).checked)"
+        />
+        Mesh overlay
+      </label>
+      <label class="chk" title="Animator: Slices als skinned Mesh">
+        <input
+          type="checkbox"
+          :checked="store.animatorDeformMeshDraw"
+          @change="store.setAnimatorDeformMeshDraw(($event.target as HTMLInputElement).checked)"
+        />
+        Deform mesh
+      </label>
 
       <span v-if="store.projectRootPath" class="path" :title="store.projectRootPath">
         {{ store.projectManifestFileName }} @ …{{ store.projectRootPath.slice(-24) }}
@@ -557,21 +332,13 @@ async function saveRuntimeExportToFile() {
     </div>
 
     <input ref="fileInput" type="file" accept=".json,application/json" class="hidden" @change="onFile" />
-    <input
-      ref="refImageInput"
-      type="file"
-      class="hidden"
-      :accept="REFERENCE_IMAGE_ACCEPT_ATTR"
-      @change="onRefImageFile"
-    />
-    <input ref="objMeshInput" type="file" accept=".obj,text/plain" class="hidden" @change="onObjMeshFile" />
 
     <dialog ref="helpDialog" class="help-dlg" @click.self="closeHelp">
       <div class="help-dlg-inner">
         <h2 class="help-dlg-title">Toolbar</h2>
         <p>
-          <strong>Character Setup…</strong> is only on the first row (purple) and opens the wizard. Under
-          <strong>Rig</strong> you get slot picker, Quick Rig, reference image, mesh import, etc.
+          <strong>Character Setup…</strong> opens the rigging wizard (modal). The row below toggles animator viewport
+          options only.
         </p>
         <p>
           <strong>File</strong>:
@@ -625,34 +392,6 @@ async function saveRuntimeExportToFile() {
   width: 0;
   min-height: 1.25rem;
   align-self: stretch;
-}
-.mode-tabs {
-  display: inline-flex;
-  border-radius: 8px;
-  border: 1px solid #3b3f48;
-  overflow: hidden;
-  background: #1a1b20;
-}
-.mode-tab {
-  padding: 0.28rem 0.75rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: #9ca3af;
-  cursor: pointer;
-}
-.mode-tab:hover {
-  color: #e5e7eb;
-  background: #2a2d36;
-}
-.mode-tab--on {
-  color: #eef2ff;
-  background: linear-gradient(180deg, #4338ca 0%, #3730a3 100%);
-}
-.mode-tab--on:hover {
-  color: #fff;
 }
 .menu {
   position: relative;
@@ -800,23 +539,6 @@ button:hover {
 button.ghost {
   border-color: #555;
   color: #9ca3af;
-}
-button.quick-rig-toggle-on {
-  border-color: #d97706;
-  color: #fde68a;
-  background: rgba(120, 53, 15, 0.45);
-}
-.quick-rig-pill {
-  font-size: 0.72rem;
-  color: #fcd34d;
-  padding: 0.25rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid rgba(217, 119, 6, 0.55);
-  background: rgba(120, 53, 15, 0.35);
-  white-space: nowrap;
-  max-width: min(42vw, 22rem);
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .path {
   font-size: 0.7rem;

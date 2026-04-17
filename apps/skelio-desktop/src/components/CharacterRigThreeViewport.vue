@@ -11,9 +11,9 @@ import {
   findCharacterRigBinding,
   findSliceDepthEntry,
   localBindTranslationForWorldOrigin,
+  planar2dClosedFkChainOpts,
   resolveCharacterRigSliceBoundBoneId,
   rigidCharacterRigSliceWorldPose,
-  transformPointMat4,
   worldBindBoneMatrices2D,
   worldBindBoneMatrices2DOverridingBindPose,
   worldBindBoneMatrices4,
@@ -33,7 +33,15 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useEditorStore, type RigCameraViewKind } from "../stores/editor.js";
 import { boneShaftSegmentsWorld2D, minDistPointToBoneShaftSegmentsSq } from "../boneShaftSegments.js";
+import {
+  clearBoneMeshGroups,
+  lengthForBoneVisual,
+  rebuildBoneOverlayMeshes,
+} from "../viewport/rigViewportBoneOverlay.js";
 import { orbitControlsHandleWasd } from "../viewportWasd.js";
+import { applyRigCamera2d } from "../viewport/rigCamera2d.js";
+import { applyRigCamera25d } from "../viewport/rigCamera25d.js";
+import { applyRigCamera3d } from "../viewport/rigCamera3d.js";
 
 type BrushStroke = {
   meshId: string;
@@ -106,6 +114,8 @@ matJoint.depthTest = false;
 matJoint.depthWrite = false;
 matJointSel.depthTest = false;
 matJointSel.depthWrite = false;
+
+const boneOverlayKeepMaterials = new Set<THREE.Material>([matBone, matBoneSel, matJoint, matJointSel]);
 
 const brushStroke = ref<BrushStroke | null>(null);
 const rigSliceDrag = ref<{ sliceId: string; grabDx: number; grabDy: number } | null>(null);
@@ -189,16 +199,17 @@ const solvedPose = computed(() =>
   evaluatePose(rigEditProject.value, 0, {
     applyIk: ikSolveInViewport.value,
     planar2dNoTiltSpin: rigCameraViewKind.value === "2d",
+    // Character Setup must reflect authored bind attachments exactly.
+    // Use explicit `followParentTip` when desired; do not auto-snap joints in 2D.
+    skipPlanarChildTipSnap: true,
   }),
 );
 
 /**
- * Gleiche Basis wie Pose + Skinning: Bind ohne Tilt/Spin in 2D-Kamera; Einzel-Kinder auf Parent-Spitze.
+ * Gleiche Basis wie Pose + Skinning: geschlossene FK in 2D ({@link planar2dClosedFkChainOpts}).
  */
 const planarBindOpts = computed(() =>
-  rigCameraViewKind.value === "2d"
-    ? ({ planar2dNoTiltSpin: true } as const)
-    : undefined,
+  rigCameraViewKind.value === "2d" ? planar2dClosedFkChainOpts : undefined,
 );
 
 /** One entry = one line in the overlay (English). */
@@ -321,65 +332,13 @@ function applyRigCameraMode(kind: RigCameraViewKind) {
   if (!controls || !perspCamera || !orthoCamera) return;
   const el = containerRef.value;
   if (!el) return;
-  const w = el.clientWidth;
-  const h = el.clientHeight;
-  const aspect = w / Math.max(h, 1);
-
   if (kind === "2d") {
-    orthoCamera.position.set(0, 0, 1800);
-    orthoCamera.lookAt(0, 0, 0);
-    const halfH = 420;
-    const halfW = halfH * aspect;
-    orthoCamera.left = -halfW;
-    orthoCamera.right = halfW;
-    orthoCamera.top = halfH;
-    orthoCamera.bottom = -halfH;
-    orthoCamera.near = 0.1;
-    orthoCamera.far = 8000;
-    orthoCamera.updateProjectionMatrix();
-    controls.object = orthoCamera;
-    controls.enableRotate = false;
-    /** Sonst bleibt linke Maustaste auf „Rotate“ → interne Deltas + Damping wirken wie wildes Drehen trotz Ortho. */
-    controls.mouseButtons = {
-      LEFT: THREE.MOUSE.PAN,
-      MIDDLE: THREE.MOUSE.PAN,
-      RIGHT: THREE.MOUSE.PAN,
-    };
-    controls.minPolarAngle = Math.PI / 2;
-    controls.maxPolarAngle = Math.PI / 2;
-    controls.minAzimuthAngle = 0;
-    controls.maxAzimuthAngle = 0;
+    applyRigCamera2d({ controls, perspCamera, orthoCamera, element: el, halfHeightWorld: 420 });
+  } else if (kind === "2.5d") {
+    applyRigCamera25d({ controls, perspCamera, orthoCamera, element: el });
   } else {
-    perspCamera.near = 0.5;
-    perspCamera.far = 50000;
-    perspCamera.fov = 42;
-    perspCamera.aspect = aspect;
-    perspCamera.updateProjectionMatrix();
-    controls.object = perspCamera;
-    controls.enableRotate = true;
-    if (kind === "2.5d") {
-      controls.minPolarAngle = Math.PI * 0.28;
-      controls.maxPolarAngle = Math.PI * 0.52;
-    } else {
-      controls.minPolarAngle = 0.08;
-      controls.maxPolarAngle = Math.PI - 0.08;
-    }
-    controls.minAzimuthAngle = -Infinity;
-    controls.maxAzimuthAngle = Infinity;
-    // Ohne Startposition bleibt die Perspektiv-Kamera bei (0,0,0) auf dem Target → nichts sichtbar in 2.5D/3D,
-    // bis man „Reset“ drückt. Gleiche Basis wie resetView().
-    controls.target.set(0, 0, 0);
-    const dist = perspCamera.position.distanceTo(controls.target);
-    if (!Number.isFinite(dist) || dist < 80) {
-      perspCamera.position.set(420, -180, 620);
-    }
-    controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
-      MIDDLE: THREE.MOUSE.PAN,
-      RIGHT: THREE.MOUSE.PAN,
-    };
+    applyRigCamera3d({ controls, perspCamera, orthoCamera, element: el });
   }
-  controls.update();
   updateZoomLabel();
 }
 
@@ -414,27 +373,6 @@ function lengthForBoneDraw(b: { id: string; length: number }): number {
   const d = boneLengthDrag.value;
   if (d && d.boneId === b.id) return d.previewLength;
   return b.length;
-}
-
-function lengthForBoneVisual(
-  b: { id: string; length: number },
-  selectedId: string | null,
-  rigBoneStep: boolean,
-): number {
-  const L = lengthForBoneDraw(b);
-  if (rigBoneStep && b.id === selectedId && L < 1e-6) {
-    return BONE_LENGTH_HIT_MIN_LOCAL;
-  }
-  return L;
-}
-
-/**
- * Drawn bone mesh uses fixed world radii (~6–8); short chains (fingers) would look as thick as limbs.
- * Scale thickness by visible length so fine bones stay visually slim when zoomed in.
- */
-function rigBoneVisualThicknessScale(Lvis: number): number {
-  const ref = 88;
-  return Math.min(1.12, Math.max(0.26, Lvis / ref));
 }
 
 /**
@@ -517,7 +455,7 @@ function resolveRigBoneStepHit(
       cands.push({ boneId: b.id, kind: "tip", d2: dT, ...meta });
       return;
     }
-    const Lvis = lengthForBoneVisual(b, sel, rigBoneInteractiveHits);
+    const Lvis = lengthForBoneVisual(b, sel, rigBoneInteractiveHits, lengthForBoneDraw);
     if (Lvis > 1e-6 && dJ > r2j) {
       const segs = boneShaftSegmentsWorld2D(b, pHit.bones, mats4, origins, Lvis, {
         lengthPreviewBoneId: boneLengthDrag.value?.boneId ?? null,
@@ -607,7 +545,9 @@ function hitTestRigSlice(wx: number, wy: number): string | null {
                 localY: binding?.localY,
                 localZ: binding?.localZ,
                 rotOffset: binding?.rotOffset,
-                bindBoneOpts: po,
+                // Binding locals are stored in canonical bind space (full 4×4 bind chain).
+                // Do not make world pose depend on planar view opts, otherwise parts can jump after rig edits / mesh sync.
+                bindBoneOpts: undefined,
               },
         )
       : null;
@@ -959,7 +899,7 @@ function rebuildSliceMeshes() {
       const m = new THREE.MeshStandardMaterial({
         map,
         transparent: true,
-        alphaTest: 0.02,
+        alphaTest: 0,
         roughness: 0.6,
         side: THREE.DoubleSide,
       });
@@ -1027,7 +967,7 @@ function rebuildSliceMeshes() {
       const mat = new THREE.MeshStandardMaterial({
         map,
         transparent: true,
-        alphaTest: 0.02,
+        alphaTest: 0,
         side: THREE.DoubleSide,
         roughness: 0.55,
       });
@@ -1044,7 +984,7 @@ function rebuildSliceMeshes() {
       const mat = new THREE.MeshStandardMaterial({
         map,
         transparent: true,
-        alphaTest: 0.02,
+        alphaTest: 0,
         side: THREE.DoubleSide,
         roughness: 0.55,
       });
@@ -1059,9 +999,6 @@ function rebuildSliceMeshes() {
 }
 
 function rebuildBones() {
-  clearGroup(boneLines);
-  clearGroup(boneJoints);
-
   const lenDrag = boneLengthDrag.value;
   const poseEval = solvedPose.value;
   const po = planarBindOpts.value;
@@ -1122,51 +1059,25 @@ function rebuildBones() {
   }
 
   const selBid = selectedBoneId.value;
-
   const bonesList = rigSetupViewportBones.value;
-  for (const b of bonesList) {
-    const Lvis = lengthForBoneVisual(b, selBid, rigBoneInteractive);
-    if (Lvis <= 1e-9) continue;
-    const M4 = boneM4.get(b.id);
-    if (!M4) continue;
-    const segs = boneShaftSegmentsWorld2D(b, bonesList, boneM4, boneO, Lvis, {
-      lengthPreviewBoneId: lenDrag?.boneId ?? null,
-    });
-    const sel = b.id === selBid && rigBoneInteractive;
-    const ts = rigBoneVisualThicknessScale(Math.max(Lvis, 1));
-    const r = (sel ? 8 : 6) * ts;
-    for (const seg of segs) {
-      const p0w = transformPointMat4(M4, 0, 0, 0);
-      const a = new THREE.Vector3(seg.ax, -seg.ay, p0w.z);
-      const c = new THREE.Vector3(seg.bx, -seg.by, p0w.z);
-      const dir = c.clone().sub(a);
-      const len = dir.length();
-      if (len <= 1e-9) continue;
-      dir.multiplyScalar(1 / len);
-      const mid = a.clone().add(c).multiplyScalar(0.5);
-      const geo = new THREE.CylinderGeometry(r, r * 0.96, len, 14, 1, false);
-      const mesh = new THREE.Mesh(geo, sel ? matBoneSel : matBone);
-      mesh.position.copy(mid);
-      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-      mesh.renderOrder = 3;
-      boneLines.add(mesh);
-    }
-  }
 
-  for (const b of rigSetupViewportBones.value) {
-    const M4 = boneM4.get(b.id);
-    if (!M4) continue;
-    const p0 = transformPointMat4(M4, 0, 0, 0);
-    const sel = b.id === selectedBoneId.value;
-    const Lvj = lengthForBoneVisual(b, selBid, rigBoneInteractive);
-    const ts = rigBoneVisualThicknessScale(Math.max(Lvj, 1));
-    const r = (sel ? 8.5 : 6.5) * ts;
-    const geo = new THREE.SphereGeometry(r, 16, 12);
-    const mesh = new THREE.Mesh(geo, sel ? matJointSel : matJoint);
-    mesh.position.set(p0.x, -p0.y, p0.z);
-    mesh.renderOrder = 4;
-    boneJoints.add(mesh);
-  }
+  rebuildBoneOverlayMeshes({
+    boneLines,
+    boneJoints,
+    keepMaterials: boneOverlayKeepMaterials,
+    bonesList,
+    boneM4,
+    boneO,
+    selectedBoneId: selBid,
+    rigBoneInteractive,
+    lengthPreviewBoneId: lenDrag?.boneId ?? null,
+    effectiveLength: lengthForBoneDraw,
+    matBone,
+    matBoneSel,
+    matJoint,
+    matJointSel,
+    shaftHighlightRequiresInteractive: true,
+  });
 }
 
 function rebuildSkinnedMeshPreview() {
@@ -1303,8 +1214,7 @@ function disposeAll() {
   controls?.dispose();
   controls = null;
   clearGroup(sliceGroup);
-  clearGroup(boneLines);
-  clearGroup(boneJoints);
+  clearBoneMeshGroups(boneLines, boneJoints, boneOverlayKeepMaterials);
   clearGroup(skinMeshGroup);
   clearGroup(refImageGroup);
   textureCache.forEach((t) => t.dispose());

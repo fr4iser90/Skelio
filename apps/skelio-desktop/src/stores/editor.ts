@@ -32,9 +32,6 @@ const MAX_SETUP_UNDO = 80;
 /** Rig viewport camera: flat 2D vs mild Y squash (not true 3D). */
 export type RigCameraViewKind = "2d" | "2.5d" | "3d";
 
-/** Toolbar row 2: Animate / Rig / Export. */
-export type WorkspaceMode = "animate" | "rig" | "export";
-
 export const useEditorStore = defineStore("editor", () => {
   const project = ref<EditorProject>(createDefaultEditorProject());
   /** Set when a folder project is open (Tauri); `project.skelio.json` lives here. */
@@ -56,8 +53,8 @@ export const useEditorStore = defineStore("editor", () => {
 
   /**
    * Character Setup (rigging wizard) — see `docs/16-character-setup-animate-boundary.md`.
-   * Boundaries: Setup edits `characterRigDraftProject` only; Animate uses committed `project`.
-   * Opening the wizard forces `workspaceMode === "rig"`. Switching to Animate discards the wizard.
+   * Boundaries: Setup edits `characterRigDraftProject` only; the main view animates committed `project`
+   * (or the draft while the modal is open, via `rigEditProject`).
    */
   const characterRigModalOpen = ref(false);
   /**
@@ -67,11 +64,6 @@ export const useEditorStore = defineStore("editor", () => {
   const characterRigDraftProject = ref<EditorProject | null>(null);
   const characterRigDraftPast = ref<EditorProject[]>([]);
   const characterRigDraftFuture = ref<EditorProject[]>([]);
-
-  /** Main window bind-pose / skeleton editing like wizard “Bones” step, without the assistant. */
-  const quickRigMode = ref(false);
-
-  const workspaceMode = ref<WorkspaceMode>("animate");
 
   /** Modal: pick a region from a sprite sheet into the selected slot. */
   const sheetSliceModalOpen = ref(false);
@@ -93,6 +85,11 @@ export const useEditorStore = defineStore("editor", () => {
    * when a `rig_slice_*` mesh exists, instead of only rigid quads.
    */
   const animatorDeformMeshDraw = ref(true);
+
+  /** Animate viewport tool (P/R). Kept in the store so UI hints and WebGL tools stay in sync. */
+  const animatorTool = ref<"rotate" | "translate">("rotate");
+  /** Animate viewport: toggles the length indicator UI (legacy). */
+  const animatorLengthMode = ref(false);
 
   /**
    * When true, `evaluatePose` uses `applyIk: true` in viewports so enabled IK chains affect the displayed pose.
@@ -462,7 +459,7 @@ export const useEditorStore = defineStore("editor", () => {
     rigCameraViewKind.value = "2d";
   }
 
-  /** Close wizard without merging into Animate (× / Esc / switch workspace to Animate). */
+  /** Close wizard without merging into the committed project (× / Esc / Cancel). */
   function discardCharacterRigModal() {
     characterRigDraftProject.value = null;
     characterRigDraftPast.value = [];
@@ -492,20 +489,11 @@ export const useEditorStore = defineStore("editor", () => {
   }
 
   function openCharacterRigModal() {
-    quickRigMode.value = false;
-    /** Setup is rigging, not animation — avoid viewport/timeline coupling from Animate mode. */
-    if (workspaceMode.value !== "rig") {
-      workspaceMode.value = "rig";
-    }
     characterRigDraftProject.value = cloneProjectPlain();
     syncActiveCharacterIdFromProject(characterRigDraftProject.value);
     characterRigDraftPast.value = [];
     characterRigDraftFuture.value = [];
     characterRigModalOpen.value = true;
-  }
-
-  function setQuickRigMode(on: boolean) {
-    quickRigMode.value = on;
   }
 
   /** @deprecated Prefer `discardCharacterRigModal` or `applyCharacterRigModal`. */
@@ -556,20 +544,17 @@ export const useEditorStore = defineStore("editor", () => {
     animatorDeformMeshDraw.value = v;
   }
 
-  function setIkSolveInViewport(v: boolean) {
-    ikSolveInViewport.value = v;
+  function setAnimatorTool(v: "rotate" | "translate") {
+    animatorTool.value = v;
+    animatorLengthMode.value = false;
   }
 
-  function setWorkspaceMode(m: WorkspaceMode) {
-    // Animate mode must never be "bind-pose editing by accident".
-    // When switching back to Animate, close setup/rig authoring affordances.
-    if (m === "animate") {
-      quickRigMode.value = false;
-      if (characterRigModalOpen.value) {
-        discardCharacterRigModal();
-      }
-    }
-    workspaceMode.value = m;
+  function toggleAnimatorLengthMode() {
+    animatorLengthMode.value = !animatorLengthMode.value;
+  }
+
+  function setIkSolveInViewport(v: boolean) {
+    ikSolveInViewport.value = v;
   }
 
   syncActiveCharacterIdFromProject(project.value);
@@ -615,10 +600,6 @@ export const useEditorStore = defineStore("editor", () => {
     discardCharacterRigModal,
     applyCharacterRigModal,
     closeCharacterRigModal,
-    quickRigMode,
-    setQuickRigMode,
-    workspaceMode,
-    setWorkspaceMode,
     sheetSliceModalOpen,
     sheetSliceModalSheetId,
     openSheetSliceModal,
@@ -636,6 +617,10 @@ export const useEditorStore = defineStore("editor", () => {
     setAnimatorRigMeshDeformOverlay,
     animatorDeformMeshDraw,
     setAnimatorDeformMeshDraw,
+    animatorTool,
+    animatorLengthMode,
+    setAnimatorTool,
+    toggleAnimatorLengthMode,
     ikSolveInViewport,
     setIkSolveInViewport,
     rigCameraViewKind,

@@ -1,7 +1,5 @@
-import {
-  mat4ToMat2dProjection,
-  worldPoseBoneMatrices4,
-} from "../bone3dPose.js";
+import { worldPoseBoneMatrices4 } from "../bone3dPose.js";
+import { mat4ToMat2dProjection, planar2dClosedFkChainOpts } from "../bone2dPose.js";
 import { segmentLengthsFromBindOrigins, type Vec2 } from "../ik2d.js";
 import { transformPointMat4, type Mat4 } from "../mat4.js";
 import { worldBindOrigins } from "../pose.js";
@@ -51,7 +49,7 @@ export function poseFkAtTimeCached(
   const fk4 = worldPoseBoneMatrices4(
     project,
     time,
-    planar2dNoTiltSpin ? { planar2dNoTiltSpin: true } : undefined,
+    planar2dNoTiltSpin ? planar2dClosedFkChainOpts : undefined,
   );
   const mats2d = new Map<string, { a: number; b: number; e: number; f: number }>();
   for (const [id, m] of fk4) {

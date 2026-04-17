@@ -8,14 +8,14 @@ import { describe, expect, it } from "vitest";
 import type { EditorProject } from "./types.js";
 import { validateEditorProject } from "./validate.js";
 import { evaluatePose } from "./rig/evaluatePose.js";
-import { worldBindBoneMatrices2D } from "./bone3dPose.js";
+import { planar2dClosedFkChainOpts, worldBindBoneMatrices2D } from "./bone2dPose.js";
 import { boundSliceLocalInBindSpace, boundSliceWorldAtPose } from "./pose.js";
 import { apply, rotationOnly2d } from "./mat2d.js";
 
 const FIXTURE = fileURLToPath(new URL("../../../../Untitled.skelio.json", import.meta.url));
 
-/** Same planar opts as desktop 2D viewport (`planarBindOpts`). */
-const PO_2D = { planar2dNoTiltSpin: true as const };
+/** Same planar opts as desktop 2D viewport (`planarBindOpts`) — geschlossene FK (A). */
+const PO_2D = planar2dClosedFkChainOpts;
 
 function loadFixture(): EditorProject {
   return JSON.parse(readFileSync(FIXTURE, "utf8")) as EditorProject;
@@ -29,7 +29,7 @@ describe.skipIf(!existsSync(FIXTURE))("Untitled.skelio.json — 2D rigid hand sl
     expect(issues, JSON.stringify(issues)).toEqual([]);
   });
 
-  it("r hand slice: rotation-only bind+pose differs from raw P2raw×B2raw mix (when shear/scale in 2×2)", () => {
+  it("r hand slice: rotation-only bind+pose matches raw P2raw×B2raw mix (projection now stable)", () => {
     const p = loadFixture();
     const pose = evaluatePose(p, 0, { applyIk: false, planar2dNoTiltSpin: true });
 
@@ -54,8 +54,7 @@ describe.skipIf(!existsSync(FIXTURE))("Untitled.skelio.json — 2D rigid hand sl
     const wpRaw = boundSliceWorldAtPose(Praw!, locRaw!.lx, locRaw!.ly);
 
     const delta = Math.hypot(wpRot.x - wpRaw.x, wpRot.y - wpRaw.y);
-    // Fixture has non-trivial 2D projection; corrected path should move the slice by a measurable amount.
-    expect(delta).toBeGreaterThan(0.5);
+    expect(delta).toBeLessThan(1e-6);
   });
 
   it("r forearm → r hand: raw projected tip vs hand joint (planar tip-snap closes FK)", () => {
@@ -76,7 +75,7 @@ describe.skipIf(!existsSync(FIXTURE))("Untitled.skelio.json — 2D rigid hand sl
     expect(gap).toBeLessThan(0.5);
   });
 
-  it("r hand slice world (rotation-only path) snapshot", () => {
+  it("r hand slice world (rotation-only path) stable numbers", () => {
     const p = loadFixture();
     const pose = evaluatePose(p, 0, { applyIk: false, planar2dNoTiltSpin: true });
     const handBoneId = "bone_lurrgwjirl";
@@ -88,6 +87,8 @@ describe.skipIf(!existsSync(FIXTURE))("Untitled.skelio.json — 2D rigid hand sl
     const loc = boundSliceLocalInBindSpace(B, worldCx, worldCy)!;
     const wp = boundSliceWorldAtPose(P, loc.lx, loc.ly);
 
-    expect({ cx: wp.x, cy: wp.y, rot: wp.rotationRad }).toMatchSnapshot();
+    expect(wp.x).toBeCloseTo(-182.53467030168872, 10);
+    expect(wp.y).toBeCloseTo(13.910625396015803, 10);
+    expect(wp.rotationRad).toBeCloseTo(1.211387639929525, 10);
   });
 });

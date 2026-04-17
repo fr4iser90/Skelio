@@ -1,4 +1,3 @@
-import type { Mat2D } from "./mat2d.js";
 import {
   mat4Multiply,
   transformPointMat4,
@@ -160,18 +159,6 @@ export function localMat4FromState(s: LocalBoneState): Mat4 {
   return m;
 }
 
-/** XY-Projektion der oberen 2×2 + Translation für bestehendes 2D-Skinning. */
-export function mat4ToMat2dProjection(m: Mat4): Mat2D {
-  return {
-    a: m[0],
-    b: m[1],
-    c: m[4],
-    d: m[5],
-    e: m[12],
-    f: m[13],
-  };
-}
-
 /** Below this, the parent is treated as a point (e.g. root `length: 0`); keep stored `bindPose.x/y`. */
 const PLANAR_TIP_SNAP_MIN_PARENT_LENGTH = 1e-5;
 
@@ -203,7 +190,19 @@ function snapPlanarChildTranslationToParentTip(
   if (opts.skipPlanarChildTipSnap) return s;
   const parent = project.bones.find((x) => x.id === bone.parentId);
   if (!parent || parent.length <= PLANAR_TIP_SNAP_MIN_PARENT_LENGTH) return s;
-  if (countBonesWithParent(project, bone.parentId) !== 1) return s;
+  // If the parent branches, snapping every child to `(L,0)` would collapse the rig.
+  // But hands/feet commonly drift along the forearm/lower-leg axis in planar evaluation.
+  // If a child is already authored near the parent tip (or explicitly follows it),
+  // keep it closed even when helper/branch bones exist.
+  const siblings = countBonesWithParent(project, bone.parentId);
+  if (siblings !== 1) {
+    const tipX = parent.length;
+    // Tolerance must cover common authoring offsets (e.g. ankle/wrist joint not exactly at the bone tip),
+    // while still avoiding collapsing unrelated branches.
+    const eps = Math.max(0.75, 12, parent.length * 0.15); // world units ≈ px
+    const nearTip = Math.abs((s.x ?? 0) - tipX) <= eps && Math.abs(s.y ?? 0) <= eps;
+    if (!bone.followParentTip && !nearTip) return s;
+  }
   return { ...s, x: parent.length, y: 0 };
 }
 
@@ -354,52 +353,6 @@ export function worldPoseBoneMatrices4WithRotOverrides(
     if (o !== undefined) return { ...s, rot: o };
     return s;
   });
-}
-
-export function worldPoseBoneMatrices2DWithRotOverrides(
-  project: EditorProject,
-  time: number,
-  rotOverrides: ReadonlyMap<string, number>,
-  opts?: GetLocalBoneStateOpts,
-): Map<string, Mat2D> {
-  const m4 = worldPoseBoneMatrices4WithRotOverrides(project, time, rotOverrides, opts);
-  const out = new Map<string, Mat2D>();
-  for (const [id, m] of m4) {
-    out.set(id, mat4ToMat2dProjection(m));
-  }
-  return out;
-}
-
-export function worldPoseBoneMatrices2D(project: EditorProject, time: number, opts?: GetLocalBoneStateOpts): Map<string, Mat2D> {
-  const m4 = worldPoseBoneMatrices4(project, time, opts);
-  const out = new Map<string, Mat2D>();
-  for (const [id, m] of m4) {
-    out.set(id, mat4ToMat2dProjection(m));
-  }
-  return out;
-}
-
-export function worldBindBoneMatrices2D(project: EditorProject, opts?: GetLocalBoneStateOpts): Map<string, Mat2D> {
-  const m4 = worldBindBoneMatrices4(project, opts);
-  const out = new Map<string, Mat2D>();
-  for (const [id, m] of m4) {
-    out.set(id, mat4ToMat2dProjection(m));
-  }
-  return out;
-}
-
-export function worldBindBoneMatrices2DOverridingBindPose(
-  project: EditorProject,
-  boneId: string,
-  bindPoseOverride: Transform2D,
-  opts?: GetLocalBoneStateOpts,
-): Map<string, Mat2D> {
-  const m4 = worldBindBoneMatrices4OverridingBindPose(project, boneId, bindPoseOverride, opts);
-  const out = new Map<string, Mat2D>();
-  for (const [id, m] of m4) {
-    out.set(id, mat4ToMat2dProjection(m));
-  }
-  return out;
 }
 
 export function worldOriginFromMat4(m: Mat4): { x: number; y: number } {

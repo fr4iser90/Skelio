@@ -1,4 +1,5 @@
 import { getLocalBoneState, worldBindBoneMatrices4 } from "../bone3dPose.js";
+import { planar2dClosedFkChainOpts } from "../bone2dPose.js";
 import { fabrik2dChain, type Vec2 } from "../ik2d.js";
 import { transformPointMat4 } from "../mat4.js";
 import type { EditorProject } from "../types.js";
@@ -30,7 +31,7 @@ export function validateFabrikBoneChain(project: EditorProject, boneIds: string[
 function bindWorldJointPoints(project: EditorProject, boneIds: string[], planar2dNoTiltSpin = false): Vec2[] | null {
   const wb = worldBindBoneMatrices4(
     project,
-    planar2dNoTiltSpin ? { planar2dNoTiltSpin: true } : undefined,
+    planar2dNoTiltSpin ? planar2dClosedFkChainOpts : undefined,
   );
   const k = boneIds.length;
   const out: Vec2[] = [];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getBindLocalBoneState, localMat4FromState, mat4ToMat2dProjection, worldBindBoneMatrices4 } from "./bone3dPose.js";
+import { getBindLocalBoneState, localMat4FromState, worldBindBoneMatrices4 } from "./bone3dPose.js";
+import { mat4ToMat2dProjection } from "./bone2dPose.js";
 import { createId } from "./ids.js";
 import { fromTransform } from "./mat2d.js";
 import { transformPointMat4 } from "./mat4.js";

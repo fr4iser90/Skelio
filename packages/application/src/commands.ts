@@ -1,5 +1,4 @@
 import {
-  characterRigBindingsComplete,
   childBindTranslationAtParentTip,
   createDemoSkinnedMesh,
   createId,
@@ -249,6 +248,54 @@ function syncDirectChildrenFollowParentTip(p: EditorProject, parentId: string): 
     if (c.parentId === parentId && c.followParentTip) {
       c.bindPose.x = tip.x;
       c.bindPose.y = tip.y;
+    }
+  }
+}
+
+function boneSubtreeIds(project: EditorProject, rootBoneId: string): Set<string> {
+  const out = new Set<string>();
+  const q: string[] = [rootBoneId];
+  while (q.length) {
+    const id = q.pop()!;
+    if (out.has(id)) continue;
+    out.add(id);
+    for (const b of project.bones) {
+      if (b.parentId === id) q.push(b.id);
+    }
+  }
+  return out;
+}
+
+/**
+ * Character Setup: after editing bind pose bones, keep already-laid-out sprite slices visually stable
+ * by re-deriving stored binding locals from each slice's current world center.
+ *
+ * Without this, only the slices bound to the edited bone subtree "jump" when switching render paths
+ * (rigid quads vs generated `rig_slice_*` meshes) or after regenerating meshes.
+ */
+function resyncBindingLocalsForBoneSubtree(project: EditorProject, editedBoneId: string): void {
+  const rigs: CharacterRigConfig[] = [];
+  if (project.characterRigs) rigs.push(...Object.values(project.characterRigs));
+  if ((project as any).characterRig) rigs.push((project as any).characterRig as CharacterRigConfig);
+  if (rigs.length === 0) return;
+
+  const affected = boneSubtreeIds(project, editedBoneId);
+  const Wbind4ByBone = worldBindBoneMatrices4(project);
+
+  for (const rig of rigs) {
+    if (!rig?.bindings?.length || !rig?.slices?.length) continue;
+    for (const b of rig.bindings) {
+      if (!affected.has(b.boneId)) continue;
+      const s = rig.slices.find((x) => x.id === b.sliceId);
+      if (!s) continue;
+      const W = Wbind4ByBone.get(b.boneId);
+      if (!W) continue;
+      const inv = mat4Invert(W);
+      if (!inv) continue;
+      const loc = transformPointMat4(inv, s.worldCx, s.worldCy, 0);
+      b.localX = loc.x;
+      b.localY = loc.y;
+      b.localZ = loc.z;
     }
   }
 }
@@ -799,6 +846,8 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     /** Bound slices draw from stored bind locals; refresh so drag matches {@link setCharacterRigBinding} semantics. */
     const b = rig.bindings.find((x) => x.sliceId === cmd.sliceId);
     if (b) {
+      // Bindings are stored in the rig's canonical bind space (full 4×4 bind chain, ADR 0011).
+      // This must NOT depend on the current view mode (2D vs 2.5D vs 3D), otherwise parts can jump.
       const Wbind4 = worldBindBoneMatrices4(p).get(b.boneId);
       if (Wbind4) {
         const inv = mat4Invert(Wbind4);
@@ -868,6 +917,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     let localY: number | undefined;
     let localZ: number | undefined;
     let rotOffset: number | undefined;
+    // Store bindings in canonical bind space (full 4×4 bind chain), independent of view mode.
     const Wbind4 = worldBindBoneMatrices4(p).get(cmd.boneId);
     if (Wbind4) {
       const inv = mat4Invert(Wbind4);
@@ -996,7 +1046,8 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
   }
 
   if (cmd.type === "syncCharacterRigSkinnedMeshes") {
-    if (!characterRigBindingsComplete(p)) return project;
+    // Build as much as possible even when bindings are incomplete.
+    // Animator no longer has a rigid-quad fallback, so partial meshes are required to avoid "skeleton only".
     /** Sonst bleiben Meshes / 3D-Vorschau papierflach (maxDepth 0). */
     ensureMinimalSliceDepthOnMeshSync(p);
     const boneIds = new Set(p.bones.map((b) => b.id));
@@ -1058,6 +1109,8 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
       }
       Object.assign(b.bindPose, cmd.partial);
       syncDirectChildrenFollowParentTip(p, b.id);
+      // Keep already positioned slices stable when bind pose changes in Setup.
+      resyncBindingLocalsForBoneSubtree(p, b.id);
     }
     return p;
   }
@@ -1075,6 +1128,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     if (!b || !Number.isFinite(cmd.length) || cmd.length < 0) return project;
     b.length = cmd.length;
     syncDirectChildrenFollowParentTip(p, b.id);
+    resyncBindingLocalsForBoneSubtree(p, b.id);
     return p;
   }
 
@@ -1084,6 +1138,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     b.length = cmd.length;
     b.bindPose.rotation = cmd.rotation;
     syncDirectChildrenFollowParentTip(p, b.id);
+    resyncBindingLocalsForBoneSubtree(p, b.id);
     return p;
   }
 
@@ -1094,6 +1149,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
     if (!tip) return project;
     b.bindPose.x = tip.x;
     b.bindPose.y = tip.y;
+    resyncBindingLocalsForBoneSubtree(p, b.id);
     return p;
   }
 
@@ -1108,6 +1164,7 @@ export function applyCommand(project: EditorProject, cmd: Command): EditorProjec
         b.bindPose.y = tip.y;
       }
     }
+    resyncBindingLocalsForBoneSubtree(p, b.id);
     return p;
   }
 

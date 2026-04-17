@@ -77,15 +77,19 @@ export {
   getLocalBoneState,
   type GetLocalBoneStateOpts,
   localMat4FromState,
-  mat4ToMat2dProjection,
   worldBindBoneMatrices4,
   worldBindBoneMatrices4OverridingBindPose,
-  worldBindBoneMatrices2D,
-  worldBindBoneMatrices2DOverridingBindPose,
   worldPoseBoneMatrices4,
   worldPoseBoneMatrices4WithRotOverrides,
-  worldPoseBoneMatrices2DWithRotOverrides,
 } from "./editor/bone3dPose.js";
+export {
+  planar2dClosedFkChainOpts,
+  mat4ToMat2dProjection,
+  worldBindBoneMatrices2D,
+  worldBindBoneMatrices2DOverridingBindPose,
+  worldPoseBoneMatrices2D,
+  worldPoseBoneMatrices2DWithRotOverrides,
+} from "./editor/bone2dPose.js";
 export {
   mat4Identity,
   mat4Invert,

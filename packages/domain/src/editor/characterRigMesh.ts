@@ -1,5 +1,5 @@
 import type { CharacterRigBinding, CharacterRigConfig, CharacterRigSpriteSlice, EditorProject, SkinnedMesh } from "./types.js";
-import { mat4Invert, transformPointMat4 } from "./mat4.js";
+import { transformPointMat4 } from "./mat4.js";
 import { worldBindBoneMatrices4 } from "./bone3dPose.js";
 import {
   bindingsCompleteLenientForRig,
@@ -284,32 +284,16 @@ export function skinnedMeshesFromCharacterRig(project: EditorProject): SkinnedMe
 function sliceToSkinnedMesh(
   s: CharacterRigSpriteSlice,
   binding: CharacterRigBinding,
-  Wbind4: Float64Array | null,
+  _Wbind4: Float64Array | null,
   maxDepthFront: number,
   maxDepthBack: number,
   jointPositions: { x: number; y: number }[],
 ): SkinnedMesh {
-  // Use the same anchor semantics as rigidCharacterRigSliceWorldPose:
-  // center the mesh at the binding anchor in bind-local space (default sliceCenter).
-  let cx = s.worldCx;
-  let cy = s.worldCy;
-  const ax = binding.localX;
-  const ay = binding.localY;
-  const az = binding.localZ ?? 0;
-  if (Wbind4 && ax != null && ay != null) {
-    const wp = transformPointMat4(Wbind4, ax, ay, az);
-    cx = wp.x;
-    cy = wp.y;
-  } else if (Wbind4) {
-    // Backwards compat: if locals are missing, derive them from the slice layout center at bind.
-    const inv = mat4Invert(Wbind4);
-    if (inv) {
-      const loc = transformPointMat4(inv, s.worldCx, s.worldCy, 0);
-      const wp = transformPointMat4(Wbind4, loc.x, loc.y, 0);
-      cx = wp.x;
-      cy = wp.y;
-    }
-  }
+  // Geometry must cover the full sprite rect in world space.
+  // Centering the mesh on the binding anchor can shift UV mapping (texture is addressed relative to `s.worldCx/Y`)
+  // and makes sprites appear to "jump" when meshes are generated.
+  const cx = s.worldCx;
+  const cy = s.worldCy;
   const hw = s.width / 2;
   const hh = s.height / 2;
   const id = rigSliceSkinnedMeshId(s.id);

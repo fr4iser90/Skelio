@@ -1,13 +1,15 @@
 import { apply, invert, type Mat2D } from "./mat2d.js";
 import {
   getLocalBoneState,
-  worldBindBoneMatrices2D,
-  worldBindBoneMatrices2DOverridingBindPose,
   worldBindBoneMatrices4,
-  mat4ToMat2dProjection,
-  worldPoseBoneMatrices2D,
   type GetLocalBoneStateOpts,
 } from "./bone3dPose.js";
+import {
+  mat4ToMat2dProjection,
+  worldBindBoneMatrices2D,
+  worldBindBoneMatrices2DOverridingBindPose,
+  worldPoseBoneMatrices2D,
+} from "./bone2dPose.js";
 import { mat4Invert, transformPointMat4, type Mat4 } from "./mat4.js";
 import type { AnimationClip, Bone, EditorProject, Transform2D } from "./types.js";
 

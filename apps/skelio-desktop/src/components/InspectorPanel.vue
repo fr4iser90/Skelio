@@ -26,6 +26,7 @@ const {
   characterRigModalOpen,
   quickRigMode,
   workspaceMode,
+  ikSolveInViewport,
 } = storeToRefs(store);
 
 /**
@@ -225,6 +226,10 @@ function fullWeightToSelectedBone() {
     vertexIndex: ctx.vi,
     influences: [{ boneId: bid, weight: 1 }],
   });
+}
+
+function setViewportIkPreview(e: Event) {
+  store.setIkSolveInViewport((e.target as HTMLInputElement).checked);
 }
 
 function setIkEnabled(chainId: string, e: Event) {
@@ -624,6 +629,11 @@ function addTwoBoneIkFromSelectedTip() {
 
       <section v-show="inspectorTab === 'ik'" class="insp-section">
         <h3 class="panel-title">IK</h3>
+        <label class="rowchk">
+          <input type="checkbox" :checked="ikSolveInViewport" @change="setViewportIkPreview" />
+          Preview IK in viewports
+        </label>
+        <p class="muted small">When off, the main canvas and 3D previews use FK only. Dragging an IK handle still previews that chain.</p>
         <p v-if="ikCreateError" class="muted small" style="color:#fca5a5;">
           {{ ikCreateError }}
         </p>

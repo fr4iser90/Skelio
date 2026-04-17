@@ -41,8 +41,8 @@ export type PoseState = {
 
 export type EvaluatePoseOptions = {
   /**
-   * When true, IK chains are applied (current spike: project.ikTwoBoneChains).
-   * Default: true.
+   * When true, enabled IK chains override local rotations. When false or omitted, result is **FK only**
+   * (`solved*` matches `fk*`).
    */
   applyIk?: boolean;
   /**

@@ -57,6 +57,7 @@ const {
   characterRigModalStep,
   pendingBonePlacementId,
   rigCameraViewKind,
+  ikSolveInViewport,
 } = storeToRefs(store);
 
 /** Schritt „Binden“: Knochen zuerst treffen; Slices nur auswählen (Zuordnung in der Tabelle) — Knochen trotzdem per Drag/Länge editierbar. */
@@ -186,7 +187,7 @@ const depthLoadPromises = new Map<DepthKey, Promise<void>>();
  */
 const solvedPose = computed(() =>
   evaluatePose(rigEditProject.value, 0, {
-    applyIk: true,
+    applyIk: ikSolveInViewport.value,
     planar2dNoTiltSpin: rigCameraViewKind.value === "2d",
   }),
 );

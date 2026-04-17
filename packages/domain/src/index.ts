@@ -101,7 +101,6 @@ export {
   segmentLengthsFromBindOrigins,
   segmentLengthsFromBoneFields,
 } from "./editor/ik2d.js";
-export { worldPoseOriginsWithIk } from "./editor/ikPose.js";
 export {
   getFabrikIkChainById,
   getFabrikIkChains,

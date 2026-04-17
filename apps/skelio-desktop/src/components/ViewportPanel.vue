@@ -78,6 +78,7 @@ const {
   animatorDeformMeshDraw,
   rigCharacterSlots,
   activeCharacterId,
+  ikSolveInViewport,
 } = storeToRefs(store);
 
 /** Y squash in Character Setup wizard only (pseudo 2.5D / 3D). */
@@ -146,8 +147,10 @@ const solvedPose = computed(() => {
   /** Character Setup: pose eval must not follow Animate timeline — use bind time only. */
   const t = characterRigModalOpen.value ? 0 : currentTime.value;
   const planar = rigCameraViewKind.value === "2d";
-  const opts = { applyIk: true, planar2dNoTiltSpin: planar } as const;
   const drag = ikControlDrag.value;
+  /** IK preview off: still solve while dragging an IK handle so the chain follows the pointer. */
+  const applyIk = ikSolveInViewport.value || drag != null;
+  const opts = { applyIk, planar2dNoTiltSpin: planar } as const;
   if (!drag) return evaluatePose(p, t, opts);
   const rig = p.rig;
   const ctls = rig?.controls?.ikTargets2d;
@@ -274,8 +277,13 @@ const animatorTool = ref<"rotate" | "translate">("rotate");
 /** Animate: L toggles UI chip only. Shift+Ctrl+LMB on tip = length (does not require L). */
 const animatorLengthMode = ref(false);
 
-/** Shift alone = force translate; Shift+Ctrl is for length-on-tip — must not force translate. */
+/**
+ * Shift+LMB / Shift while dragging used to force translate even on the Rotate tool, which wrote
+ * tx/ty and looked like “length” or chain drift. Translate is only forced when the translate tool (P) is active.
+ * Shift+Ctrl stays reserved for rest-length-on-tip (handled before bone drag).
+ */
 function animatorShiftMeansTranslate(e: PointerEvent): boolean {
+  if (animatorTool.value !== "translate") return false;
   return e.shiftKey && !(e.ctrlKey || e.metaKey);
 }
 
@@ -312,26 +320,21 @@ const viewportHintLines = computed((): string[] => {
         "RMB — orbit view (2.5D / 3D)",
       ];
     }
-    const cam2d = rigCameraViewKind.value === "2d";
-    const lines: string[] = [
-      "Shift+LMB — move position (toggle P: position / translate tool)",
-      "R — rotate tool",
-      "Shift+Ctrl+LMB — rest bone length on tip (toggle L: length indicator)",
-      "Shift (while dragging, no Ctrl) — force translate",
-      "Alt+LMB — pan view",
-      "WASD — pan view",
+    if (workspaceMode.value === "animate") {
+      const cam2d = rigCameraViewKind.value === "2d";
+      return [
+        cam2d
+          ? "Tip: rest length on this canvas — Shift+Ctrl+LMB on bone tip (toggle L: length indicator)"
+          : "Tip: rest length — switch to Camera 2D or use Rig / Inspector",
+        "Shaft connects joint→child when offset from tip; Length = segment along +X (see Inspector)",
+      ];
+    }
+    return [
       "Wheel — zoom",
       "MMB — pan view",
-      "RMB — orbit view (2.5D / 3D only)",
-      "K — keyframe IK handle at playhead",
+      "Alt+LMB — pan view",
+      ...(rigCameraViewKind.value === "2d" ? [] : ["RMB — orbit view"]),
     ];
-    lines.push(
-      cam2d
-        ? "Tip: rest length uses this 2D canvas (Shift+Ctrl+LMB on tip)"
-        : "Tip: rest length — Camera 2D or Rig / Inspector",
-    );
-    lines.push("Note: bone shaft draws joint→child — can look shorter than Length when posed / IK");
-    return lines;
   }
   if (characterRigModalOpen.value && rigCameraWorldYScale.value < 0.999) {
     return [
@@ -417,10 +420,10 @@ const shortcutPanelLines = computed((): ShortcutLine[] => {
   }
   if (workspaceMode.value === "animate") {
     const lines: ShortcutLine[] = [
-      { keys: ["Shift+LMB"], label: "Move position (toggle P: position / translate tool)" },
-      { keys: ["R"], label: "Rotate tool" },
+      { keys: ["P"], label: "Translate tool (LMB moves tx/ty)" },
+      { keys: ["R"], label: "Rotate tool (LMB rotates only — rest length unchanged)" },
+      { keys: ["Shift+LMB"], label: "Move position (only when P / translate tool is active)" },
       { keys: ["Shift+Ctrl+LMB"], label: "Rest bone length on tip (toggle L: length indicator)" },
-      { keys: ["Shift"], label: "While dragging: force translate (no Ctrl)" },
       { keys: ["Alt+LMB"], label: "Pan view" },
       { keys: ["W", "A", "S", "D"], label: "Pan view" },
       { keys: ["K"], label: "Keyframe IK handle at playhead" },
@@ -865,6 +868,14 @@ function viewportBoneBindPoseAndDrawState(): {
   const poseM4Draw = useBindBoneDraw ? bindM4 : poseM4;
   const lenDrag = boneLengthDrag.value;
   let boneM4 = useBindBoneDraw ? bindM4 : poseM4;
+  /**
+   * 2D animate: draw bones / shaft / IK pick using full FK `solvedWorld4ByBoneId`.
+   * `poseM4` above is rotation-only from the 2×3 projection — stripping local sx/sy there makes
+   * joint→tip (and joint→child) world distances depend on angle; skinning still uses `poseM4Draw`.
+   */
+  if (!useBindBoneDraw && rigCameraViewKind.value === "2d") {
+    boneM4 = poseEval.solvedWorld4ByBoneId;
+  }
   let boneO: Map<string, { x: number; y: number }>;
   if (useBindBoneDraw) {
     boneO = new Map();
@@ -996,48 +1007,6 @@ function ikEffectorChainForBone(
     if (ch.enabled && last === boneId) return { kind: "fabrik", chainId: ch.id };
   }
   return null;
-}
-
-function enabledTwoBoneChainRoleForBone(
-  boneId: string,
-): { chainId: string; role: "root" | "mid" | "tip" } | null {
-  const p = poseProject.value;
-  for (const ch of getTwoBoneIkChains(p)) {
-    if (!ch.enabled) continue;
-    if (ch.rootBoneId === boneId) return { chainId: ch.id, role: "root" };
-    if (ch.midBoneId === boneId) return { chainId: ch.id, role: "mid" };
-    if (ch.tipBoneId === boneId) return { chainId: ch.id, role: "tip" };
-  }
-  return null;
-}
-
-function ensureTwoBonePoleInitialized(chainId: string, controlId: string): void {
-  const ctl = poseProject.value.rig?.controls?.ikTargets2d?.find((c) => c.id === controlId);
-  if (!ctl) return;
-  if (typeof ctl.poleX === "number" && typeof ctl.poleY === "number") return;
-
-  const chain =
-    poseProject.value.rig?.ik?.twoBoneChains?.find((c) => c.id === chainId) ??
-    poseProject.value.ikTwoBoneChains?.find((c) => c.id === chainId);
-  if (!chain) return;
-
-  // Default pole: near mid joint, offset to one side.
-  const ps = solvedPose.value;
-  const p0 = ps.solvedOriginByBoneId.get(chain.rootBoneId);
-  const p1 = ps.solvedOriginByBoneId.get(chain.midBoneId);
-  if (!p0 || !p1) return;
-  const dx = p1.x - p0.x;
-  const dy = p1.y - p0.y;
-  const l = Math.hypot(dx, dy) || 1;
-  const nx = dx / l;
-  const ny = dy / l;
-  const perpX = -ny;
-  const perpY = nx;
-  const off = 70; // world px-ish; stable default for UI/authoring
-  const poleX = p1.x + perpX * off;
-  const poleY = p1.y + perpY * off;
-
-  store.dispatch({ type: "setIkTargetControlBase", controlId, x: ctl.x, y: ctl.y, poleX, poleY });
 }
 
 function dispatchIkChainWorldTarget(chainId: string, kind: "two" | "fabrik", twx: number, twy: number) {
@@ -1689,39 +1658,6 @@ function onCanvasPointerDown(e: PointerEvent) {
       store.selectBone(hitPose);
       const mode = animatorShiftMeansTranslate(e) ? "translate" : animatorTool.value;
 
-      // Intuitive IK authoring: when 2-bone IK is enabled, dragging on root/mid should operate the pole,
-      // otherwise users "rotate" and nothing moves because IK overrides the rotations.
-      if (mode === "rotate") {
-        const role = enabledTwoBoneChainRoleForBone(hitPose);
-        if (role && (role.role === "root" || role.role === "mid")) {
-          // Ensure a visible/usable control exists.
-          store.dispatch({ type: "ensureIkTargetControl", chainId: role.chainId });
-          const ctl = poseProject.value.rig?.controls?.ikTargets2d?.find((c) => c.chainId === role.chainId);
-          if (ctl) {
-            ensureTwoBonePoleInitialized(role.chainId, ctl.id);
-            const ctl2 = poseProject.value.rig?.controls?.ikTargets2d?.find((c) => c.id === ctl.id);
-            if (ctl2) {
-              selectedIkControlId.value = ctl2.id;
-              const start = controlPoseNow(ctl2.id, { x: ctl2.x, y: ctl2.y, poleX: ctl2.poleX, poleY: ctl2.poleY });
-              ikControlDrag.value = {
-                controlId: ctl2.id,
-                kind: "pole",
-                pointerId: e.pointerId,
-                start,
-                preview: { ...start },
-              };
-              try {
-                c.setPointerCapture(e.pointerId);
-              } catch {
-                /* ignore */
-              }
-              draw();
-              return;
-            }
-          }
-        }
-      }
-
       boneDrag.value = {
         boneId: hitPose,
         animGrab: animatorBoneDragGrab(hitPose, wx, wy),
@@ -1890,7 +1826,9 @@ function onCanvasPointerMove(e: PointerEvent) {
         store.dispatch({ type: "setBindPose", boneId: boneDrag.value.boneId, partial: { x: local.x, y: local.y } });
       }
     } else {
-      const mode = boneDrag.value.mode ?? animatorTool.value;
+      // Rotate tool must never write tx/ty (or IK targets) from bone drag — only `rot` keys.
+      const mode: "rotate" | "translate" =
+        animatorTool.value === "rotate" ? "rotate" : (boneDrag.value.mode ?? animatorTool.value);
       if (mode === "translate") {
         const g = boneDrag.value.animGrab;
         const twx = g ? g.j0x + (wx - g.p0x) : wx;
@@ -1925,7 +1863,7 @@ function onCanvasPointerMove(e: PointerEvent) {
       } else {
         const bid = boneDrag.value.boneId;
         const rg = boneDrag.value.rotGrab ?? beginAnimatorRotateDrag(bid);
-        const poseOpts = rigCameraViewKind.value === "2d" ? ({ planar2dNoTiltSpin: true } as const) : undefined;
+        /** Must match {@link evaluatePose} / `solvedPose` planar opts or tip-snap skews aim vs drawn bones. */
         const desired = poseBoneRotationTowardWorldPoint(
           poseProject.value,
           currentTime.value,
@@ -1933,7 +1871,7 @@ function onCanvasPointerMove(e: PointerEvent) {
           wx,
           wy,
           rg.jointFix,
-          poseOpts,
+          planarBindOpts.value,
         );
         const b = poseProject.value.bones.find((x) => x.id === bid);
         if (b && desired != null) {

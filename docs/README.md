@@ -1,8 +1,8 @@
 # Skelio documentation
 
-Numbered guides **00–16** are the canonical developer narrative. [AGENTS.md](../AGENTS.md) summarizes what automation should read first.
+Numbered guides **00–18** are the canonical developer narrative. [AGENTS.md](../AGENTS.md) summarizes what automation should read first.
 
-## Index (00–15)
+## Index (00–18)
 
 | Doc | Topic |
 |-----|--------|
@@ -23,6 +23,8 @@ Numbered guides **00–16** are the canonical developer narrative. [AGENTS.md](.
 | [14-vertical-slice-1-tasks.md](./14-vertical-slice-1-tasks.md) | MVP slice tasks and acceptance hints |
 | [15-product-gaps-and-roadmap.md](./15-product-gaps-and-roadmap.md) | Known gaps and planned work |
 | [16-character-setup-animate-boundary.md](./16-character-setup-animate-boundary.md) | **Character Setup vs Animate** — non-negotiable separation (rigging vs animation) |
+| [17-editor-forward-kinematics.md](./17-editor-forward-kinematics.md) | **Forward kinematics (FK)** — bind + clip → local state → world matrices (English, **IK not mixed in**) |
+| [18-editor-inverse-kinematics.md](./18-editor-inverse-kinematics.md) | **Inverse kinematics (IK)** — chains, targets, poles, FABRIK, overrides (English, **separate from FK**) |
 
 ## Other material
 

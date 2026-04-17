@@ -27,7 +27,14 @@ import { useEditorStore, type RigCameraViewKind } from "../stores/editor.js";
 import { orbitControlsHandleWasd } from "../viewportWasd.js";
 
 const store = useEditorStore();
-const { project, currentTime, selectedBoneId, selectedCharacterRigSliceId, rigCameraViewKind } = storeToRefs(store);
+const {
+  project,
+  currentTime,
+  selectedBoneId,
+  selectedCharacterRigSliceId,
+  rigCameraViewKind,
+  ikSolveInViewport,
+} = storeToRefs(store);
 
 const containerRef = ref<HTMLDivElement | null>(null);
 
@@ -66,7 +73,7 @@ const matJointSel = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
 
 const solvedPose = computed(() =>
   evaluatePose(project.value, currentTime.value, {
-    applyIk: true,
+    applyIk: ikSolveInViewport.value,
     planar2dNoTiltSpin: rigCameraViewKind.value === "2d",
   }),
 );

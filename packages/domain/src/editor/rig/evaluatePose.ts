@@ -41,8 +41,9 @@ function originsFromWorld4(m4: Map<string, Mat4>): Map<string, Vec2> {
  *
  * Pipeline:
  * - FK: sample active clip → world 4×4 chain → 2D projection + origins
- * - IK: 2-bone chains inject solved rotations on root/mid; planar FABRIK chains on longer lines
- *   override every bone in the chain (applied after two-bone so leg FABRIK wins when both exist).
+ * - IK (only if `opts.applyIk === true`): 2-bone chains inject solved rotations on root/mid; planar FABRIK
+ *   overrides every bone in the chain (applied after two-bone so overlapping FABRIK wins).
+ * - Default when `opts` omitted: **FK only** (`applyIk` false); desktop viewports pass `applyIk: true` explicitly.
  * - Constraints/Limits: future (operate on {@link PoseState})
  */
 function chainBoneHasTiltOrSpin(
@@ -60,7 +61,8 @@ function chainBoneHasTiltOrSpin(
 }
 
 export function evaluatePose(project: EditorProject, time: number, opts?: EvaluatePoseOptions): PoseState {
-  const applyIk = opts?.applyIk ?? true;
+  /** Default FK-only; opt in with `applyIk: true` when enabled IK chains should override rotations. */
+  const applyIk = opts?.applyIk ?? false;
   const planar2dNoTiltSpin = opts?.planar2dNoTiltSpin ?? false;
   /** Match 2D bind authoring (`bindPose.x/y`): never snap sole children to `(parent.length,0)` in planar mode. */
   const planarOpts = planar2dNoTiltSpin

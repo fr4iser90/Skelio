@@ -4,6 +4,21 @@ import { evaluatePose } from "./rig/evaluatePose.js";
 import type { Bone } from "./types.js";
 
 describe("evaluatePose", () => {
+  it("default opts is FK-only (omit applyIk → same as applyIk false)", () => {
+    const p = createDefaultEditorProject();
+    const implicit = evaluatePose(p, 0);
+    const explicit = evaluatePose(p, 0, { applyIk: false });
+    expect(implicit.ikSolvedLocalRotByBoneId.size).toBe(0);
+    expect(explicit.ikSolvedLocalRotByBoneId.size).toBe(0);
+    for (const [id] of implicit.fkWorld4ByBoneId) {
+      const a = implicit.solvedWorld4ByBoneId.get(id)!;
+      const b = explicit.solvedWorld4ByBoneId.get(id)!;
+      for (let i = 0; i < 16; i++) {
+        expect(a[i]).toBeCloseTo(b[i]!, 10);
+      }
+    }
+  });
+
   it("with applyIk false, solved matches FK", () => {
     const p = createDefaultEditorProject();
     const t = 0;

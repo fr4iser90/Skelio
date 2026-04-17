@@ -94,6 +94,12 @@ export const useEditorStore = defineStore("editor", () => {
    */
   const animatorDeformMeshDraw = ref(true);
 
+  /**
+   * When true, `evaluatePose` uses `applyIk: true` in viewports so enabled IK chains affect the displayed pose.
+   * Default false: pure FK until the user opts in (Inspector → IK).
+   */
+  const ikSolveInViewport = ref(false);
+
   /** Character Setup only: rig viewport camera (2D ortho vs 2.5D/3D perspective). Reset to 2D when modal closes. */
   const rigCameraViewKind = ref<RigCameraViewKind>("2d");
   /** World Y squash factor (legacy pseudo-depth); 1 = none. */
@@ -550,6 +556,10 @@ export const useEditorStore = defineStore("editor", () => {
     animatorDeformMeshDraw.value = v;
   }
 
+  function setIkSolveInViewport(v: boolean) {
+    ikSolveInViewport.value = v;
+  }
+
   function setWorkspaceMode(m: WorkspaceMode) {
     // Animate mode must never be "bind-pose editing by accident".
     // When switching back to Animate, close setup/rig authoring affordances.
@@ -626,6 +636,8 @@ export const useEditorStore = defineStore("editor", () => {
     setAnimatorRigMeshDeformOverlay,
     animatorDeformMeshDraw,
     setAnimatorDeformMeshDraw,
+    ikSolveInViewport,
+    setIkSolveInViewport,
     rigCameraViewKind,
     rigCameraWorldYScale,
     setRigCameraViewKind,

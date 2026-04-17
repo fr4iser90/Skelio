@@ -1,5 +1,7 @@
 # 09 — Domain editor pipeline
 
+English references (**do not mix**): **[17-editor-forward-kinematics.md](./17-editor-forward-kinematics.md)** (FK only), **[18-editor-inverse-kinematics.md](./18-editor-inverse-kinematics.md)** (IK only).
+
 ## Pose evaluation
 
 `evaluatePose` in `@skelio/domain` is the main **deterministic** entry: given `EditorProject` and time, it returns FK matrices, IK-injected rotations, and solved world poses.

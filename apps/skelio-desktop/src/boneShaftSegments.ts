@@ -1,7 +1,10 @@
 /**
- * Viewport-only bone shaft geometry: draw / pick segments that follow authored child joints
- * when a parent has children, instead of always using local +X × length (which leaves gaps for
- * multi-child rigs). Does not modify bind pose or pose evaluation.
+ * Viewport-only bone shaft geometry.
+ *
+ * Primary segment follows **local +X × length** (matches Inspector “length” and skinning bone axis).
+ * With **one child**, if the child joint differs from the parent tip (bind offset / planar opts),
+ * a short **tip → child** segment connects the chain without replacing the authored shaft length.
+ * Multi-child rigs still use joint → each child joint (branching).
  */
 import type { Bone, Mat4 } from "@skelio/domain";
 import { transformPointMat4 } from "@skelio/domain";
@@ -47,8 +50,11 @@ export function boneShaftSegmentsWorld2D(
       return [{ ax: p0.x, ay: p0.y, bx: tip.x, by: tip.y }];
     }
     const oc = boneOrigins.get(kids[0]!.id);
-    if (oc) return [{ ax: p0.x, ay: p0.y, bx: oc.x, by: oc.y }];
-    return [{ ax: p0.x, ay: p0.y, bx: tip.x, by: tip.y }];
+    const alongLength = { ax: p0.x, ay: p0.y, bx: tip.x, by: tip.y };
+    if (!oc) return [alongLength];
+    const gap = Math.hypot(oc.x - tip.x, oc.y - tip.y);
+    if (gap <= 1e-4) return [alongLength];
+    return [alongLength, { ax: tip.x, ay: tip.y, bx: oc.x, by: oc.y }];
   }
   const out: BoneShaftSeg2[] = [];
   for (const c of kids) {

@@ -326,7 +326,7 @@ const viewportHintLines = computed((): string[] => {
         cam2d
           ? "Tip: rest length on this canvas — Shift+Ctrl+LMB on bone tip (toggle L: length indicator)"
           : "Tip: rest length — switch to Camera 2D or use Rig / Inspector",
-        "Shaft connects joint→child when offset from tip; Length = segment along +X (see Inspector)",
+        "Shaft follows local +X × length; if child joint ≠ tip, a short tip→child segment links the chain",
       ];
     }
     return [
@@ -575,9 +575,7 @@ function hitTestBone(wx: number, wy: number, radiusWorld: number): string | null
  * Joints alone are tiny under full sprites; segment picking matches what you see as the grey bone line.
  */
 function hitTestBoneAnimator(wx: number, wy: number): string | null {
-  const ps = solvedPose.value;
-  const origins = ps.solvedOriginByBoneId;
-  const mats4 = ps.solvedWorld4ByBoneId;
+  const { boneM4: mats4, boneO: origins } = viewportBoneBindPoseAndDrawState();
   const sc = viewportBonePickScale();
   const jointR = 48 * sc;
   const segR = 40 * sc;
@@ -867,19 +865,15 @@ function viewportBoneBindPoseAndDrawState(): {
     bindPoseViewportEditing.value || rigWizardBindLayoutViewport.value;
   const poseM4Draw = useBindBoneDraw ? bindM4 : poseM4;
   const lenDrag = boneLengthDrag.value;
+  /** Same `poseM4` as {@link poseM4Draw} in Animate so bone lines match skinned mesh (full FK W4 would drift vs rotation-only deform). */
   let boneM4 = useBindBoneDraw ? bindM4 : poseM4;
-  /**
-   * 2D animate: draw bones / shaft / IK pick using full FK `solvedWorld4ByBoneId`.
-   * `poseM4` above is rotation-only from the 2×3 projection — stripping local sx/sy there makes
-   * joint→tip (and joint→child) world distances depend on angle; skinning still uses `poseM4Draw`.
-   */
-  if (!useBindBoneDraw && rigCameraViewKind.value === "2d") {
-    boneM4 = poseEval.solvedWorld4ByBoneId;
-  }
   let boneO: Map<string, { x: number; y: number }>;
   if (useBindBoneDraw) {
     boneO = new Map();
     for (const [id, m] of bindM4) boneO.set(id, { x: m[12], y: m[13] });
+  } else if (rigCameraViewKind.value === "2d") {
+    boneO = new Map();
+    for (const [id, m] of boneM4) boneO.set(id, { x: m[12], y: m[13] });
   } else {
     boneO = poseEval.solvedOriginByBoneId;
   }
@@ -1030,13 +1024,13 @@ function dispatchIkChainWorldTarget(chainId: string, kind: "two" | "fabrik", twx
 }
 
 function animatorBoneDragGrab(boneId: string, pwx: number, pwy: number): { j0x: number; j0y: number; p0x: number; p0y: number } {
-  const j = solvedPose.value.solvedOriginByBoneId.get(boneId);
+  const j = viewportBoneBindPoseAndDrawState().boneO.get(boneId);
   if (!j) return { j0x: pwx, j0y: pwy, p0x: pwx, p0y: pwy };
   return { j0x: j.x, j0y: j.y, p0x: pwx, p0y: pwy };
 }
 
 function beginAnimatorRotateDrag(boneId: string): { jointFix: { x: number; y: number } } {
-  const j = solvedPose.value.solvedOriginByBoneId.get(boneId);
+  const j = viewportBoneBindPoseAndDrawState().boneO.get(boneId);
   return { jointFix: j ? { x: j.x, y: j.y } : { x: 0, y: 0 } };
 }
 

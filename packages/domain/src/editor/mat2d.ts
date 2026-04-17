@@ -33,6 +33,14 @@ export function apply(m: Mat2D, x: number, y: number): { x: number; y: number } 
 }
 
 /** Inverse of affine map; `null` if singular. */
+/** Strip scale/shear; keep translation (matches 2D skinning / `mat2dMapToMat4RotationOnly` in the desktop app). */
+export function rotationOnly2d(m: Mat2D): Mat2D {
+  const ang = Math.atan2(m.b, m.a);
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  return { a: c, b: s, c: -s, d: c, e: m.e, f: m.f };
+}
+
 export function invert(m: Mat2D): Mat2D | null {
   const det = m.a * m.d - m.b * m.c;
   if (Math.abs(det) < 1e-14) return null;

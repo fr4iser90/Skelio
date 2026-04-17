@@ -51,7 +51,7 @@ export function poseFkAtTimeCached(
   const fk4 = worldPoseBoneMatrices4(
     project,
     time,
-    planar2dNoTiltSpin ? { planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } : undefined,
+    planar2dNoTiltSpin ? { planar2dNoTiltSpin: true } : undefined,
   );
   const mats2d = new Map<string, { a: number; b: number; e: number; f: number }>();
   for (const [id, m] of fk4) {

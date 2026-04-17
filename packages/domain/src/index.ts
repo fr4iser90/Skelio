@@ -49,6 +49,7 @@ export {
 export { createId } from "./editor/ids.js";
 export { validateEditorProject, type ValidationIssue } from "./editor/validate.js";
 export type { Mat2D } from "./editor/mat2d.js";
+export { rotationOnly2d } from "./editor/mat2d.js";
 export type { Mat4 } from "./editor/mat4.js";
 export {
   worldBindBoneMatrices,

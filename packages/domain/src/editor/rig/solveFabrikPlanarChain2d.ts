@@ -30,7 +30,7 @@ export function validateFabrikBoneChain(project: EditorProject, boneIds: string[
 function bindWorldJointPoints(project: EditorProject, boneIds: string[], planar2dNoTiltSpin = false): Vec2[] | null {
   const wb = worldBindBoneMatrices4(
     project,
-    planar2dNoTiltSpin ? { planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } : undefined,
+    planar2dNoTiltSpin ? { planar2dNoTiltSpin: true } : undefined,
   );
   const k = boneIds.length;
   const out: Vec2[] = [];

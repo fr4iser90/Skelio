@@ -265,12 +265,11 @@ const bindPoseViewportEditing = computed(() => {
 });
 
 /**
- * 2D-Kamera: immer dieselbe planare Basis wie {@link evaluatePose} (skip „Tip-Snap“) —
- * gespeicherte `bindPose.x/y` bleiben maßgeblich in Animate und im Setup.
+ * 2D-Kamera: gleiche planare Basis wie {@link evaluatePose} — Einzel-Kinder auf Parent-Spitze `(length,0)`.
  */
 const planarBindOpts = computed(() => {
   if (rigCameraViewKind.value !== "2d") return undefined;
-  return { planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } as const;
+  return { planar2dNoTiltSpin: true } as const;
 });
 
 const animatorTool = ref<"rotate" | "translate">("rotate");
@@ -905,14 +904,21 @@ function rigidSliceWorldPose(
   /** Character Setup: layout world leads — else pose drifts vs stored binding locals. */
   const layoutOnlyRig = characterRigModalOpen.value && bid;
 
-  // Hard guarantee: 2D animator rigid slices use 2D bind/pose matrices only.
+  // 2D rigid bitmaps: same rotation+translation basis as skinning (`poseM4Draw`), not raw `solvedWorld2dByBoneId`
+  // (upper 2×2 can retain scale/shear from projection → slices drift vs mesh / bone overlay).
   if (rigCameraViewKind.value === "2d") {
-    const po2d = planarBindOpts.value ?? { planar2dNoTiltSpin: true as const, skipPlanarChildTipSnap: true as const };
-    const B2 = worldBindBoneMatrices2D(poseProject.value, po2d).get(bid);
-    const P2raw = solvedPose.value.solvedWorld2dByBoneId.get(bid);
-    if (!B2 || !P2raw) return null;
-    const P2 =
-      characterRigModalOpen.value && workspaceMode.value !== "animate" ? B2 : P2raw;
+    const po2d = planarBindOpts.value ?? { planar2dNoTiltSpin: true as const };
+    const B2raw = worldBindBoneMatrices2D(poseProject.value, po2d).get(bid);
+    if (!B2raw) return null;
+    const B2 = mat2dRotationOnly(B2raw);
+    let P2: Mat2D;
+    if (characterRigModalOpen.value && workspaceMode.value !== "animate") {
+      P2 = B2;
+    } else {
+      const P2raw = solvedPose.value.solvedWorld2dByBoneId.get(bid);
+      if (!P2raw) return null;
+      P2 = mat2dRotationOnly(P2raw);
+    }
     const loc = boundSliceLocalInBindSpace(B2, layoutCx, layoutCy);
     if (!loc) return null;
     const wp = boundSliceWorldAtPose(P2, loc.lx, loc.ly);

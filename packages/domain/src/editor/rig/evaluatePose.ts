@@ -64,10 +64,8 @@ export function evaluatePose(project: EditorProject, time: number, opts?: Evalua
   /** Default FK-only; opt in with `applyIk: true` when enabled IK chains should override rotations. */
   const applyIk = opts?.applyIk ?? false;
   const planar2dNoTiltSpin = opts?.planar2dNoTiltSpin ?? false;
-  /** Match 2D bind authoring (`bindPose.x/y`): never snap sole children to `(parent.length,0)` in planar mode. */
-  const planarOpts = planar2dNoTiltSpin
-    ? ({ planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } as const)
-    : undefined;
+  /** Planar 2D: sole children snap to `(parent.length,0)` so FK joints stay closed (no “floating” hand vs forearm tip). */
+  const planarOpts = planar2dNoTiltSpin ? ({ planar2dNoTiltSpin: true } as const) : undefined;
   const ikSolvedLocalRotByBoneId = new Map<string, number>();
   const rotOverrides = new Map<string, number>();
 

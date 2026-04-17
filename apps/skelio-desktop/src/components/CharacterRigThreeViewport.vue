@@ -193,12 +193,11 @@ const solvedPose = computed(() =>
 );
 
 /**
- * Gleiche Basis wie Pose + Skinning: Bind ohne Tilt/Spin in 2D-Kamera.
- * `skipPlanarChildTipSnap`: sonst zwingt die FK-Korrektur Einzel-Kinder auf (parent.length,0) — Ziehen und Anzeige wichen auseinander.
+ * Gleiche Basis wie Pose + Skinning: Bind ohne Tilt/Spin in 2D-Kamera; Einzel-Kinder auf Parent-Spitze.
  */
 const planarBindOpts = computed(() =>
   rigCameraViewKind.value === "2d"
-    ? ({ planar2dNoTiltSpin: true, skipPlanarChildTipSnap: true } as const)
+    ? ({ planar2dNoTiltSpin: true } as const)
     : undefined,
 );
 

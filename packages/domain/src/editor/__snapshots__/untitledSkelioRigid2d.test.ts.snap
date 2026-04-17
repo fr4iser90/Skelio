@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Untitled.skelio.json — 2D rigid hand slice vs raw Mat2D mix > r hand slice world (rotation-only path) snapshot 1`] = `
+{
+  "cx": -323.74520296580187,
+  "cy": -78.28840801808221,
+  "rot": 1.5622364292587072,
+}
+`;

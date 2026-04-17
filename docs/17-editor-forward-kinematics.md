@@ -63,7 +63,7 @@ When **all** of the following hold:
 
 then the child’s local translation is forced to **`(parent.length, 0)`** so the child joint sits on the parent’s tip in parent space (useful when closing gaps for some import/bind workflows).
 
-**Important:** `evaluatePose` uses **`skipPlanarChildTipSnap: true`** whenever it enables planar mode, so this snap does **not** run inside the main editor pose evaluation path — stored `bindPose.x/y` remain authoritative there.
+**Important:** In planar 2D mode, `evaluatePose` **does** run this snap (unless a caller passes `skipPlanarChildTipSnap: true`), so sole children attach at `(parent.length, 0)` and FK stays visually closed. Opt out only for special tooling/tests that must preserve stored `bindPose.x/y` on the child.
 
 ---
 
